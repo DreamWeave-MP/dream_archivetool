@@ -76,9 +76,8 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    for entry in archive.list_entries() {
-        let bytes = archive.read_entry_bytes(&entry.path)?;
-        let target = safe_target_path(&root, &entry.path)?;
+    for (path, bytes) in archive.entries_with_bytes()? {
+        let target = safe_target_path(&root, &path)?;
         let result = write_target(&target, &bytes, options.overwrite)?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;

@@ -70,16 +70,16 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. `extract-all` and `add` reuse that loaded archive instead of reopening and reparsing for each file.
+Archives are opened once per high-level operation. `extract-all` and `add` iterate the loaded archive directly instead of reopening, reparsing, or doing list-plus-lookup scans for each file.
 
 Creation and update currently stage archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation can require substantial memory.
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's broad format and concrete TES4/FO4 write options where the `ba2` crate exposes them.
+- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where the `ba2` crate exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8.
 - `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
-- `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries.
-- `create --format fo4 --ba2-kind gnmf` only accepts `.gnf` entries.
+- `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
+- `create --format fo4 --ba2-kind gnmf` only accepts `.gnf` entries. This extension check is case-insensitive; the underlying writer may still reject invalid GNF data.
 - FO4/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 

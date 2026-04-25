@@ -24,8 +24,9 @@ impl ArchiveTool {
 
     pub fn info(path: impl AsRef<Path>) -> Result<ArchiveInfo> {
         let path = path.as_ref();
+        let archive = crate::loaded::LoadedArchive::open(path)?;
         let format = Self::guess_format(path)?;
-        let file_count = Self::list(path)?.len();
+        let file_count = archive.file_count();
         Ok(ArchiveInfo {
             path: path.display().to_string(),
             format,
