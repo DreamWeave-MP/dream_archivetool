@@ -1,10 +1,9 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use ba2::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{ArchiveError, ArchiveFormat, Result};
+use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum OverwriteMode {
@@ -53,11 +52,7 @@ pub struct ExtractSummary {
 }
 
 pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
-    match crate::format::guess_format(path)? {
-        ArchiveFormat::Tes3 => read_tes3_entry(path, entry),
-        ArchiveFormat::Tes4 => read_tes4_entry(path, entry),
-        ArchiveFormat::Fo4 => read_fo4_entry(path, entry),
-    }
+    crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
@@ -76,69 +71,19 @@ pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Resu
 
 pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
+    let archive = crate::loaded::LoadedArchive::open(path)?;
     let mut summary = ExtractSummary {
         extracted: 0,
         skipped: 0,
     };
-    for entry in crate::entry::list_entries(path)? {
-        let bytes = read_entry_bytes(path, &entry.path)?;
+    for entry in archive.list_entries() {
+        let bytes = archive.read_entry_bytes(&entry.path)?;
         let target = safe_target_path(&root, &entry.path)?;
         let result = write_target(&target, &bytes, options.overwrite)?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
     }
     Ok(summary)
-}
-
-fn read_tes3_entry(path: &Path, entry: &str) -> Result<Vec<u8>> {
-    let archive =
-        ba2::tes3::Archive::read(path).map_err(|err| ArchiveError::Archive(err.to_string()))?;
-    for (key, file) in &archive {
-        if archive_path_eq(key.name(), entry) {
-            let mut bytes = Vec::new();
-            file.write(&mut bytes)
-                .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-            return Ok(bytes);
-        }
-    }
-    Err(ArchiveError::EntryNotFound(entry.to_string()))
-}
-
-fn read_tes4_entry(path: &Path, entry: &str) -> Result<Vec<u8>> {
-    let (archive, archive_options) =
-        ba2::tes4::Archive::read(path).map_err(|err| ArchiveError::Archive(err.to_string()))?;
-    let file_options = ba2::tes4::FileCompressionOptions::from(&archive_options);
-    for (directory_key, directory) in &archive {
-        for (file_key, file) in directory {
-            let candidate = format!("{}/{}", directory_key.name(), file_key.name());
-            if archive_path_eq(&candidate, entry) {
-                let mut bytes = Vec::new();
-                file.write(&mut bytes, &file_options)
-                    .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                return Ok(bytes);
-            }
-        }
-    }
-    Err(ArchiveError::EntryNotFound(entry.to_string()))
-}
-
-fn read_fo4_entry(path: &Path, entry: &str) -> Result<Vec<u8>> {
-    let (archive, archive_options) =
-        ba2::fo4::Archive::read(path).map_err(|err| ArchiveError::Archive(err.to_string()))?;
-    let file_options = ba2::fo4::FileWriteOptions::from(&archive_options);
-    for (key, file) in &archive {
-        if archive_path_eq(key.name(), entry) {
-            let mut bytes = Vec::new();
-            file.write(&mut bytes, &file_options)
-                .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-            return Ok(bytes);
-        }
-    }
-    Err(ArchiveError::EntryNotFound(entry.to_string()))
-}
-
-fn archive_path_eq(left: &(impl ToString + ?Sized), right: &str) -> bool {
-    normalize_archive_path(&left.to_string()).eq_ignore_ascii_case(&normalize_archive_path(right))
 }
 
 fn normalize_archive_path(path: &str) -> String {

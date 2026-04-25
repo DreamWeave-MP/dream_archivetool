@@ -6,6 +6,7 @@ pub mod entry;
 pub mod error;
 pub mod extract;
 pub mod format;
+mod loaded;
 
 #[cfg(feature = "lua")]
 pub mod lua;
