@@ -70,9 +70,9 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. `extract-all` and `add` iterate the loaded archive directly instead of reopening, reparsing, or doing list-plus-lookup scans for each file.
+Archives are opened once per high-level operation. `extract-all` streams decoded entries to disk as it iterates the loaded archive instead of buffering the whole archive payload, reopening, reparsing, or doing list-plus-lookup scans for each file. `add` also iterates the loaded archive directly and inserts existing entries into the output map without an intermediate full-archive payload vector.
 
-Creation and update currently stage archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation can require substantial memory.
+Creation and update currently stage output archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory.
 
 ## Format Notes
 

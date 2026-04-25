@@ -69,9 +69,10 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     let archive = crate::loaded::LoadedArchive::open(archive)?;
     let mut entries = BTreeMap::new();
-    for (path, bytes) in archive.entries_with_bytes()? {
-        entries.insert(path, bytes);
-    }
+    archive.for_each_entry_bytes(|path, bytes| {
+        entries.insert(path.to_string(), bytes.to_vec());
+        Ok(())
+    })?;
     for input in &options.inputs {
         entries.extend(collect_input_entries(input)?);
     }
@@ -157,7 +158,7 @@ fn validate_fo4_entries(entries: &BTreeMap<String, Vec<u8>>, kind: Fo4ArchiveKin
         Fo4ArchiveKind::Gnrl => Ok(()),
         Fo4ArchiveKind::Dx10 => {
             for path in entries.keys() {
-                if !path.to_ascii_lowercase().ends_with(".dds") {
+                if !has_extension(path, "dds") {
                     return Err(ArchiveError::Archive(format!(
                         "DX10 BA2 archives can only contain .dds files: {path}"
                     )));
@@ -167,7 +168,7 @@ fn validate_fo4_entries(entries: &BTreeMap<String, Vec<u8>>, kind: Fo4ArchiveKin
         }
         Fo4ArchiveKind::Gnmf => {
             for path in entries.keys() {
-                if !path.to_ascii_lowercase().ends_with(".gnf") {
+                if !has_extension(path, "gnf") {
                     return Err(ArchiveError::Archive(format!(
                         "GNMF BA2 archives can only contain .gnf files: {path}"
                     )));
@@ -176,6 +177,13 @@ fn validate_fo4_entries(entries: &BTreeMap<String, Vec<u8>>, kind: Fo4ArchiveKin
             Ok(())
         }
     }
+}
+
+fn has_extension(path: &str, expected: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }
 
 fn write_tes3(output: &mut fs::File, entries: BTreeMap<String, Vec<u8>>) -> Result<()> {

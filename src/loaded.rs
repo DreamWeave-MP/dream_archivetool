@@ -38,6 +38,14 @@ impl LoadedArchive {
         }
     }
 
+    pub fn format(&self) -> ArchiveFormat {
+        match self {
+            Self::Tes3(_) => ArchiveFormat::Tes3,
+            Self::Tes4(_, _) => ArchiveFormat::Tes4,
+            Self::Fo4(_, _) => ArchiveFormat::Fo4,
+        }
+    }
+
     pub fn list_entries(&self) -> Vec<ArchiveEntry> {
         match self {
             Self::Tes3(archive) => archive
@@ -52,11 +60,7 @@ impl LoadedArchive {
                 let mut entries = Vec::new();
                 for (directory_key, directory) in archive {
                     for (file_key, file) in directory {
-                        let path = normalize_archive_path(&format!(
-                            "{}/{}",
-                            directory_key.name(),
-                            file_key.name()
-                        ));
+                        let path = joined_archive_path(directory_key.name(), file_key.name());
                         let compressed_size = file.is_compressed().then_some(file.len() as u64);
                         entries.push(ArchiveEntry {
                             path,
@@ -136,41 +140,37 @@ impl LoadedArchive {
         Err(ArchiveError::EntryNotFound(entry.to_string()))
     }
 
-    pub fn entries_with_bytes(&self) -> Result<Vec<(String, Vec<u8>)>> {
+    pub fn for_each_entry_bytes(
+        &self,
+        mut visit: impl FnMut(&str, &[u8]) -> Result<()>,
+    ) -> Result<()> {
         match self {
             Self::Tes3(archive) => {
-                let mut entries = Vec::with_capacity(archive.len());
                 for (key, file) in archive {
                     let mut bytes = Vec::with_capacity(file.len());
                     file.write(&mut bytes)
                         .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                    entries.push((normalize_archive_path(key.name()), bytes));
+                    visit(&normalize_archive_path(key.name()), &bytes)?;
                 }
-                Ok(entries)
+                Ok(())
             }
             Self::Tes4(archive, archive_options) => {
                 let file_options = ba2::tes4::FileCompressionOptions::from(archive_options);
-                let mut entries = Vec::with_capacity(self.file_count());
                 for (directory_key, directory) in archive {
                     for (file_key, file) in directory {
-                        let path = normalize_archive_path(&format!(
-                            "{}/{}",
-                            directory_key.name(),
-                            file_key.name()
-                        ));
+                        let path = joined_archive_path(directory_key.name(), file_key.name());
                         let mut bytes = Vec::with_capacity(
                             file.decompressed_len().unwrap_or_else(|| file.len()),
                         );
                         file.write(&mut bytes, &file_options)
                             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                        entries.push((path, bytes));
+                        visit(&path, &bytes)?;
                     }
                 }
-                Ok(entries)
+                Ok(())
             }
             Self::Fo4(archive, archive_options) => {
                 let file_options = ba2::fo4::FileWriteOptions::from(archive_options);
-                let mut entries = Vec::with_capacity(archive.len());
                 for (key, file) in archive {
                     let capacity = file
                         .iter()
@@ -179,9 +179,9 @@ impl LoadedArchive {
                     let mut bytes = Vec::with_capacity(capacity);
                     file.write(&mut bytes, &file_options)
                         .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                    entries.push((normalize_archive_path(key.name()), bytes));
+                    visit(&normalize_archive_path(key.name()), &bytes)?;
                 }
-                Ok(entries)
+                Ok(())
             }
         }
     }
@@ -193,4 +193,68 @@ fn archive_path_eq(left: &(impl ToString + ?Sized), right: &str) -> bool {
 
 fn normalize_archive_path(path: &(impl ToString + ?Sized)) -> String {
     path.to_string().replace('\\', "/")
+}
+
+fn joined_archive_path(
+    directory: &(impl ToString + ?Sized),
+    file: &(impl ToString + ?Sized),
+) -> String {
+    let directory = normalize_archive_path(directory);
+    let file = normalize_archive_path(file);
+    let mut path = String::with_capacity(directory.len() + 1 + file.len());
+    path.push_str(&directory);
+    if !path.is_empty() {
+        path.push('/');
+    }
+    path.push_str(&file);
+    path
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn streams_entries_without_collecting_first() {
+        let dir = std::env::temp_dir().join(format!(
+            "rome-archivetool-stream-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let archive: ba2::tes3::Archive = [
+            (
+                ba2::tes3::ArchiveKey::from(b"a.txt".as_slice()),
+                ba2::tes3::File::from(b"a".as_slice()),
+            ),
+            (
+                ba2::tes3::ArchiveKey::from(b"b.txt".as_slice()),
+                ba2::tes3::File::from(b"b".as_slice()),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let mut output = fs::File::create(&archive_path).unwrap();
+        archive.write(&mut output).unwrap();
+        let archive = LoadedArchive::open(&archive_path).unwrap();
+        let mut visited = Vec::new();
+
+        archive
+            .for_each_entry_bytes(|path, bytes| {
+                visited.push((path.to_string(), bytes.to_vec()));
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(visited.len(), 2);
+        assert!(visited.contains(&("a.txt".to_string(), b"a".to_vec())));
+        assert!(visited.contains(&("b.txt".to_string(), b"b".to_vec())));
+        fs::remove_dir_all(dir).unwrap();
+    }
 }
