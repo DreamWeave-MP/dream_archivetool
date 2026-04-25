@@ -2,7 +2,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ArchiveEntry, ArchiveFormat, Result};
+use crate::{
+    ArchiveEntry, ArchiveFormat, ExtractAllOptions, ExtractOptions, ExtractSummary, Result,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchiveInfo {
@@ -32,6 +34,25 @@ impl ArchiveTool {
 
     pub fn list(path: impl AsRef<Path>) -> Result<Vec<ArchiveEntry>> {
         crate::entry::list_entries(path.as_ref())
+    }
+
+    pub fn read_entry(path: impl AsRef<Path>, entry: &str) -> Result<Vec<u8>> {
+        crate::extract::read_entry_bytes(path.as_ref(), entry)
+    }
+
+    pub fn extract(
+        path: impl AsRef<Path>,
+        entry: &str,
+        options: &ExtractOptions,
+    ) -> Result<ExtractSummary> {
+        crate::extract::extract_entry(path.as_ref(), entry, options)
+    }
+
+    pub fn extract_all(
+        path: impl AsRef<Path>,
+        options: &ExtractAllOptions,
+    ) -> Result<ExtractSummary> {
+        crate::extract::extract_all(path.as_ref(), options)
     }
 }
 

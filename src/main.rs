@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use rome_archivetool::{ArchiveTool, Result};
+use rome_archivetool::{ArchiveTool, ExtractAllOptions, ExtractOptions, OverwriteMode, Result};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -34,6 +34,45 @@ enum Command {
         #[arg(short, long)]
         long: bool,
         /// Write JSON to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// Extract one archive entry
+    Extract {
+        /// Archive path
+        archive: PathBuf,
+        /// Entry path inside the archive
+        entry: String,
+        /// Output directory
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Write file bytes to stdout
+        #[arg(long)]
+        stdout: bool,
+        /// Discard archive directories and write only the basename
+        #[arg(long)]
+        flat: bool,
+        /// Replace existing files
+        #[arg(long, conflicts_with = "skip_existing")]
+        overwrite: bool,
+        /// Leave existing files untouched
+        #[arg(long, conflicts_with = "overwrite")]
+        skip_existing: bool,
+    },
+    /// Extract every archive entry
+    ExtractAll {
+        /// Archive path
+        archive: PathBuf,
+        /// Output directory
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Replace existing files
+        #[arg(long, conflicts_with = "skip_existing")]
+        overwrite: bool,
+        /// Leave existing files untouched
+        #[arg(long, conflicts_with = "overwrite")]
+        skip_existing: bool,
+        /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
     },
@@ -85,8 +124,66 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
                 }
             }
         }
+        Command::Extract {
+            archive,
+            entry,
+            output,
+            stdout: stdout_mode,
+            flat,
+            overwrite,
+            skip_existing,
+        } => {
+            if stdout_mode {
+                let bytes = ArchiveTool::read_entry(&archive, &entry)?;
+                stdout.write_all(&bytes)?;
+                return Ok(());
+            }
+            let options = ExtractOptions {
+                output,
+                overwrite: overwrite_mode(overwrite, skip_existing),
+                preserve_paths: !flat,
+            };
+            let summary = ArchiveTool::extract(archive, &entry, &options)?;
+            writeln!(stdout, "extracted: {}", summary.extracted)?;
+            if summary.skipped > 0 {
+                writeln!(stdout, "skipped: {}", summary.skipped)?;
+            }
+        }
+        Command::ExtractAll {
+            archive,
+            output,
+            overwrite,
+            skip_existing,
+            json,
+        } => {
+            let options = ExtractAllOptions {
+                output,
+                overwrite: overwrite_mode(overwrite, skip_existing),
+            };
+            let summary = ArchiveTool::extract_all(archive, &options)?;
+            if json {
+                serde_json::to_writer_pretty(&mut *stdout, &summary)
+                    .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
+                writeln!(stdout)?;
+            } else {
+                writeln!(stdout, "extracted: {}", summary.extracted)?;
+                if summary.skipped > 0 {
+                    writeln!(stdout, "skipped: {}", summary.skipped)?;
+                }
+            }
+        }
     }
     Ok(())
+}
+
+fn overwrite_mode(overwrite: bool, skip_existing: bool) -> OverwriteMode {
+    if overwrite {
+        OverwriteMode::Overwrite
+    } else if skip_existing {
+        OverwriteMode::Skip
+    } else {
+        OverwriteMode::Fail
+    }
 }
 
 #[cfg(test)]
@@ -127,6 +224,43 @@ mod tests {
 
         assert_eq!(String::from_utf8(stdout).unwrap(), "icons/example.dds\n");
 
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_command_can_write_bytes_to_stdout() {
+        let dir = std::env::temp_dir().join(format!(
+            "rome-archivetool-cli-extract-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let archive: ba2::tes3::Archive = [(
+            ba2::tes3::ArchiveKey::from(b"icons/example.dds".as_slice()),
+            ba2::tes3::File::from(b"payload".as_slice()),
+        )]
+        .into_iter()
+        .collect();
+        let mut output = fs::File::create(&archive_path).unwrap();
+        archive.write(&mut output).unwrap();
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "extract",
+                archive_path.to_str().unwrap(),
+                "icons/example.dds",
+                "--stdout",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert_eq!(stdout, b"payload");
         fs::remove_dir_all(dir).unwrap();
     }
 }

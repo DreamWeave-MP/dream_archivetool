@@ -14,5 +14,5 @@ pub use archive::{ArchiveInfo, ArchiveTool};
 pub use create::{AddOptions, CreateOptions};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
-pub use extract::{ExtractAllOptions, ExtractOptions, OverwriteMode};
+pub use extract::{ExtractAllOptions, ExtractOptions, ExtractSummary, OverwriteMode};
 pub use format::ArchiveFormat;
