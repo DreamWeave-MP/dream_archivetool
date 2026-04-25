@@ -22,3 +22,10 @@ walkdir = "2"
 
 [features]
 lua = ["dep:mlua"]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "archive_ops"
+harness = false

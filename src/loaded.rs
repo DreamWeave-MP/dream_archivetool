@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use ba2::prelude::*;
@@ -94,10 +95,11 @@ impl LoadedArchive {
     }
 
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
+        let entry = normalize_archive_path(entry);
         match self {
             Self::Tes3(archive) => {
                 for (key, file) in archive {
-                    if archive_path_eq(key.name(), entry) {
+                    if archive_path_eq_normalized(key.name(), &entry) {
                         let mut bytes = Vec::with_capacity(file.len());
                         file.write(&mut bytes)
                             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
@@ -110,7 +112,7 @@ impl LoadedArchive {
                 for (directory_key, directory) in archive {
                     for (file_key, file) in directory {
                         let candidate = format!("{}/{}", directory_key.name(), file_key.name());
-                        if archive_path_eq(&candidate, entry) {
+                        if archive_path_eq_normalized(&candidate, &entry) {
                             let mut bytes = Vec::with_capacity(
                                 file.decompressed_len().unwrap_or_else(|| file.len()),
                             );
@@ -124,7 +126,7 @@ impl LoadedArchive {
             Self::Fo4(archive, archive_options) => {
                 let file_options = ba2::fo4::FileWriteOptions::from(archive_options);
                 for (key, file) in archive {
-                    if archive_path_eq(key.name(), entry) {
+                    if archive_path_eq_normalized(key.name(), &entry) {
                         let capacity = file
                             .iter()
                             .map(|chunk| chunk.decompressed_len().unwrap_or_else(|| chunk.len()))
@@ -140,17 +142,17 @@ impl LoadedArchive {
         Err(ArchiveError::EntryNotFound(entry.to_string()))
     }
 
-    pub fn for_each_entry_bytes(
+    pub fn for_each_entry_writer(
         &self,
-        mut visit: impl FnMut(&str, &[u8]) -> Result<()>,
+        mut visit: impl FnMut(&str, LoadedEntryWriter<'_>) -> Result<()>,
     ) -> Result<()> {
         match self {
             Self::Tes3(archive) => {
                 for (key, file) in archive {
-                    let mut bytes = Vec::with_capacity(file.len());
-                    file.write(&mut bytes)
-                        .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                    visit(&normalize_archive_path(key.name()), &bytes)?;
+                    visit(
+                        &normalize_archive_path(key.name()),
+                        LoadedEntryWriter::Tes3(file),
+                    )?;
                 }
                 Ok(())
             }
@@ -159,12 +161,7 @@ impl LoadedArchive {
                 for (directory_key, directory) in archive {
                     for (file_key, file) in directory {
                         let path = joined_archive_path(directory_key.name(), file_key.name());
-                        let mut bytes = Vec::with_capacity(
-                            file.decompressed_len().unwrap_or_else(|| file.len()),
-                        );
-                        file.write(&mut bytes, &file_options)
-                            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                        visit(&path, &bytes)?;
+                        visit(&path, LoadedEntryWriter::Tes4(file, file_options))?;
                     }
                 }
                 Ok(())
@@ -172,14 +169,10 @@ impl LoadedArchive {
             Self::Fo4(archive, archive_options) => {
                 let file_options = ba2::fo4::FileWriteOptions::from(archive_options);
                 for (key, file) in archive {
-                    let capacity = file
-                        .iter()
-                        .map(|chunk| chunk.decompressed_len().unwrap_or_else(|| chunk.len()))
-                        .sum();
-                    let mut bytes = Vec::with_capacity(capacity);
-                    file.write(&mut bytes, &file_options)
-                        .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-                    visit(&normalize_archive_path(key.name()), &bytes)?;
+                    visit(
+                        &normalize_archive_path(key.name()),
+                        LoadedEntryWriter::Fo4(file, file_options),
+                    )?;
                 }
                 Ok(())
             }
@@ -187,8 +180,38 @@ impl LoadedArchive {
     }
 }
 
-fn archive_path_eq(left: &(impl ToString + ?Sized), right: &str) -> bool {
-    normalize_archive_path(&left.to_string()).eq_ignore_ascii_case(&normalize_archive_path(right))
+pub(crate) enum LoadedEntryWriter<'a> {
+    Tes3(&'a ba2::tes3::File<'static>),
+    Tes4(
+        &'a ba2::tes4::File<'static>,
+        ba2::tes4::FileCompressionOptions,
+    ),
+    Fo4(&'a ba2::fo4::File<'static>, ba2::fo4::FileWriteOptions),
+}
+
+impl LoadedEntryWriter<'_> {
+    pub(crate) fn write_to(&self, output: &mut dyn Write) -> Result<()> {
+        match self {
+            Self::Tes3(file) => file
+                .write(output)
+                .map_err(|err| ArchiveError::Archive(err.to_string())),
+            Self::Tes4(file, options) => file
+                .write(output, options)
+                .map_err(|err| ArchiveError::Archive(err.to_string())),
+            Self::Fo4(file, options) => file
+                .write(output, options)
+                .map_err(|err| ArchiveError::Archive(err.to_string())),
+        }
+    }
+}
+
+fn archive_path_eq_normalized(left: &(impl ToString + ?Sized), normalized_right: &str) -> bool {
+    let left = left.to_string();
+    if left.contains('\\') {
+        normalize_archive_path(&left).eq_ignore_ascii_case(normalized_right)
+    } else {
+        left.eq_ignore_ascii_case(normalized_right)
+    }
 }
 
 fn normalize_archive_path(path: &(impl ToString + ?Sized)) -> String {
@@ -246,8 +269,10 @@ mod tests {
         let mut visited = Vec::new();
 
         archive
-            .for_each_entry_bytes(|path, bytes| {
-                visited.push((path.to_string(), bytes.to_vec()));
+            .for_each_entry_writer(|path, writer| {
+                let mut bytes = Vec::new();
+                writer.write_to(&mut bytes).unwrap();
+                visited.push((path.to_string(), bytes));
                 Ok(())
             })
             .unwrap();

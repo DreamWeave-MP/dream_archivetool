@@ -70,7 +70,7 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. `extract-all` streams decoded entries to disk as it iterates the loaded archive instead of buffering the whole archive payload, reopening, reparsing, or doing list-plus-lookup scans for each file. `add` also iterates the loaded archive directly and inserts existing entries into the output map without an intermediate full-archive payload vector.
+Archives are opened once per high-level operation. `extract-all` streams entries to disk as it iterates the loaded archive instead of buffering the whole archive payload, reopening, reparsing, or doing list-plus-lookup scans for each file. `--skip-existing` checks the destination before decoding entry payloads. `add` also iterates the loaded archive directly and skips decoding existing entries that are replaced by new inputs.
 
 Creation and update currently stage output archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory.
 
@@ -91,7 +91,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo clippy --all-targets --features lua -- -D warnings
 cargo test --features lua
+cargo bench --bench archive_ops
 ```
+
+Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, whole-archive extraction, skip-existing extraction, creation, and update paths. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is useful for checking peak resident memory while tuning large archive operations.
 
 ## License
 

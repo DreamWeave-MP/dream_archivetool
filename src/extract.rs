@@ -76,9 +76,10 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    archive.for_each_entry_bytes(|path, bytes| {
+    archive.for_each_entry_writer(|path, writer| {
         let target = safe_target_path(&root, path)?;
-        let result = write_target(&target, bytes, options.overwrite)?;
+        let result =
+            write_target_with(&target, options.overwrite, |output| writer.write_to(output))?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
         Ok(())
@@ -109,6 +110,19 @@ fn safe_target_path(root: &Path, archive_path: &str) -> Result<PathBuf> {
 }
 
 fn write_target(target: &Path, bytes: &[u8], overwrite: OverwriteMode) -> Result<ExtractSummary> {
+    write_target_with(target, overwrite, |output| {
+        use std::io::Write;
+
+        output.write_all(bytes)?;
+        Ok(())
+    })
+}
+
+fn write_target_with(
+    target: &Path,
+    overwrite: OverwriteMode,
+    write: impl FnOnce(&mut fs::File) -> Result<()>,
+) -> Result<ExtractSummary> {
     if target.exists() {
         match overwrite {
             OverwriteMode::Fail => {
@@ -127,7 +141,8 @@ fn write_target(target: &Path, bytes: &[u8], overwrite: OverwriteMode) -> Result
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(target, bytes)?;
+    let mut output = fs::File::create(target)?;
+    write(&mut output)?;
     Ok(ExtractSummary {
         extracted: 1,
         skipped: 0,

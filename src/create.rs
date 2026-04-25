@@ -69,13 +69,17 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     let archive = crate::loaded::LoadedArchive::open(archive)?;
     let mut entries = BTreeMap::new();
-    archive.for_each_entry_bytes(|path, bytes| {
-        entries.insert(path.to_string(), bytes.to_vec());
-        Ok(())
-    })?;
     for input in &options.inputs {
         entries.extend(collect_input_entries(input)?);
     }
+    archive.for_each_entry_writer(|path, writer| {
+        if !entries.contains_key(path) {
+            let mut bytes = Vec::new();
+            writer.write_to(&mut bytes)?;
+            entries.insert(path.to_string(), bytes);
+        }
+        Ok(())
+    })?;
     write_entries_like(&options.output, entries, &archive)
 }
 
