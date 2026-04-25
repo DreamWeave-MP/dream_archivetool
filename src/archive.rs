@@ -8,20 +8,31 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Basic metadata about an archive.
 pub struct ArchiveInfo {
+    /// Path that was opened, formatted for display.
     pub path: String,
+    /// Detected archive family.
     pub format: ArchiveFormat,
+    /// Number of file entries in the archive.
     pub file_count: usize,
 }
 
+/// Stateless facade for archive inspection, extraction, creation, and update operations.
+///
+/// This type exists to provide a compact public API shared by the CLI and Lua bindings. Each method
+/// opens the archive it operates on; callers that need lower-level lifetime control should use the
+/// specific free functions exposed by the submodules.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ArchiveTool;
 
 impl ArchiveTool {
+    /// Detect the archive format from the file header.
     pub fn guess_format(path: impl AsRef<Path>) -> Result<ArchiveFormat> {
         crate::format::guess_format(path.as_ref())
     }
 
+    /// Open an archive and return format plus file-count metadata.
     pub fn info(path: impl AsRef<Path>) -> Result<ArchiveInfo> {
         let path = path.as_ref();
         let archive = crate::loaded::LoadedArchive::open(path)?;
@@ -34,14 +45,19 @@ impl ArchiveTool {
         })
     }
 
+    /// List all entries in an archive.
     pub fn list(path: impl AsRef<Path>) -> Result<Vec<ArchiveEntry>> {
         crate::entry::list_entries(path.as_ref())
     }
 
+    /// Read a single archive entry into memory.
+    ///
+    /// Entry path matching is case-insensitive and treats `\` as `/`.
     pub fn read_entry(path: impl AsRef<Path>, entry: &str) -> Result<Vec<u8>> {
         crate::extract::read_entry_bytes(path.as_ref(), entry)
     }
 
+    /// Extract a single archive entry to disk according to `options`.
     pub fn extract(
         path: impl AsRef<Path>,
         entry: &str,
@@ -50,6 +66,7 @@ impl ArchiveTool {
         crate::extract::extract_entry(path.as_ref(), entry, options)
     }
 
+    /// Extract every archive entry to disk according to `options`.
     pub fn extract_all(
         path: impl AsRef<Path>,
         options: &ExtractAllOptions,
@@ -57,6 +74,10 @@ impl ArchiveTool {
         crate::extract::extract_all(path.as_ref(), options)
     }
 
+    /// Create a new archive from a file or directory.
+    ///
+    /// Returns the number of entries written. Existing output is replaced only after a successful
+    /// write to a temporary file in the output directory.
     pub fn create(
         output: impl AsRef<Path>,
         input: impl AsRef<Path>,
@@ -65,6 +86,10 @@ impl ArchiveTool {
         crate::create::create_archive(output.as_ref(), input.as_ref(), options)
     }
 
+    /// Add or replace entries by writing a new archive to `options.output`.
+    ///
+    /// The source archive is not modified in place. New inputs replace existing archive entries with
+    /// the same archive path.
     pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
         crate::create::add_to_archive(path.as_ref(), options)
     }

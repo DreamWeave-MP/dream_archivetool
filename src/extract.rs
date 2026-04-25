@@ -6,17 +6,25 @@ use serde::{Deserialize, Serialize};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Policy for handling extraction targets that already exist.
 pub enum OverwriteMode {
+    /// Fail if the target path already exists.
     #[default]
     Fail,
+    /// Replace existing files.
     Overwrite,
+    /// Leave existing files untouched and count them as skipped.
     Skip,
 }
 
 #[derive(Debug, Clone)]
+/// Options for extracting one archive entry.
 pub struct ExtractOptions {
+    /// Output directory. Defaults to the current working directory.
     pub output: Option<PathBuf>,
+    /// Existing-file handling policy.
     pub overwrite: OverwriteMode,
+    /// Preserve archive directories. When false, only the entry basename is written.
     pub preserve_paths: bool,
 }
 
@@ -31,8 +39,11 @@ impl Default for ExtractOptions {
 }
 
 #[derive(Debug, Clone)]
+/// Options for extracting every archive entry.
 pub struct ExtractAllOptions {
+    /// Output directory. Defaults to the current working directory.
     pub output: Option<PathBuf>,
+    /// Existing-file handling policy.
     pub overwrite: OverwriteMode,
 }
 
@@ -46,15 +57,20 @@ impl Default for ExtractAllOptions {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Summary returned by extraction operations.
 pub struct ExtractSummary {
+    /// Number of files written.
     pub extracted: usize,
+    /// Number of existing files left untouched because overwrite mode was `Skip`.
     pub skipped: usize,
 }
 
+/// Read a single archive entry into memory.
 pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
+/// Extract a single archive entry to disk.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
     let bytes = read_entry_bytes(path, entry)?;
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -69,6 +85,9 @@ pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Resu
     write_target(&target, &bytes, options.overwrite)
 }
 
+/// Extract every archive entry to disk.
+///
+/// In skip-existing mode, target existence is checked before entry bytes are decoded.
 pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;

@@ -7,6 +7,11 @@ use crate::{
     Fo4ArchiveKind, Fo4Version, OverwriteMode, Tes4Version,
 };
 
+/// Create a Lua table that mirrors the public [`ArchiveTool`] API.
+///
+/// The returned table contains `guess_format`, `info`, `list`, `read_entry`, `extract`,
+/// `extract_all`, `create`, and `add` functions. The table is not registered globally unless
+/// [`register`] is called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let module = lua.create_table()?;
 
@@ -90,6 +95,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     Ok(module)
 }
 
+/// Register the Lua API table as the global `rome_archivetool` value.
 pub fn register(lua: &Lua) -> LuaResult<()> {
     let module = create_module(lua)?;
     lua.globals().set("rome_archivetool", module)

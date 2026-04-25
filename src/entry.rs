@@ -5,12 +5,17 @@ use serde::{Deserialize, Serialize};
 use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A single file entry listed from an archive.
 pub struct ArchiveEntry {
+    /// Normalized archive path using `/` separators.
     pub path: String,
+    /// Decompressed size when known.
     pub size: Option<u64>,
+    /// Compressed size when the entry is stored compressed and the format exposes it.
     pub compressed_size: Option<u64>,
 }
 
+/// List all entries in an archive.
 pub fn list_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
     Ok(crate::loaded::LoadedArchive::open(path)?.list_entries())
 }

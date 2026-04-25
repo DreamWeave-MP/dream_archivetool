@@ -12,10 +12,15 @@ use crate::ArchiveFormat;
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone)]
+/// Options controlling archive creation.
 pub struct CreateOptions {
+    /// Archive family to write.
     pub format: ArchiveFormat,
+    /// TES4 BSA version used when `format` is [`ArchiveFormat::Tes4`].
     pub tes4_version: Tes4Version,
+    /// FO4/Starfield BA2 kind used when `format` is [`ArchiveFormat::Fo4`].
     pub fo4_kind: Fo4ArchiveKind,
+    /// FO4/Starfield BA2 version used when `format` is [`ArchiveFormat::Fo4`].
     pub fo4_version: Fo4Version,
 }
 
@@ -31,41 +36,65 @@ impl Default for CreateOptions {
 }
 
 #[derive(Debug, Clone, Default)]
+/// Options for adding or replacing entries in an archive.
 pub struct AddOptions {
+    /// Files or directories to add. Directory entries are stored relative to the directory root.
     pub inputs: Vec<PathBuf>,
+    /// Output archive path. The input archive is never modified in place.
     pub output: PathBuf,
 }
 
+/// Supported TES4-family BSA versions for archive creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tes4Version {
+    /// The Elder Scrolls IV: Oblivion BSA format.
     Oblivion,
+    /// Fallout 3 BSA format.
     Fallout3,
+    /// The Elder Scrolls V: Skyrim BSA format.
     Skyrim,
+    /// Skyrim Special Edition BSA format.
     SkyrimSe,
 }
 
+/// Supported FO4-family BA2 archive kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Fo4ArchiveKind {
+    /// General-purpose BA2 archive.
     Gnrl,
+    /// DirectX texture BA2 archive. Entries must use `.dds` paths.
     Dx10,
+    /// GNMF model BA2 archive. Entries must use `.gnf` paths.
     Gnmf,
 }
 
+/// Supported FO4-family BA2 versions for archive creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Fo4Version {
+    /// Fallout 4 BA2 version.
     Fallout4,
+    /// Starfield BA2 version.
     Starfield,
+    /// Fallout 4 next-generation update BA2 version.
     Fallout4NextGen,
 }
 
+/// Create a new archive from a file or directory.
+///
+/// Returns the number of archive entries written. Writes go through a temporary file in the output
+/// directory before replacing `output`.
 pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> Result<usize> {
     let entries = collect_input_entries(input)?;
     write_entries(output, entries, options)
 }
 
+/// Add or replace entries in an existing archive by writing a new archive.
+///
+/// Existing archive entries are preserved unless replaced by an input path. The source archive is
+/// opened once and is not modified in place.
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     let archive = crate::loaded::LoadedArchive::open(archive)?;
     let mut entries = BTreeMap::new();
