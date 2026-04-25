@@ -161,6 +161,23 @@ mod tests {
         archive.write(&mut output).unwrap();
     }
 
+    fn write_multi_tes3_archive(path: &Path) {
+        let archive: ba2::tes3::Archive = [
+            (
+                ba2::tes3::ArchiveKey::from(b"textures/a.dds".as_slice()),
+                ba2::tes3::File::from(b"a".as_slice()),
+            ),
+            (
+                ba2::tes3::ArchiveKey::from(b"meshes/b.nif".as_slice()),
+                ba2::tes3::File::from(b"b".as_slice()),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let mut output = fs::File::create(path).unwrap();
+        archive.write(&mut output).unwrap();
+    }
+
     #[test]
     fn reads_entry_bytes_case_insensitively() {
         let dir = unique_dir("read-entry");
@@ -204,5 +221,56 @@ mod tests {
     fn rejects_traversal_paths() {
         let err = safe_target_path(Path::new("out"), "../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn extract_all_writes_multiple_entries() {
+        let dir = unique_dir("extract-all");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive_path);
+
+        let summary = extract_all(
+            &archive_path,
+            &ExtractAllOptions {
+                output: Some(output_dir.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(summary.extracted, 2);
+        assert_eq!(fs::read(output_dir.join("textures/a.dds")).unwrap(), b"a");
+        assert_eq!(fs::read(output_dir.join("meshes/b.nif")).unwrap(), b"b");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_all_can_skip_existing_files() {
+        let dir = unique_dir("extract-all-skip");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("textures")).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive_path);
+        fs::write(output_dir.join("textures/a.dds"), b"existing").unwrap();
+
+        let summary = extract_all(
+            &archive_path,
+            &ExtractAllOptions {
+                output: Some(output_dir.clone()),
+                overwrite: OverwriteMode::Skip,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(summary.extracted, 1);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(
+            fs::read(output_dir.join("textures/a.dds")).unwrap(),
+            b"existing"
+        );
+        assert_eq!(fs::read(output_dir.join("meshes/b.nif")).unwrap(), b"b");
+        fs::remove_dir_all(dir).unwrap();
     }
 }

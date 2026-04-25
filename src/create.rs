@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::{Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use ba2::prelude::*;
 use clap::ValueEnum;
@@ -89,10 +91,8 @@ fn collect_input_entries(input: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         return Ok(entries);
     }
 
-    for item in WalkDir::new(input)
-        .into_iter()
-        .filter_map(std::result::Result::ok)
-    {
+    for item in WalkDir::new(input) {
+        let item = item.map_err(|err| ArchiveError::Archive(err.to_string()))?;
         let path = item.path();
         if !path.is_file() {
             continue;
@@ -111,13 +111,69 @@ fn write_entries(
     options: &CreateOptions,
 ) -> Result<usize> {
     let count = entries.len();
-    let mut file = fs::File::create(output)?;
-    match options.format {
-        ArchiveFormat::Tes3 => write_tes3(&mut file, entries)?,
-        ArchiveFormat::Tes4 => write_tes4(&mut file, entries, options.tes4_version)?,
-        ArchiveFormat::Fo4 => write_fo4(&mut file, entries, options.fo4_kind, options.fo4_version)?,
+    let temp = temp_output_path(output);
+    let result = write_entries_to_path(&temp, entries, options).and_then(|()| {
+        fs::rename(&temp, output)?;
+        Ok(count)
+    });
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
     }
-    Ok(count)
+    result
+}
+
+fn write_entries_to_path(
+    output: &Path,
+    entries: BTreeMap<String, Vec<u8>>,
+    options: &CreateOptions,
+) -> Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)?;
+    match options.format {
+        ArchiveFormat::Tes3 => write_tes3(&mut file, entries),
+        ArchiveFormat::Tes4 => write_tes4(&mut file, entries, options.tes4_version),
+        ArchiveFormat::Fo4 => write_fo4(&mut file, entries, options.fo4_kind, options.fo4_version),
+    }
+    .inspect_err(|_| {
+        let _ = file.seek(SeekFrom::Start(0));
+    })
+}
+
+fn temp_output_path(output: &Path) -> PathBuf {
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let file_name = output.file_name().unwrap_or_default().to_string_lossy();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    parent.join(format!(".{file_name}.tmp-{}-{nonce}", std::process::id()))
+}
+
+fn validate_fo4_entries(entries: &BTreeMap<String, Vec<u8>>, kind: Fo4ArchiveKind) -> Result<()> {
+    match kind {
+        Fo4ArchiveKind::Gnrl => Ok(()),
+        Fo4ArchiveKind::Dx10 => {
+            for path in entries.keys() {
+                if !path.ends_with(".dds") {
+                    return Err(ArchiveError::Archive(format!(
+                        "DX10 BA2 archives can only contain .dds files: {path}"
+                    )));
+                }
+            }
+            Ok(())
+        }
+        Fo4ArchiveKind::Gnmf => {
+            for path in entries.keys() {
+                if !path.ends_with(".gnf") {
+                    return Err(ArchiveError::Archive(format!(
+                        "GNMF BA2 archives can only contain .gnf files: {path}"
+                    )));
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 fn write_tes3(output: &mut fs::File, entries: BTreeMap<String, Vec<u8>>) -> Result<()> {
@@ -186,6 +242,7 @@ fn write_fo4(
     kind: Fo4ArchiveKind,
     version: Fo4Version,
 ) -> Result<()> {
+    validate_fo4_entries(&entries, kind)?;
     let archive: ba2::fo4::Archive = entries
         .into_iter()
         .map(|(path, bytes)| {
@@ -327,6 +384,31 @@ mod tests {
             ArchiveTool::read_entry(&archive, "textures/example.dds").unwrap(),
             b"payload"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_non_dds_dx10_inputs_without_clobbering_output() {
+        let dir = unique_dir("create-dx10-invalid");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("not-a-texture.txt"), b"payload").unwrap();
+        let archive = dir.join("out.ba2");
+        fs::write(&archive, b"existing").unwrap();
+
+        let err = create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_kind: Fo4ArchiveKind::Dx10,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("DX10"));
+        assert_eq!(fs::read(&archive).unwrap(), b"existing");
         fs::remove_dir_all(dir).unwrap();
     }
 
