@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use mlua::{Error as LuaError, Lua, Result as LuaResult, Table};
 
 use crate::{
-    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, Fo4ArchiveKind,
-    Fo4Version, OverwriteMode, Tes4Version,
+    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
+    Fo4ArchiveKind, Fo4Version, OverwriteMode, Tes4Version,
 };
 
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
@@ -45,11 +45,22 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
         })?,
     )?;
     module.set(
-        "extract",
+        "read_entry",
         lua.create_function(|lua, (path, entry): (String, String)| {
             let bytes = ArchiveTool::read_entry(path, &entry).map_err(LuaError::external)?;
             lua.create_string(&bytes)
         })?,
+    )?;
+    module.set(
+        "extract",
+        lua.create_function(
+            |lua, (path, entry, opts): (String, String, Option<Table>)| {
+                let options = extract_options(opts)?;
+                let summary =
+                    ArchiveTool::extract(path, &entry, &options).map_err(LuaError::external)?;
+                summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
     )?;
     module.set(
         "extract_all",
@@ -70,15 +81,8 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     )?;
     module.set(
         "add",
-        lua.create_function(|_, (archive, output, inputs): (String, String, Table)| {
-            let mut paths = Vec::new();
-            for value in inputs.sequence_values::<String>() {
-                paths.push(PathBuf::from(value?));
-            }
-            let options = AddOptions {
-                inputs: paths,
-                output: PathBuf::from(output),
-            };
+        lua.create_function(|_, (archive, opts): (String, Table)| {
+            let options = add_options(opts)?;
             ArchiveTool::add(archive, &options).map_err(LuaError::external)
         })?,
     )?;
@@ -108,6 +112,29 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
         tes4_version: parse_tes4_version(opts.get::<Option<String>>("tes4_version")?.as_deref())?,
         fo4_kind: parse_fo4_kind(opts.get::<Option<String>>("ba2_kind")?.as_deref())?,
         fo4_version: parse_fo4_version(opts.get::<Option<String>>("ba2_version")?.as_deref())?,
+    })
+}
+
+fn add_options(opts: Table) -> LuaResult<AddOptions> {
+    let inputs: Table = opts.get("inputs")?;
+    let mut paths = Vec::new();
+    for value in inputs.sequence_values::<String>() {
+        paths.push(PathBuf::from(value?));
+    }
+    Ok(AddOptions {
+        inputs: paths,
+        output: PathBuf::from(opts.get::<String>("output")?),
+    })
+}
+
+fn extract_options(opts: Option<Table>) -> LuaResult<ExtractOptions> {
+    let Some(opts) = opts else {
+        return Ok(ExtractOptions::default());
+    };
+    Ok(ExtractOptions {
+        output: opts.get::<Option<String>>("output")?.map(PathBuf::from),
+        overwrite: parse_overwrite(opts.get::<Option<String>>("overwrite")?.as_deref())?,
+        preserve_paths: opts.get::<Option<bool>>("preserve_paths")?.unwrap_or(true),
     })
 }
 
@@ -181,22 +208,29 @@ fn summary_table(lua: &Lua, extracted: usize, skipped: usize) -> LuaResult<Table
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
 
-    #[test]
-    fn lua_module_lists_created_archive() {
-        let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-lua-{}",
+    fn unique_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "rome-archivetool-lua-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
+        ))
+    }
+
+    fn write_input_tree(input: &Path) {
+        fs::create_dir_all(input.join("textures")).unwrap();
+        fs::write(input.join("textures/example.dds"), b"hello").unwrap();
+    }
+
+    fn create_test_archive(dir: &Path) -> PathBuf {
         let input = dir.join("input");
-        fs::create_dir_all(&input).unwrap();
-        fs::write(input.join("hello.txt"), b"hello").unwrap();
+        write_input_tree(&input);
         let archive = dir.join("out.bsa");
         ArchiveTool::create(
             &archive,
@@ -207,6 +241,13 @@ mod tests {
             },
         )
         .unwrap();
+        archive
+    }
+
+    #[test]
+    fn lua_module_lists_and_reads_created_archive() {
+        let dir = unique_dir("list-read");
+        let archive = create_test_archive(&dir);
         let lua = Lua::new();
         register(&lua).unwrap();
         lua.globals()
@@ -217,8 +258,129 @@ mod tests {
             .load("return rome_archivetool.list(archive_path)[1].path")
             .eval()
             .unwrap();
+        let bytes: String = lua
+            .load("return rome_archivetool.read_entry(archive_path, 'textures/example.dds')")
+            .eval()
+            .unwrap();
 
-        assert_eq!(path, "hello.txt");
+        assert_eq!(path, "textures/example.dds");
+        assert_eq!(bytes.as_bytes(), b"hello");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_extract_writes_entry_with_options() {
+        let dir = unique_dir("extract");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let extracted: usize = lua
+            .load(
+                r#"
+                local summary = rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                return summary.extracted
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(extracted, 1);
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_extract_all_can_skip_existing_files() {
+        let dir = unique_dir("extract-all");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        fs::create_dir_all(output.join("textures")).unwrap();
+        fs::write(output.join("textures/example.dds"), b"existing").unwrap();
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let skipped: usize = lua
+            .load(
+                r#"
+                local summary = rome_archivetool.extract_all(archive_path, {
+                    output = output_path,
+                    overwrite = 'skip',
+                })
+                return summary.skipped
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(skipped, 1);
+        assert_eq!(
+            fs::read(output.join("textures/example.dds")).unwrap(),
+            b"existing"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_create_and_add_use_option_tables() {
+        let dir = unique_dir("create-add");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("out.bsa");
+        let added = dir.join("added");
+        fs::create_dir_all(&added).unwrap();
+        fs::write(added.join("added.txt"), b"added").unwrap();
+        let updated = dir.join("updated.bsa");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("input_path", input.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("added_path", added.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("updated_path", updated.to_str().unwrap())
+            .unwrap();
+
+        let files: usize = lua
+            .load(
+                r#"
+                local created = rome_archivetool.create(archive_path, input_path, { format = 'tes3' })
+                local updated = rome_archivetool.add(archive_path, {
+                    output = updated_path,
+                    inputs = { added_path },
+                })
+                return created + updated
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(files, 3);
+        let entries = ArchiveTool::list(&updated).unwrap();
+        assert!(entries.iter().any(|entry| entry.path == "base.txt"));
+        assert!(entries.iter().any(|entry| entry.path == "added.txt"));
         fs::remove_dir_all(dir).unwrap();
     }
 }

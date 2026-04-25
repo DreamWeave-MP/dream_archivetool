@@ -18,6 +18,9 @@
 //!
 //! Extraction rejects absolute paths and parent-directory traversal. Archive creation and update
 //! write through a temporary file before replacing the destination.
+//!
+//! Enable the `lua` feature to register a `rome_archivetool` table that mirrors the public
+//! [`ArchiveTool`] API for embedded Lua callers.
 
 pub mod archive;
 pub mod create;
