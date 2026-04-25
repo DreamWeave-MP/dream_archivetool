@@ -70,20 +70,17 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     )?;
     module.set(
         "add",
-        lua.create_function(
-            |_, (archive, output, inputs, opts): (String, String, Table, Option<Table>)| {
-                let mut paths = Vec::new();
-                for value in inputs.sequence_values::<String>() {
-                    paths.push(PathBuf::from(value?));
-                }
-                let options = AddOptions {
-                    inputs: paths,
-                    output: PathBuf::from(output),
-                    create: create_options(opts)?,
-                };
-                ArchiveTool::add(archive, &options).map_err(LuaError::external)
-            },
-        )?,
+        lua.create_function(|_, (archive, output, inputs): (String, String, Table)| {
+            let mut paths = Vec::new();
+            for value in inputs.sequence_values::<String>() {
+                paths.push(PathBuf::from(value?));
+            }
+            let options = AddOptions {
+                inputs: paths,
+                output: PathBuf::from(output),
+            };
+            ArchiveTool::add(archive, &options).map_err(LuaError::external)
+        })?,
     )?;
 
     Ok(module)

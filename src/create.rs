@@ -35,7 +35,6 @@ impl Default for CreateOptions {
 pub struct AddOptions {
     pub inputs: Vec<PathBuf>,
     pub output: PathBuf,
-    pub create: CreateOptions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
@@ -437,7 +436,6 @@ mod tests {
             &AddOptions {
                 inputs: vec![added],
                 output: output.clone(),
-                create: CreateOptions::default(),
             },
         )
         .unwrap();

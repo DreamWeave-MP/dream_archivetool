@@ -117,15 +117,6 @@ enum Command {
         /// Output archive path
         #[arg(short, long)]
         output: PathBuf,
-        /// TES4 BSA version used if archive metadata cannot be retained
-        #[arg(long, value_enum, default_value_t = Tes4Version::Oblivion)]
-        tes4_version: Tes4Version,
-        /// FO4 BA2 archive kind used if archive metadata cannot be retained
-        #[arg(long, value_enum, default_value_t = Fo4ArchiveKind::Gnrl)]
-        ba2_kind: Fo4ArchiveKind,
-        /// FO4 BA2 version used if archive metadata cannot be retained
-        #[arg(long, value_enum, default_value_t = Fo4Version::Fallout4)]
-        ba2_version: Fo4Version,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
@@ -265,9 +256,6 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
             archive,
             inputs,
             output,
-            tes4_version,
-            ba2_kind,
-            ba2_version,
             json,
         } => {
             if inputs.is_empty() {
@@ -275,19 +263,7 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
                     "no input files supplied".to_string(),
                 ));
             }
-            let count = ArchiveTool::add(
-                archive,
-                &AddOptions {
-                    inputs,
-                    output,
-                    create: CreateOptions {
-                        format: ArchiveFormat::Tes3,
-                        tes4_version,
-                        fo4_kind: ba2_kind,
-                        fo4_version: ba2_version,
-                    },
-                },
-            )?;
+            let count = ArchiveTool::add(archive, &AddOptions { inputs, output })?;
             write_count(stdout, count, json)?;
         }
     }
