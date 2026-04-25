@@ -3,7 +3,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ArchiveEntry, ArchiveFormat, ExtractAllOptions, ExtractOptions, ExtractSummary, Result,
+    AddOptions, ArchiveEntry, ArchiveFormat, CreateOptions, ExtractAllOptions, ExtractOptions,
+    ExtractSummary, Result,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +54,18 @@ impl ArchiveTool {
         options: &ExtractAllOptions,
     ) -> Result<ExtractSummary> {
         crate::extract::extract_all(path.as_ref(), options)
+    }
+
+    pub fn create(
+        output: impl AsRef<Path>,
+        input: impl AsRef<Path>,
+        options: &CreateOptions,
+    ) -> Result<usize> {
+        crate::create::create_archive(output.as_ref(), input.as_ref(), options)
+    }
+
+    pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
+        crate::create::add_to_archive(path.as_ref(), options)
     }
 }
 

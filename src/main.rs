@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use rome_archivetool::{ArchiveTool, ExtractAllOptions, ExtractOptions, OverwriteMode, Result};
+use rome_archivetool::{
+    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
+    Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -72,6 +75,50 @@ enum Command {
         /// Leave existing files untouched
         #[arg(long, conflicts_with = "overwrite")]
         skip_existing: bool,
+        /// Write JSON summary to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new archive from a file or directory
+    Create {
+        /// Output archive path
+        archive: PathBuf,
+        /// Input file or directory
+        input: PathBuf,
+        /// Archive format to write
+        #[arg(long, value_enum)]
+        format: ArchiveFormat,
+        /// TES4 BSA version
+        #[arg(long, value_enum, default_value_t = Tes4Version::Oblivion)]
+        tes4_version: Tes4Version,
+        /// FO4 BA2 archive kind
+        #[arg(long, value_enum, default_value_t = Fo4ArchiveKind::Gnrl)]
+        ba2_kind: Fo4ArchiveKind,
+        /// FO4 BA2 version
+        #[arg(long, value_enum, default_value_t = Fo4Version::Fallout4)]
+        ba2_version: Fo4Version,
+        /// Write JSON summary to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// Add or update entries by writing a new archive
+    Add {
+        /// Input archive path
+        archive: PathBuf,
+        /// Files or directories to add
+        inputs: Vec<PathBuf>,
+        /// Output archive path
+        #[arg(short, long)]
+        output: PathBuf,
+        /// TES4 BSA version used if archive metadata cannot be retained
+        #[arg(long, value_enum, default_value_t = Tes4Version::Oblivion)]
+        tes4_version: Tes4Version,
+        /// FO4 BA2 archive kind used if archive metadata cannot be retained
+        #[arg(long, value_enum, default_value_t = Fo4ArchiveKind::Gnrl)]
+        ba2_kind: Fo4ArchiveKind,
+        /// FO4 BA2 version used if archive metadata cannot be retained
+        #[arg(long, value_enum, default_value_t = Fo4Version::Fallout4)]
+        ba2_version: Fo4Version,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
@@ -172,6 +219,67 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
                 }
             }
         }
+        Command::Create {
+            archive,
+            input,
+            format,
+            tes4_version,
+            ba2_kind,
+            ba2_version,
+            json,
+        } => {
+            let count = ArchiveTool::create(
+                archive,
+                input,
+                &CreateOptions {
+                    format,
+                    tes4_version,
+                    fo4_kind: ba2_kind,
+                    fo4_version: ba2_version,
+                },
+            )?;
+            write_count(stdout, count, json)?;
+        }
+        Command::Add {
+            archive,
+            inputs,
+            output,
+            tes4_version,
+            ba2_kind,
+            ba2_version,
+            json,
+        } => {
+            if inputs.is_empty() {
+                return Err(rome_archivetool::ArchiveError::Archive(
+                    "no input files supplied".to_string(),
+                ));
+            }
+            let count = ArchiveTool::add(
+                archive,
+                &AddOptions {
+                    inputs,
+                    output,
+                    create: CreateOptions {
+                        format: ArchiveFormat::Tes3,
+                        tes4_version,
+                        fo4_kind: ba2_kind,
+                        fo4_version: ba2_version,
+                    },
+                },
+            )?;
+            write_count(stdout, count, json)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_count(stdout: &mut dyn Write, count: usize, json: bool) -> Result<()> {
+    if json {
+        serde_json::to_writer_pretty(&mut *stdout, &serde_json::json!({ "files": count }))
+            .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
+        writeln!(stdout)?;
+    } else {
+        writeln!(stdout, "files: {count}")?;
     }
     Ok(())
 }
@@ -261,6 +369,42 @@ mod tests {
         .unwrap();
 
         assert_eq!(stdout, b"payload");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn create_command_writes_tes3_archive() {
+        let dir = std::env::temp_dir().join(format!(
+            "rome-archivetool-cli-create-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("hello.txt"), b"hello").unwrap();
+        let archive = dir.join("out.bsa");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "create",
+                archive.to_str().unwrap(),
+                input.to_str().unwrap(),
+                "--format",
+                "tes3",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert_eq!(String::from_utf8(stdout).unwrap(), "files: 1\n");
+        assert_eq!(
+            ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
+            b"hello"
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 }

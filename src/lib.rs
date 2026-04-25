@@ -11,7 +11,7 @@ pub mod format;
 pub mod lua;
 
 pub use archive::{ArchiveInfo, ArchiveTool};
-pub use create::{AddOptions, CreateOptions};
+pub use create::{AddOptions, CreateOptions, Fo4ArchiveKind, Fo4Version, Tes4Version};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
 pub use extract::{ExtractAllOptions, ExtractOptions, ExtractSummary, OverwriteMode};
