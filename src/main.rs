@@ -294,31 +294,46 @@ fn overwrite_mode(overwrite: bool, skip_existing: bool) -> OverwriteMode {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use clap::Parser;
 
     use super::*;
 
-    #[test]
-    fn list_command_writes_entry_names() {
-        let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-cli-{}",
+    fn unique_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "rome-archivetool-cli-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
                 .as_nanos()
-        ));
-        fs::create_dir_all(&dir).unwrap();
-        let archive_path = dir.join("test.bsa");
-        let archive: ba2::tes3::Archive = [(
-            ba2::tes3::ArchiveKey::from(b"icons/example.dds".as_slice()),
-            ba2::tes3::File::from(b"payload".as_slice()),
-        )]
+        ))
+    }
+
+    fn write_tes3_archive(path: &Path) {
+        let archive: ba2::tes3::Archive = [
+            (
+                ba2::tes3::ArchiveKey::from(b"icons/example.dds".as_slice()),
+                ba2::tes3::File::from(b"payload".as_slice()),
+            ),
+            (
+                ba2::tes3::ArchiveKey::from(b"meshes/example.nif".as_slice()),
+                ba2::tes3::File::from(b"mesh".as_slice()),
+            ),
+        ]
         .into_iter()
         .collect();
-        let mut output = fs::File::create(&archive_path).unwrap();
+        let mut output = fs::File::create(path).unwrap();
         archive.write(&mut output).unwrap();
+    }
+
+    #[test]
+    fn list_command_writes_entry_names() {
+        let dir = unique_dir("list");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
         let mut stdout = Vec::new();
 
         run(
@@ -327,30 +342,75 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(String::from_utf8(stdout).unwrap(), "icons/example.dds\n");
+        let output = String::from_utf8(stdout).unwrap();
+        assert!(output.contains("icons/example.dds\n"));
+        assert!(output.contains("meshes/example.nif\n"));
 
         fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn extract_command_can_write_bytes_to_stdout() {
-        let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-cli-extract-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+    fn info_command_can_write_json() {
+        let dir = unique_dir("info-json");
         fs::create_dir_all(&dir).unwrap();
         let archive_path = dir.join("test.bsa");
-        let archive: ba2::tes3::Archive = [(
-            ba2::tes3::ArchiveKey::from(b"icons/example.dds".as_slice()),
-            ba2::tes3::File::from(b"payload".as_slice()),
-        )]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(&archive_path).unwrap();
-        archive.write(&mut output).unwrap();
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "info",
+                archive_path.to_str().unwrap(),
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["format"], "tes3");
+        assert_eq!(value["file_count"], 2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn list_command_can_write_json() {
+        let dir = unique_dir("list-json");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "list",
+                archive_path.to_str().unwrap(),
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value.as_array().unwrap().len(), 2);
+        assert!(
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["path"] == "icons/example.dds")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_command_can_write_bytes_to_stdout() {
+        let dir = unique_dir("extract-stdout");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
         let mut stdout = Vec::new();
 
         run(
@@ -370,14 +430,70 @@ mod tests {
     }
 
     #[test]
+    fn extract_command_can_flatten_paths() {
+        let dir = unique_dir("extract-flat");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let output = dir.join("out");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "extract",
+                archive_path.to_str().unwrap(),
+                "icons/example.dds",
+                "--output",
+                output.to_str().unwrap(),
+                "--flat",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"payload");
+        assert!(!output.join("icons/example.dds").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_all_command_can_skip_existing_and_write_json() {
+        let dir = unique_dir("extract-all-json");
+        let output = dir.join("out");
+        fs::create_dir_all(output.join("icons")).unwrap();
+        fs::write(output.join("icons/example.dds"), b"existing").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "extract-all",
+                archive_path.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--skip-existing",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["extracted"], 1);
+        assert_eq!(value["skipped"], 1);
+        assert_eq!(
+            fs::read(output.join("icons/example.dds")).unwrap(),
+            b"existing"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn create_command_writes_tes3_archive() {
-        let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-cli-create-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let dir = unique_dir("create");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
         fs::write(input.join("hello.txt"), b"hello").unwrap();
@@ -402,6 +518,67 @@ mod tests {
             ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
             b"hello"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_command_can_write_json() {
+        let dir = unique_dir("add-json");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("base.bsa");
+        ArchiveTool::create(&archive, &input, &CreateOptions::default()).unwrap();
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+        let output = dir.join("updated.bsa");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "add",
+                archive.to_str().unwrap(),
+                added.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["files"], 2);
+        assert_eq!(
+            ArchiveTool::read_entry(&output, "added.txt").unwrap(),
+            b"added"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_command_rejects_empty_inputs() {
+        let dir = unique_dir("add-empty");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("base.bsa");
+        write_tes3_archive(&archive);
+        let output = dir.join("updated.bsa");
+        let mut stdout = Vec::new();
+
+        let err = run(
+            Cli::parse_from([
+                "rome-archivetool",
+                "add",
+                archive.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+            ]),
+            &mut stdout,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("no input files supplied"));
         fs::remove_dir_all(dir).unwrap();
     }
 

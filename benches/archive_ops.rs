@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use rome_archivetool::{AddOptions, ArchiveTool, CreateOptions, ExtractAllOptions, OverwriteMode};
+use rome_archivetool::{
+    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, OverwriteMode,
+};
 
 fn unique_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -53,6 +55,40 @@ fn prepare_fixture(name: &str, entries: usize, payload_size: usize) -> (PathBuf,
     fs::create_dir_all(&dir).unwrap();
     let archive = dir.join("fixture.bsa");
     write_tes3_archive(&archive, entries, payload_size);
+    (dir, archive)
+}
+
+fn prepare_created_fixture(
+    name: &str,
+    format: ArchiveFormat,
+    extension: &str,
+    entries: usize,
+    payload_size: usize,
+) -> (PathBuf, PathBuf) {
+    let dir = unique_dir(name);
+    let input = dir.join("input");
+    let data = input.join("data");
+    fs::create_dir_all(&data).unwrap();
+    for index in 0..entries {
+        fs::write(
+            data.join(format!("file-{index:05}.{extension}")),
+            make_payload(index, payload_size),
+        )
+        .unwrap();
+    }
+    let archive = dir.join(match format {
+        ArchiveFormat::Fo4 => "fixture.ba2",
+        ArchiveFormat::Tes3 | ArchiveFormat::Tes4 => "fixture.bsa",
+    });
+    ArchiveTool::create(
+        &archive,
+        &input,
+        &CreateOptions {
+            format,
+            ..Default::default()
+        },
+    )
+    .unwrap();
     (dir, archive)
 }
 
@@ -107,6 +143,61 @@ fn bench_extract_all(c: &mut Criterion) {
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Skip,
+                    },
+                )
+                .unwrap();
+                fs::remove_dir_all(output).unwrap();
+                summary
+            },
+            BatchSize::SmallInput,
+        )
+    });
+}
+
+fn bench_tes4_and_fo4(c: &mut Criterion) {
+    let (_tes4_dir, tes4) = prepare_created_fixture("tes4", ArchiveFormat::Tes4, "dds", 256, 512);
+    let (_fo4_dir, fo4) = prepare_created_fixture("fo4", ArchiveFormat::Fo4, "txt", 256, 512);
+
+    c.bench_function("list_tes4_256_entries", |b| {
+        b.iter(|| ArchiveTool::list(&tes4).unwrap())
+    });
+    c.bench_function("read_entry_tes4_last_of_256", |b| {
+        b.iter(|| ArchiveTool::read_entry(&tes4, "data/file-00255.dds").unwrap())
+    });
+    c.bench_function("extract_all_tes4_256x512", |b| {
+        b.iter_batched(
+            || unique_dir("extract-tes4-output"),
+            |output| {
+                let summary = ArchiveTool::extract_all(
+                    &tes4,
+                    &ExtractAllOptions {
+                        output: Some(output.clone()),
+                        overwrite: OverwriteMode::Fail,
+                    },
+                )
+                .unwrap();
+                fs::remove_dir_all(output).unwrap();
+                summary
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    c.bench_function("list_fo4_256_entries", |b| {
+        b.iter(|| ArchiveTool::list(&fo4).unwrap())
+    });
+    c.bench_function("read_entry_fo4_last_of_256", |b| {
+        b.iter(|| ArchiveTool::read_entry(&fo4, "data/file-00255.txt").unwrap())
+    });
+    c.bench_function("extract_all_fo4_256x512", |b| {
+        b.iter_batched(
+            || unique_dir("extract-fo4-output"),
+            |output| {
+                let summary = ArchiveTool::extract_all(
+                    &fo4,
+                    &ExtractAllOptions {
+                        output: Some(output.clone()),
+                        overwrite: OverwriteMode::Fail,
                     },
                 )
                 .unwrap();
@@ -176,6 +267,7 @@ criterion_group!(
     benches,
     bench_list_and_lookup,
     bench_extract_all,
+    bench_tes4_and_fo4,
     bench_create_and_add
 );
 criterion_main!(benches);

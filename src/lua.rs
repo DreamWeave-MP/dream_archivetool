@@ -211,6 +211,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use ba2::prelude::*;
+
     use super::*;
 
     fn unique_dir(name: &str) -> PathBuf {
@@ -301,6 +303,43 @@ mod tests {
     }
 
     #[test]
+    fn lua_extract_can_overwrite_existing_file() {
+        let dir = unique_dir("extract-overwrite");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        fs::create_dir_all(output.join("textures")).unwrap();
+        fs::write(output.join("textures/example.dds"), b"existing").unwrap();
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let extracted: usize = lua
+            .load(
+                r#"
+                local summary = rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                    output = output_path,
+                    overwrite = 'overwrite',
+                })
+                return summary.extracted
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(extracted, 1);
+        assert_eq!(
+            fs::read(output.join("textures/example.dds")).unwrap(),
+            b"hello"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn lua_extract_all_can_skip_existing_files() {
         let dir = unique_dir("extract-all");
         let archive = create_test_archive(&dir);
@@ -381,6 +420,84 @@ mod tests {
         let entries = ArchiveTool::list(&updated).unwrap();
         assert!(entries.iter().any(|entry| entry.path == "base.txt"));
         assert!(entries.iter().any(|entry| entry.path == "added.txt"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_create_supports_fo4_options() {
+        let dir = unique_dir("create-fo4");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("out.ba2");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("input_path", input.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+
+        let files: usize = lua
+            .load(
+                r#"
+                return rome_archivetool.create(archive_path, input_path, {
+                    format = 'fo4',
+                    ba2_kind = 'gnrl',
+                    ba2_version = 'starfield',
+                })
+            "#,
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(files, 1);
+        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
+        assert_eq!(options.version(), ba2::fo4::Version::v2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_reports_invalid_options() {
+        let dir = unique_dir("invalid-options");
+        let archive = create_test_archive(&dir);
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+
+        let err = lua
+            .load(
+                r#"
+                return rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                    overwrite = 'explode',
+                })
+            "#,
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown overwrite mode"));
+
+        let err = lua
+            .load("return rome_archivetool.create('out.bsa', 'input', { format = 'unknown' })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown archive format"));
+
+        let err = lua
+            .load("return rome_archivetool.add(archive_path, { inputs = {} })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(!err.to_string().is_empty());
+
+        let err = lua
+            .load("return rome_archivetool.add(archive_path, { output = 'out.bsa' })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(!err.to_string().is_empty());
+
         fs::remove_dir_all(dir).unwrap();
     }
 }

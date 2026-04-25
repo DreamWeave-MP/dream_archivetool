@@ -479,6 +479,102 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_gnf_gnmf_inputs_without_clobbering_output() {
+        let dir = unique_dir("create-gnmf-invalid");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("not-a-model.txt"), b"payload").unwrap();
+        let archive = dir.join("out.ba2");
+        fs::write(&archive, b"existing").unwrap();
+
+        let err = create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_kind: Fo4ArchiveKind::Gnmf,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("GNMF"));
+        assert_eq!(fs::read(&archive).unwrap(), b"existing");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn accepts_uppercase_gnmf_extensions() {
+        let dir = unique_dir("create-gnmf-uppercase");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("MODEL.GNF"), b"payload").unwrap();
+        let archive = dir.join("out.ba2");
+
+        let err = create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_kind: Fo4ArchiveKind::Gnmf,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(!err.to_string().contains("can only contain .gnf"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn create_fo4_can_write_starfield_version() {
+        let dir = unique_dir("create-fo4-starfield");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("out.ba2");
+
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_version: Fo4Version::Starfield,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
+        assert_eq!(options.version(), ba2::fo4::Version::v2);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn create_fo4_can_write_next_gen_version() {
+        let dir = unique_dir("create-fo4-next-gen");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("out.ba2");
+
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_version: Fo4Version::Fallout4NextGen,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
+        assert_eq!(options.version(), ba2::fo4::Version::v7);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn add_preserves_starfield_v3_ba2_version() {
         let dir = unique_dir("preserve-v3");
         let archive = dir.join("base.ba2");
@@ -581,6 +677,49 @@ mod tests {
         assert_eq!(
             ArchiveTool::read_entry(&output, "added.txt").unwrap(),
             b"added"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_replaces_existing_archive_entries() {
+        let dir = unique_dir("add-replace");
+        let input = dir.join("input");
+        fs::create_dir_all(input.join("textures")).unwrap();
+        fs::write(input.join("textures/example.dds"), b"old").unwrap();
+        fs::write(input.join("keep.txt"), b"keep").unwrap();
+        let archive = dir.join("base.bsa");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let replacement = dir.join("replacement");
+        fs::create_dir_all(replacement.join("textures")).unwrap();
+        fs::write(replacement.join("textures/example.dds"), b"new").unwrap();
+        let output = dir.join("updated.bsa");
+
+        let count = add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![replacement],
+                output: output.clone(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(count, 2);
+        assert_eq!(
+            ArchiveTool::read_entry(&output, "textures/example.dds").unwrap(),
+            b"new"
+        );
+        assert_eq!(
+            ArchiveTool::read_entry(&output, "keep.txt").unwrap(),
+            b"keep"
         );
         fs::remove_dir_all(dir).unwrap();
     }

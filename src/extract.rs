@@ -236,6 +236,102 @@ mod tests {
     fn rejects_traversal_paths() {
         let err = safe_target_path(Path::new("out"), "../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
+
+        let err = safe_target_path(Path::new("out"), "/evil.txt").unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
+
+        let err = safe_target_path(Path::new("out"), "textures/../../evil.txt").unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
+
+        let err = safe_target_path(Path::new("out"), "textures\\..\\evil.txt").unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
+    }
+
+    #[test]
+    fn accepts_current_directory_components() {
+        let path = safe_target_path(Path::new("out"), "./textures/./example.dds").unwrap();
+        assert_eq!(path, Path::new("out").join("textures/example.dds"));
+    }
+
+    #[test]
+    fn extract_entry_fails_when_target_exists_by_default() {
+        let dir = unique_dir("extract-entry-exists");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("textures")).unwrap();
+        fs::write(output_dir.join("textures/example.dds"), b"existing").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+
+        let err = extract_entry(
+            &archive_path,
+            "textures/example.dds",
+            &ExtractOptions {
+                output: Some(output_dir),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ArchiveError::TargetExists(_)));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_entry_can_overwrite_existing_file() {
+        let dir = unique_dir("extract-entry-overwrite");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("textures")).unwrap();
+        fs::write(output_dir.join("textures/example.dds"), b"existing").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+
+        let summary = extract_entry(
+            &archive_path,
+            "textures/example.dds",
+            &ExtractOptions {
+                output: Some(output_dir.clone()),
+                overwrite: OverwriteMode::Overwrite,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(summary.extracted, 1);
+        assert_eq!(summary.skipped, 0);
+        assert_eq!(
+            fs::read(output_dir.join("textures/example.dds")).unwrap(),
+            b"payload"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_entry_can_skip_existing_file() {
+        let dir = unique_dir("extract-entry-skip");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("textures")).unwrap();
+        fs::write(output_dir.join("textures/example.dds"), b"existing").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+
+        let summary = extract_entry(
+            &archive_path,
+            "textures/example.dds",
+            &ExtractOptions {
+                output: Some(output_dir.clone()),
+                overwrite: OverwriteMode::Skip,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(summary.extracted, 0);
+        assert_eq!(summary.skipped, 1);
+        assert_eq!(
+            fs::read(output_dir.join("textures/example.dds")).unwrap(),
+            b"existing"
+        );
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
