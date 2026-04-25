@@ -2,7 +2,8 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use rome_archivetool::{
     AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
     Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version,
@@ -15,8 +16,14 @@ use rome_archivetool::{
     about = "Inspect and manipulate Bethesda BSA and BA2 archives"
 )]
 struct Cli {
+    /// Generate shell completion script to stdout
+    #[arg(long, value_name = "SHELL", conflicts_with = "generate_manpage")]
+    generate_completion: Option<Shell>,
+    /// Generate roff manpage to stdout
+    #[arg(long, conflicts_with = "generate_completion")]
+    generate_manpage: bool,
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -136,7 +143,21 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
-    match cli.command {
+    if let Some(shell) = cli.generate_completion {
+        clap_complete::generate(shell, &mut Cli::command(), "rome-archivetool", stdout);
+        return Ok(());
+    }
+    if cli.generate_manpage {
+        clap_mangen::Man::new(Cli::command()).render(stdout)?;
+        return Ok(());
+    }
+
+    let Some(command) = cli.command else {
+        write!(stdout, "{}", Cli::command().render_help())?;
+        return Ok(());
+    };
+
+    match command {
         Command::Info { archive, json } => {
             let info = ArchiveTool::info(archive)?;
             if json {
@@ -406,5 +427,32 @@ mod tests {
             b"hello"
         );
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn generation_options_do_not_require_subcommand() {
+        let mut stdout = Vec::new();
+        run(
+            Cli::parse_from(["rome-archivetool", "--generate-completion", "bash"]),
+            &mut stdout,
+        )
+        .unwrap();
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .contains("rome-archivetool")
+        );
+
+        let mut stdout = Vec::new();
+        run(
+            Cli::parse_from(["rome-archivetool", "--generate-manpage"]),
+            &mut stdout,
+        )
+        .unwrap();
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .contains("rome-archivetool")
+        );
     }
 }
