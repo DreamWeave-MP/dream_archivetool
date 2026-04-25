@@ -67,10 +67,8 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
 }
 
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
-    let format = crate::format::guess_format(archive)?;
     let archive = crate::loaded::LoadedArchive::open(archive)?;
-    let mut create_options = options.create.clone();
-    create_options.format = format;
+    let create_options = archive.create_options();
     let mut entries = BTreeMap::new();
     for entry in archive.list_entries() {
         entries.insert(entry.path.clone(), archive.read_entry_bytes(&entry.path)?);

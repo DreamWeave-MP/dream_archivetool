@@ -2,7 +2,10 @@ use std::path::Path;
 
 use ba2::prelude::*;
 
-use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
+use crate::{
+    ArchiveEntry, ArchiveError, ArchiveFormat, CreateOptions, Fo4ArchiveKind, Fo4Version, Result,
+    Tes4Version,
+};
 
 pub enum LoadedArchive {
     Tes3(ba2::tes3::Archive<'static>),
@@ -78,6 +81,38 @@ impl LoadedArchive {
                     }
                 })
                 .collect(),
+        }
+    }
+
+    pub fn create_options(&self) -> CreateOptions {
+        match self {
+            Self::Tes3(_) => CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+            Self::Tes4(_, options) => CreateOptions {
+                format: ArchiveFormat::Tes4,
+                tes4_version: match options.version() {
+                    ba2::tes4::Version::v103 => Tes4Version::Oblivion,
+                    ba2::tes4::Version::v104 => Tes4Version::Skyrim,
+                    ba2::tes4::Version::v105 => Tes4Version::SkyrimSe,
+                },
+                ..Default::default()
+            },
+            Self::Fo4(_, options) => CreateOptions {
+                format: ArchiveFormat::Fo4,
+                fo4_kind: match options.format() {
+                    ba2::fo4::Format::GNRL => Fo4ArchiveKind::Gnrl,
+                    ba2::fo4::Format::DX10 => Fo4ArchiveKind::Dx10,
+                    ba2::fo4::Format::GNMF => Fo4ArchiveKind::Gnmf,
+                },
+                fo4_version: match options.version() {
+                    ba2::fo4::Version::v1 => Fo4Version::Fallout4,
+                    ba2::fo4::Version::v2 | ba2::fo4::Version::v3 => Fo4Version::Starfield,
+                    ba2::fo4::Version::v7 | ba2::fo4::Version::v8 => Fo4Version::Fallout4NextGen,
+                },
+                ..Default::default()
+            },
         }
     }
 
