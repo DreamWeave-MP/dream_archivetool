@@ -66,6 +66,23 @@ The registered `rome_archivetool` table exposes `guess_format`, `info`, `list`, 
 
 Extraction rejects absolute paths and `..` components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy.
 
+Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive.
+
+## Performance
+
+Archives are opened once per high-level operation. `extract-all` and `add` reuse that loaded archive instead of reopening and reparsing for each file.
+
+Creation and update currently stage archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation can require substantial memory.
+
+## Format Notes
+
+- `add` writes a new archive and preserves the source archive's broad format and concrete TES4/FO4 write options where the `ba2` crate exposes them.
+- `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
+- `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries.
+- `create --format fo4 --ba2-kind gnmf` only accepts `.gnf` entries.
+- FO4/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
+- TES4 BSA creation defaults to miscellaneous archive type flags.
+
 ## Development
 
 ```bash
