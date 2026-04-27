@@ -316,9 +316,9 @@ dependencies = [
 
 [[package]]
 name = "dream-path"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "049f18a7dce57415b003762676b86f1ac8bf074e134556823d828dcbc04059f4"
+checksum = "a19898f64cdf9fab61a1fa0f839b1ce360bc6a858db67717ff57b3e653f5c877"
 dependencies = [
  "bstr",
  "mlua",
@@ -326,11 +326,10 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2a92a79eb58028ad30921937e59b419b6026773c4e8c228559bf73dfcf345987"
+checksum = "84720935c8390aeac858dd0e6db8c48b2446531aabaafd7a8653907eaa44aafa"
 dependencies = [
- "bstr",
  "dream-path",
  "encoding_rs",
  "flate2",
