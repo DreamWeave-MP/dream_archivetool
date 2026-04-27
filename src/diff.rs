@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::Result;
 use crate::paths::{archive_path_bytes_to_display, archive_path_bytes_to_hex};
+use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Options controlling archive comparison.
@@ -113,11 +114,16 @@ fn diff_entries(
     let mut entries = BTreeMap::new();
     for entry in archive.list_loaded_entries()? {
         let payload_hash = if hash_payloads {
-            let bytes = archive.read_entry_bytes_by_normalized_path(&entry.path)?;
-            Some(format!("{:016x}", fnv1a64(&bytes)))
+            Some(payload_hash(archive, &entry.path)?)
         } else {
             None
         };
+        if entries.contains_key(&entry.path) {
+            return Err(ArchiveError::Archive(format!(
+                "archive contains duplicate normalized path: {}",
+                archive_path_bytes_to_display(&entry.path)
+            )));
+        }
         entries.insert(
             entry.path.clone(),
             DiffEntryData {
@@ -129,6 +135,42 @@ fn diff_entries(
         );
     }
     Ok(entries)
+}
+
+fn payload_hash(archive: &crate::loaded::LoadedArchive, path: &[u8]) -> Result<String> {
+    let mut hasher = Fnv1a64Writer::default();
+    archive.extract_normalized_entry_path_to_writer(path, &mut hasher)?;
+    Ok(format!("{:016x}", hasher.finish()))
+}
+
+#[derive(Debug)]
+struct Fnv1a64Writer {
+    hash: u64,
+}
+
+impl Default for Fnv1a64Writer {
+    fn default() -> Self {
+        Self {
+            hash: FNV1A64_OFFSET,
+        }
+    }
+}
+
+impl Fnv1a64Writer {
+    fn finish(self) -> u64 {
+        self.hash
+    }
+}
+
+impl Write for Fnv1a64Writer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.hash = fnv1a64_update(self.hash, buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 fn same_entry_state(left: &DiffEntryData, right: &DiffEntryData) -> bool {
@@ -155,11 +197,32 @@ fn entry_state(entry: &DiffEntryData) -> DiffEntryState {
     }
 }
 
+#[cfg(test)]
 fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
+    fnv1a64_update(FNV1A64_OFFSET, bytes)
+}
+
+const FNV1A64_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn fnv1a64_update(mut hash: u64, bytes: &[u8]) -> u64 {
     for byte in bytes {
         hash ^= u64::from(*byte);
         hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
     hash
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write as _;
+
+    use super::*;
+
+    #[test]
+    fn streaming_fnv_matches_whole_buffer_hash() {
+        let mut writer = Fnv1a64Writer::default();
+        writer.write_all(b"abc").unwrap();
+        writer.write_all(b"def").unwrap();
+        assert_eq!(writer.finish(), fnv1a64(b"abcdef"));
+    }
 }

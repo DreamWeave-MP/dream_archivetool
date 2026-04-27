@@ -165,7 +165,7 @@ dream_archivetool::lua::register(&lua)?;
 # }
 ```
 
-The registered `dream_archivetool` table mirrors the public `ArchiveTool` API:
+The registered `dream_archivetool` table is a small Lua facade over common `ArchiveTool` operations:
 
 ```lua
 local tool = dream_archivetool
@@ -174,10 +174,17 @@ local format = tool.guess_format("Morrowind.bsa")
 local info = tool.info("Morrowind.bsa")
 local entries = tool.list("Morrowind.bsa")
 local bytes = tool.read_entry("Morrowind.bsa", "icons/gold.dds")
+local exact_bytes = tool.read_entry_hex("Morrowind.bsa", entries[1].path_bytes_hex)
 
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   output = "out",
   overwrite = "fail", -- fail | overwrite | skip
+  preserve_paths = true,
+})
+
+local exact_extracted = tool.extract_hex("Morrowind.bsa", entries[1].path_bytes_hex, {
+  output = "out",
+  overwrite = "fail",
   preserve_paths = true,
 })
 
@@ -204,7 +211,9 @@ Lua functions and return values:
 - `info(path) -> { path, format, file_count }`
 - `list(path) -> { { path, path_bytes_hex, size, compressed_size }, ... }`
 - `read_entry(path, entry) -> string`
+- `read_entry_hex(path, path_bytes_hex) -> string`
 - `extract(path, entry, opts?) -> { extracted, skipped }`
+- `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
 - `extract_all(path, opts?) -> { extracted, skipped }`
 - `create(output, input, opts?) -> file_count`
 - `add(path, opts) -> file_count`
@@ -218,7 +227,7 @@ Lua option tables:
 
 ## Safety
 
-Extraction rejects absolute paths and `..` components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted.
+Extraction rejects absolute paths, `..` components, NUL bytes, and Windows drive-prefix-shaped components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted.
 
 Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive.
 
@@ -230,13 +239,13 @@ Archive creation and update preflight archive paths and format policy before add
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's TES4/BA2 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
+- `add` writes a new archive and preserves the source archive's TES4/BA2 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v2 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
 - Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format ba2`.
 - `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names. Use `extract --entry-hex HEX` to feed those bytes back into the CLI.
 - `create --format ba2 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format ba2 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
 - `create --format ba2 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
-- BA2/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
+- BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 
 ## Development

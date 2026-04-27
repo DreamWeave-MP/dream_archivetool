@@ -137,10 +137,10 @@ pub(super) enum Command {
         /// TES4 BSA version; only valid with --format tes4
         #[arg(long, value_enum)]
         tes4_version: Option<CliTes4Version>,
-        /// BA2 BA2 archive kind; only valid with --format ba2. GNMF update/create is rejected.
+        /// BA2 archive kind; only valid with --format ba2. GNMF update/create is rejected.
         #[arg(long, value_enum)]
         ba2_kind: Option<CliBa2ArchiveKind>,
-        /// BA2 BA2 version; only valid with --format ba2
+        /// BA2 version; only valid with --format ba2
         #[arg(long, value_enum)]
         ba2_version: Option<CliBa2Version>,
         /// Write JSON summary to stdout

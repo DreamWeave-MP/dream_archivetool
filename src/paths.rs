@@ -56,7 +56,8 @@ pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
 
 pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_virtual_path_bytes(normalized)?;
-    ensure_platform_target_path_bytes(normalized);
+    #[cfg(not(unix))]
+    ensure_platform_target_path_bytes(normalized)?;
     let mut target = PathBuf::from(root);
     for component in normalized.split(|byte| *byte == b'/') {
         if component == b"." {
@@ -69,7 +70,8 @@ pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
 
 pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_virtual_path_bytes(normalized)?;
-    ensure_platform_target_path_bytes(normalized);
+    #[cfg(not(unix))]
+    ensure_platform_target_path_bytes(normalized)?;
     let normalized_path = NormalizedPath::new(normalized);
     let file_name = normalized_path
         .file_name()
@@ -80,16 +82,22 @@ pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
 }
 
 #[cfg(not(unix))]
-fn ensure_platform_target_path_bytes(path: &[u8]) {
-    assert!(
-        std::str::from_utf8(path).is_ok(),
-        "validated UTF-8 archive path"
-    );
-}
-
-#[cfg(unix)]
-fn ensure_platform_target_path_bytes(path: &[u8]) {
-    let _ = path;
+fn ensure_platform_target_path_bytes(path: &[u8]) -> Result<()> {
+    for component in path.split(|byte| *byte == b'/') {
+        let component = std::str::from_utf8(component)
+            .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(path)))?;
+        if Path::new(component).components().count() != 1
+            || !matches!(
+                Path::new(component).components().next(),
+                Some(Component::Normal(_))
+            )
+        {
+            return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
+                path,
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
@@ -102,11 +110,33 @@ fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
 fn validate_virtual_path_bytes(path: &[u8]) -> Result<()> {
     if path.is_empty()
         || path.starts_with(b"/")
-        || path.split(|byte| *byte == b'/').any(|part| part == b"..")
+        || path.contains(&b'\0')
+        || path
+            .split(|byte| *byte == b'/')
+            .any(|part| part == b".." || part.contains(&b':'))
     {
         return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
             path,
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_paths_that_are_not_safe_on_common_targets() {
+        for path in [
+            b"".as_slice(),
+            b"/absolute.txt",
+            b"textures/../evil.txt",
+            b"textures/has\0nul.txt",
+            b"C:/evil.txt",
+            b"C:evil.txt",
+        ] {
+            assert!(validate_virtual_path_bytes(path).is_err());
+        }
+    }
 }

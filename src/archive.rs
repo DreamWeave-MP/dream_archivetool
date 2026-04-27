@@ -220,7 +220,7 @@ fn ba2_info(archive: &crate::loaded::LoadedArchive) -> Option<Ba2Info> {
 pub struct ArchiveTool;
 
 impl ArchiveTool {
-    /// Detect the archive format from the file header.
+    /// Open an archive handle for repeated list/read/extract operations.
     pub fn open(path: impl AsRef<Path>) -> Result<OpenArchive> {
         OpenArchive::open(path)
     }

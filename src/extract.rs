@@ -115,7 +115,7 @@ pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
-/// Read a single archive entry selected by raw archive path bytes into memory.
+/// Read a single archive entry selected by archive path bytes, normalized before lookup.
 pub fn read_entry_bytes_by_path(path: &Path, entry: &[u8]) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes_by_path(entry)
 }
@@ -129,7 +129,7 @@ pub fn extract_entry_to_writer(
     crate::loaded::LoadedArchive::open(path)?.extract_entry_to_writer(entry, out)
 }
 
-/// Extract a single archive entry selected by raw archive path bytes into a writer.
+/// Extract a single archive entry selected by archive path bytes, normalized before lookup.
 pub fn extract_entry_path_to_writer(
     path: &Path,
     entry: &[u8],
@@ -143,7 +143,7 @@ pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Resu
     extract_entry_by_path(path, entry.as_bytes(), options)
 }
 
-/// Extract a single archive entry selected by raw archive path bytes to disk.
+/// Extract a single archive entry selected by archive path bytes, normalized before lookup.
 pub fn extract_entry_by_path(
     path: &Path,
     entry: &[u8],

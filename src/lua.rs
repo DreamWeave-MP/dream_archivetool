@@ -7,11 +7,11 @@ use crate::{
     ExtractAllOptions, ExtractOptions, OverwriteMode, Tes4Version,
 };
 
-/// Create a Lua table that mirrors the public [`ArchiveTool`] API.
+/// Create a Lua table for common [`ArchiveTool`] operations.
 ///
-/// The returned table contains `guess_format`, `info`, `list`, `read_entry`, `extract`,
-/// `extract_all`, `create`, and `add` functions. The table is not registered globally unless
-/// [`register`] is called.
+/// The returned table contains `guess_format`, `info`, `list`, `read_entry`, `read_entry_hex`,
+/// `extract`, `extract_hex`, `extract_all`, `create`, and `add` functions. The table is not
+/// registered globally unless [`register`] is called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let module = lua.create_table()?;
 
@@ -50,10 +50,27 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
             Ok(table)
         })?,
     )?;
+    register_entry_functions(lua, &module)?;
+    register_write_functions(lua, &module)?;
+
+    Ok(module)
+}
+
+fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "read_entry",
         lua.create_function(|lua, (path, entry): (String, String)| {
             let bytes = ArchiveTool::read_entry(path, &entry).map_err(LuaError::external)?;
+            lua.create_string(&bytes)
+        })?,
+    )?;
+    module.set(
+        "read_entry_hex",
+        lua.create_function(|lua, (path, entry_hex): (String, String)| {
+            let entry =
+                crate::path::decode_archive_path_hex(&entry_hex).map_err(LuaError::external)?;
+            let bytes =
+                ArchiveTool::read_entry_by_path_bytes(path, &entry).map_err(LuaError::external)?;
             lua.create_string(&bytes)
         })?,
     )?;
@@ -68,6 +85,23 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
             },
         )?,
     )?;
+    module.set(
+        "extract_hex",
+        lua.create_function(
+            |lua, (path, entry_hex, opts): (String, String, Option<Table>)| {
+                let entry =
+                    crate::path::decode_archive_path_hex(&entry_hex).map_err(LuaError::external)?;
+                let options = extract_options(opts)?;
+                let summary = ArchiveTool::extract_by_path_bytes(path, &entry, &options)
+                    .map_err(LuaError::external)?;
+                summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
+    )?;
+    Ok(())
+}
+
+fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "extract_all",
         lua.create_function(|lua, (path, opts): (String, Option<Table>)| {
@@ -93,7 +127,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
         })?,
     )?;
 
-    Ok(module)
+    Ok(())
 }
 
 /// Register the Lua API table as the global `dream_archivetool` value.
@@ -306,6 +340,49 @@ mod tests {
             .eval()
             .unwrap();
 
+        assert_eq!(extracted, 1);
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_can_round_trip_hex_entry_paths() {
+        let dir = unique_dir("hex-paths");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let bytes: String = lua
+            .load(
+                r"
+                local entry_hex = dream_archivetool.list(archive_path)[1].path_bytes_hex
+                return dream_archivetool.read_entry_hex(archive_path, entry_hex)
+            ",
+            )
+            .eval()
+            .unwrap();
+        let extracted: usize = lua
+            .load(
+                r"
+                local entry_hex = dream_archivetool.list(archive_path)[1].path_bytes_hex
+                local summary = dream_archivetool.extract_hex(archive_path, entry_hex, {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                return summary.extracted
+            ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(bytes.as_bytes(), b"hello");
         assert_eq!(extracted, 1);
         assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
         fs::remove_dir_all(dir).unwrap();
