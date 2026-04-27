@@ -29,6 +29,7 @@
 
 pub mod archive;
 pub mod create;
+pub mod diff;
 pub mod entry;
 pub mod error;
 pub mod extract;
@@ -45,6 +46,7 @@ pub use create::{
     AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, CreateOptions, CreatePlan,
     Fo4ArchiveKind, Fo4Version, Tes4Version,
 };
+pub use diff::{DiffChange, DiffEntry, DiffEntryState, DiffOptions, DiffReport, diff_archives};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
 pub use extract::{

@@ -21,6 +21,7 @@ dream-archivetool list archive.bsa
 dream-archivetool list --long archive.bsa
 dream-archivetool list --json archive.bsa
 dream-archivetool verify archive.bsa --read-payloads --json
+dream-archivetool diff old.bsa new.bsa --hash --json
 dream-archivetool extract archive.bsa textures/example.dds --output out/
 dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
 dream-archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds

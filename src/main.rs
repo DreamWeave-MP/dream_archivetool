@@ -7,8 +7,8 @@ use std::process::ExitCode;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use dream_archivetool::{
-    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
-    Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version, VerifyOptions,
+    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, DiffOptions, ExtractAllOptions,
+    ExtractOptions, Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version, VerifyOptions,
 };
 
 #[derive(Debug, Parser)]
@@ -56,6 +56,19 @@ enum Command {
         /// Stream every named payload to a sink
         #[arg(long)]
         read_payloads: bool,
+        /// Write JSON report to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// Compare two archives by normalized path bytes
+    Diff {
+        /// Old archive path
+        old: PathBuf,
+        /// New archive path
+        new: PathBuf,
+        /// Hash payload bytes instead of comparing only metadata
+        #[arg(long)]
+        hash: bool,
         /// Write JSON report to stdout
         #[arg(long)]
         json: bool,
@@ -209,6 +222,12 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             read_payloads,
             json,
         } => write_verify(stdout, archive, read_payloads, json),
+        Command::Diff {
+            old,
+            new,
+            hash,
+            json,
+        } => write_diff(stdout, old, new, hash, json),
         Command::Extract {
             archive,
             entry,
@@ -443,6 +462,31 @@ fn write_verify(
     }
     for warning in report.warnings {
         writeln!(stdout, "warning: {warning}")?;
+    }
+    Ok(())
+}
+
+fn write_diff(
+    stdout: &mut dyn Write,
+    old: PathBuf,
+    new: PathBuf,
+    hash: bool,
+    json: bool,
+) -> Result<()> {
+    let report = ArchiveTool::diff(
+        old,
+        new,
+        &DiffOptions {
+            hash_payloads: hash,
+        },
+    )?;
+    if json {
+        write_json(stdout, &report)?;
+    } else {
+        writeln!(stdout, "added: {}", report.added.len())?;
+        writeln!(stdout, "removed: {}", report.removed.len())?;
+        writeln!(stdout, "changed: {}", report.changed.len())?;
+        writeln!(stdout, "unchanged: {}", report.unchanged)?;
     }
     Ok(())
 }
@@ -714,6 +758,44 @@ mod tests {
             .find(|entry| entry["path"] == "icons/example.dds")
             .unwrap();
         assert_eq!(icon["path_bytes_hex"], "69636f6e732f6578616d706c652e646473");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn diff_command_reports_added_and_changed_entries() {
+        let dir = unique_dir("diff");
+        let old_input = dir.join("old-input");
+        let new_input = dir.join("new-input");
+        fs::create_dir_all(&old_input).unwrap();
+        fs::create_dir_all(&new_input).unwrap();
+        fs::write(old_input.join("same.txt"), b"same").unwrap();
+        fs::write(old_input.join("changed.txt"), b"old").unwrap();
+        fs::write(new_input.join("same.txt"), b"same").unwrap();
+        fs::write(new_input.join("changed.txt"), b"new").unwrap();
+        fs::write(new_input.join("added.txt"), b"added").unwrap();
+        let old_archive = dir.join("old.bsa");
+        let new_archive = dir.join("new.bsa");
+        ArchiveTool::create(&old_archive, &old_input, &CreateOptions::default()).unwrap();
+        ArchiveTool::create(&new_archive, &new_input, &CreateOptions::default()).unwrap();
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "diff",
+                old_archive.to_str().unwrap(),
+                new_archive.to_str().unwrap(),
+                "--hash",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["added"].as_array().unwrap().len(), 1);
+        assert_eq!(value["changed"].as_array().unwrap().len(), 1);
+        assert_eq!(value["unchanged"], 1);
         fs::remove_dir_all(dir).unwrap();
     }
 

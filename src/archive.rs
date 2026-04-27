@@ -4,8 +4,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AddOptions, AddPlan, ArchiveEntry, ArchiveFormat, CreateOptions, CreatePlan, ExtractAllOptions,
-    ExtractAllPlan, ExtractOptions, ExtractSummary, Result, VerifyOptions, VerifyReport,
+    AddOptions, AddPlan, ArchiveEntry, ArchiveFormat, CreateOptions, CreatePlan, DiffOptions,
+    DiffReport, ExtractAllOptions, ExtractAllPlan, ExtractOptions, ExtractSummary, Result,
+    VerifyOptions, VerifyReport,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -360,6 +361,15 @@ impl ArchiveTool {
     /// Verify archive index health and, optionally, payload readability.
     pub fn verify(path: impl AsRef<Path>, options: &VerifyOptions) -> Result<VerifyReport> {
         crate::verify::verify_archive(path.as_ref(), options)
+    }
+
+    /// Compare two archives by normalized path bytes and optional payload hashes.
+    pub fn diff(
+        old: impl AsRef<Path>,
+        new: impl AsRef<Path>,
+        options: &DiffOptions,
+    ) -> Result<DiffReport> {
+        crate::diff::diff_archives(old.as_ref(), new.as_ref(), options)
     }
 }
 
