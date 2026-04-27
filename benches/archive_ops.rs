@@ -68,21 +68,14 @@ fn add_allocated(size: usize) {
     }
 }
 
-fn reset_peak() {
-    let current = CURRENT_ALLOCATED.load(Ordering::Relaxed);
-    PEAK_ALLOCATED.store(current, Ordering::Relaxed);
-}
-
-fn peak_delta() -> usize {
-    PEAK_ALLOCATED
-        .load(Ordering::Relaxed)
-        .saturating_sub(CURRENT_ALLOCATED.load(Ordering::Relaxed))
-}
-
 fn measure_peak_bytes<T>(operation: impl FnOnce() -> T) -> (T, usize) {
-    reset_peak();
+    let baseline = CURRENT_ALLOCATED.load(Ordering::Relaxed);
+    PEAK_ALLOCATED.store(baseline, Ordering::Relaxed);
     let value = operation();
-    (value, peak_delta())
+    let peak = PEAK_ALLOCATED
+        .load(Ordering::Relaxed)
+        .saturating_sub(baseline);
+    (value, peak)
 }
 
 fn report_peak(label: &str, bytes: usize) {
@@ -165,6 +158,7 @@ fn fixture_archive_with_format(
     let archive = dir.path().join(match format {
         ArchiveFormat::Ba2 => "fixture.ba2",
         ArchiveFormat::Tes3 | ArchiveFormat::Tes4 => "fixture.bsa",
+        _ => "fixture.archive",
     });
     ArchiveTool::create(
         &archive,
@@ -221,6 +215,17 @@ fn bench_read_only(c: &mut Criterion) {
             let archive = ArchiveTool::open(black_box(&fixture.archive)).unwrap();
             black_box(
                 archive
+                    .read_entry_by_path_bytes(black_box(&selected))
+                    .unwrap(),
+            );
+        });
+    });
+
+    let opened = ArchiveTool::open(&fixture.archive).unwrap();
+    group.bench_function(BenchmarkId::new("opened_read_entry", PAYLOAD_LEN), |b| {
+        b.iter(|| {
+            black_box(
+                opened
                     .read_entry_by_path_bytes(black_box(&selected))
                     .unwrap(),
             );
@@ -605,11 +610,230 @@ fn bench_diff_payload_fingerprint(
     );
 }
 
+fn bench_large_payload_streaming(c: &mut Criterion) {
+    const ENTRY_COUNT: usize = 4;
+    const PAYLOAD_LEN: usize = 8 * 1024 * 1024;
+    let fixture = fixture_archive(ENTRY_COUNT, PAYLOAD_LEN);
+    let skip_out = TempDir::new().unwrap();
+    ArchiveTool::extract_all(
+        &fixture.archive,
+        &ExtractAllOptions {
+            output: Some(skip_out.path().to_path_buf()),
+            overwrite: OverwriteMode::Fail,
+            fsync: false,
+        },
+    )
+    .unwrap();
+
+    let mut group = c.benchmark_group("large_payload_streaming");
+    bench_large_extract_all(&mut group, &fixture, ENTRY_COUNT, PAYLOAD_LEN);
+    bench_large_verify(&mut group, &fixture, ENTRY_COUNT, PAYLOAD_LEN);
+    bench_large_skip_existing(&mut group, &fixture, skip_out.path(), ENTRY_COUNT);
+    group.finish();
+}
+
+fn bench_large_extract_all(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    fixture: &ArchiveFixture,
+    entry_count: usize,
+    payload_len: usize,
+) {
+    let (_, peak) = measure_peak_bytes(|| {
+        let out = TempDir::new().unwrap();
+        ArchiveTool::extract_all(
+            &fixture.archive,
+            &ExtractAllOptions {
+                output: Some(out.path().to_path_buf()),
+                overwrite: OverwriteMode::Fail,
+                fsync: false,
+            },
+        )
+        .unwrap()
+    });
+    report_peak("extract-all large payload streaming", peak);
+
+    group.bench_function(
+        BenchmarkId::new("extract_all", format!("{entry_count}x{payload_len}")),
+        |b| {
+            b.iter_batched(
+                || TempDir::new().unwrap(),
+                |out| {
+                    black_box(
+                        ArchiveTool::extract_all(
+                            black_box(&fixture.archive),
+                            &ExtractAllOptions {
+                                output: Some(out.path().to_path_buf()),
+                                overwrite: OverwriteMode::Fail,
+                                fsync: false,
+                            },
+                        )
+                        .unwrap(),
+                    );
+                },
+                BatchSize::SmallInput,
+            );
+        },
+    );
+}
+
+fn bench_large_verify(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    fixture: &ArchiveFixture,
+    entry_count: usize,
+    payload_len: usize,
+) {
+    let (_, peak) = measure_peak_bytes(|| {
+        ArchiveTool::verify(
+            &fixture.archive,
+            &VerifyOptions {
+                read_payloads: true,
+            },
+        )
+        .unwrap()
+    });
+    report_peak("verify large payload streaming", peak);
+
+    group.bench_function(
+        BenchmarkId::new(
+            "verify_read_payloads",
+            format!("{entry_count}x{payload_len}"),
+        ),
+        |b| {
+            b.iter(|| {
+                black_box(
+                    ArchiveTool::verify(
+                        black_box(&fixture.archive),
+                        &VerifyOptions {
+                            read_payloads: true,
+                        },
+                    )
+                    .unwrap(),
+                );
+            });
+        },
+    );
+}
+
+fn bench_large_skip_existing(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    fixture: &ArchiveFixture,
+    output: &Path,
+    entry_count: usize,
+) {
+    let (_, peak) = measure_peak_bytes(|| {
+        ArchiveTool::extract_all(
+            &fixture.archive,
+            &ExtractAllOptions {
+                output: Some(output.to_path_buf()),
+                overwrite: OverwriteMode::Skip,
+                fsync: false,
+            },
+        )
+        .unwrap()
+    });
+    report_peak("extract-all skip-existing large payload", peak);
+
+    group.bench_function(BenchmarkId::new("skip_existing", entry_count), |b| {
+        b.iter(|| {
+            black_box(
+                ArchiveTool::extract_all(
+                    black_box(&fixture.archive),
+                    &ExtractAllOptions {
+                        output: Some(output.to_path_buf()),
+                        overwrite: OverwriteMode::Skip,
+                        fsync: false,
+                    },
+                )
+                .unwrap(),
+            );
+        });
+    });
+}
+
+fn bench_many_entries(c: &mut Criterion) {
+    const ENTRY_COUNT: usize = 2_000;
+    const PAYLOAD_LEN: usize = 128;
+    let old_fixture = fixture_archive(ENTRY_COUNT, PAYLOAD_LEN);
+    let new_fixture = fixture_archive(ENTRY_COUNT, PAYLOAD_LEN + 1);
+    let mut group = c.benchmark_group("many_entries");
+
+    bench_format_list(&mut group, "tes3_many", &old_fixture, ENTRY_COUNT);
+    bench_diff_payload_many(&mut group, &old_fixture, &new_fixture, ENTRY_COUNT);
+    bench_add_many_preserve(&mut group, ENTRY_COUNT, PAYLOAD_LEN);
+
+    group.finish();
+}
+
+fn bench_diff_payload_many(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    old_fixture: &ArchiveFixture,
+    new_fixture: &ArchiveFixture,
+    entry_count: usize,
+) {
+    let (_, peak) = measure_peak_bytes(|| {
+        ArchiveTool::diff(
+            &old_fixture.archive,
+            &new_fixture.archive,
+            &DiffOptions {
+                fingerprint_payloads: true,
+            },
+        )
+        .unwrap()
+    });
+    report_peak("diff many entries with payload fingerprints", peak);
+
+    group.bench_function(
+        BenchmarkId::new("diff_payload_fingerprint", entry_count),
+        |b| {
+            b.iter(|| {
+                black_box(
+                    ArchiveTool::diff(
+                        black_box(&old_fixture.archive),
+                        black_box(&new_fixture.archive),
+                        &DiffOptions {
+                            fingerprint_payloads: true,
+                        },
+                    )
+                    .unwrap(),
+                );
+            });
+        },
+    );
+}
+
+fn bench_add_many_preserve(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+    entry_count: usize,
+    payload_len: usize,
+) {
+    let (_, peak) = measure_peak_bytes(|| {
+        let (dir, archive, new_file) = add_preserve_case(entry_count, payload_len);
+        add_preserving_entries(dir.path(), &archive, new_file)
+    });
+    report_peak("add preserving many unchanged entries", peak);
+
+    group.bench_function(BenchmarkId::new("add_preserve_rewrite", entry_count), |b| {
+        b.iter_batched(
+            || add_preserve_case(entry_count, payload_len),
+            |(dir, archive, new_file)| {
+                black_box(add_preserving_entries(
+                    dir.path(),
+                    black_box(&archive),
+                    new_file,
+                ));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+}
+
 criterion_group!(
     benches,
     bench_read_only,
     bench_extract,
     bench_format_smoke,
-    bench_create_and_update
+    bench_create_and_update,
+    bench_large_payload_streaming,
+    bench_many_entries
 );
 criterion_main!(benches);

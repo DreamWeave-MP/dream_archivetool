@@ -109,14 +109,14 @@ warning when duplicate normalized paths prevent per-entry coverage.
 { "files": 2 }
 ```
 
-`create --dry-run --json`, `add --dry-run --json`, and
-`extract-all --dry-run --json` expose the same normalized paths and policy checks
-the mutating commands use, but stop before writing output. Add plans use stable report order grouped
+`create --dry-run`, `add --dry-run`, and
+`extract-all --dry-run` print JSON plans exposing the same normalized paths and policy checks
+the mutating commands use, but stop before writing output. The `--json` flag is accepted with dry-run commands for consistency, but dry-run output is already JSON. Add plans use stable report order grouped
 by action; they are not a physical archive-order manifest.
 
 ## Library
 
-The crate exposes `ArchiveTool` and option structs for reuse by other applications:
+The crate exposes `ArchiveTool` and option structs for reuse by other applications. Public report/plan DTOs and evolvable enums are marked non-exhaustive so new fields or variants can be added without pretending today's archive formats are the end of history. Option structs remain literal-friendly; prefer `..Default::default()` in application code so future major-version additions are easier to adopt.
 
 GUI or embedding projects that do not need the command-line interface should disable default features to avoid pulling in `clap`, completion generation, manpage generation, and `serde_json` dependencies:
 
@@ -125,7 +125,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables these bindings plus the re-exported `dream_archive` and `dream_path` Lua helpers, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables this crate's Lua module and compatible Lua support in the re-exported `dream_archive` and `dream_path` APIs, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -152,7 +152,7 @@ let updated = ArchiveTool::add(
     "out.bsa",
     &AddOptions {
         inputs: vec!["new_file.txt".into()],
-        output: "updated.bsa".into(),
+        output: Some("updated.bsa".into()),
         fsync: false,
         follow_symlinks: false,
     },
@@ -395,7 +395,7 @@ cargo build --release --no-default-features
 cargo bench --bench archive_ops
 ```
 
-Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, whole-archive extraction, skip-existing extraction, creation, update, verify, and diff paths. The bench binary installs a tracking allocator and prints peak allocator deltas for one representative run of each operation before Criterion times it. Those numbers are not a replacement for OS-level RSS measurements, but they catch surprise heap growth inside the policy layer. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is still useful for checking peak resident memory while tuning large archive operations.
+Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, opened-archive reads, whole-archive extraction, skip-existing extraction, large-payload streaming, many-entry scans, creation, update, verify, and diff paths. The bench binary installs a tracking allocator and prints peak allocator deltas for one representative run of each operation before Criterion times it. Those numbers are not a replacement for OS-level RSS measurements, but they catch surprise heap growth inside the policy layer. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is still useful for checking peak resident memory while tuning large archive operations.
 
 ## License
 

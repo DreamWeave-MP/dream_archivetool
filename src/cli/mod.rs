@@ -250,6 +250,9 @@ fn create_options(
                 ..Default::default()
             })
         }
+        _ => Err(dream_archivetool::ArchiveError::Archive(
+            "unsupported archive format selected by CLI".to_string(),
+        )),
     }
 }
 
@@ -401,6 +404,7 @@ fn diff_comparison_name(comparison: dream_archivetool::DiffComparison) -> &'stat
     match comparison {
         dream_archivetool::DiffComparison::MetadataOnly => "metadata-only",
         dream_archivetool::DiffComparison::PayloadFingerprint => "payload-fingerprint",
+        _ => "unknown",
     }
 }
 
@@ -563,6 +567,7 @@ fn format_name(format: ArchiveFormat) -> &'static str {
         ArchiveFormat::Tes3 => "tes3",
         ArchiveFormat::Tes4 => "tes4",
         ArchiveFormat::Ba2 => "ba2",
+        _ => "unknown",
     }
 }
 

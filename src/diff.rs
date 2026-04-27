@@ -18,21 +18,30 @@ pub struct DiffOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Archive comparison report.
+#[non_exhaustive]
 pub struct DiffReport {
+    /// Old archive label/path formatted for display.
     pub old: String,
+    /// New archive label/path formatted for display.
     pub new: String,
     /// How entries were compared. `metadata-only` does not prove payload equality.
     pub comparison: DiffComparison,
+    /// Whether payload fingerprints were computed.
     pub fingerprint_payloads: bool,
+    /// Entries present only in the new archive.
     pub added: Vec<DiffEntry>,
+    /// Entries present only in the old archive.
     pub removed: Vec<DiffEntry>,
+    /// Entries present in both archives but with different metadata or payload fingerprint.
     pub changed: Vec<DiffChange>,
+    /// Number of entries considered unchanged.
     pub unchanged: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 /// Diff comparison mode used for this report.
+#[non_exhaustive]
 pub enum DiffComparison {
     /// Compare listed metadata only. Entries with incomplete metadata can be reported unchanged even
     /// when payload bytes differ.
@@ -43,36 +52,50 @@ pub enum DiffComparison {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Entry present on one side of an archive diff.
+#[non_exhaustive]
 pub struct DiffEntry {
+    /// Archive path formatted for display.
     pub path: String,
+    /// Hex-encoded normalized archive-path lookup key, not raw identity.
     pub path_bytes_hex: String,
+    /// Decompressed size when known.
     pub size: Option<u64>,
+    /// Compressed size when known and applicable.
     pub compressed_size: Option<u64>,
+    /// Non-cryptographic payload fingerprint when requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Entry present in both archives but with differing metadata or payload fingerprint.
+#[non_exhaustive]
 pub struct DiffChange {
+    /// Archive path formatted for display.
     pub path: String,
+    /// Hex-encoded normalized archive-path lookup key, not raw identity.
     pub path_bytes_hex: String,
+    /// Old archive state for the changed entry.
     pub old: DiffEntryState,
+    /// New archive state for the changed entry.
     pub new: DiffEntryState,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Side-specific state for a changed entry.
+#[non_exhaustive]
 pub struct DiffEntryState {
+    /// Decompressed size when known.
     pub size: Option<u64>,
+    /// Compressed size when known and applicable.
     pub compressed_size: Option<u64>,
+    /// Non-cryptographic payload fingerprint when requested.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct DiffEntryData {
-    path: Vec<u8>,
     raw_path: Vec<u8>,
     size: Option<u64>,
     compressed_size: Option<u64>,
@@ -121,12 +144,12 @@ pub(crate) fn diff_loaded_archives(
                 });
             }
         } else {
-            removed.push(diff_entry(old_entry));
+            removed.push(diff_entry(path, old_entry));
         }
     }
     for (path, new_entry) in &new_entries {
         if !old_entries.contains_key(path) {
-            added.push(diff_entry(new_entry));
+            added.push(diff_entry(path, new_entry));
         }
     }
 
@@ -171,7 +194,6 @@ fn diff_entries(
             None
         };
         let data = DiffEntryData {
-            path: entry.path,
             raw_path: entry.raw_path,
             size: entry.size,
             compressed_size: entry.compressed_size,
@@ -239,10 +261,10 @@ fn same_entry_state(left: &DiffEntryData, right: &DiffEntryData) -> bool {
         && left.payload_fingerprint == right.payload_fingerprint
 }
 
-fn diff_entry(entry: &DiffEntryData) -> DiffEntry {
+fn diff_entry(path: &[u8], entry: &DiffEntryData) -> DiffEntry {
     DiffEntry {
-        path: archive_path_bytes_to_display(&entry.path),
-        path_bytes_hex: archive_path_bytes_to_hex(&entry.path),
+        path: archive_path_bytes_to_display(path),
+        path_bytes_hex: archive_path_bytes_to_hex(path),
         size: entry.size,
         compressed_size: entry.compressed_size,
         payload_fingerprint: entry.payload_fingerprint.clone(),

@@ -7,6 +7,7 @@ pub type Result<T> = std::result::Result<T, ArchiveError>;
 
 /// Error type returned by archive operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum ArchiveError {
     /// The file header does not match a supported archive format.
     #[error("unsupported or unrecognized archive format")]

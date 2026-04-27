@@ -11,6 +11,7 @@ use crate::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Basic metadata about an archive.
+#[non_exhaustive]
 pub struct ArchiveInfo {
     /// Path that was opened, formatted for display.
     pub path: String,
@@ -37,22 +38,35 @@ pub struct ArchiveInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// TES4-family archive metadata that affects rewrite behavior.
+#[non_exhaustive]
 pub struct Tes4Info {
+    /// Human-readable TES4 archive version reported by the backend.
     pub version: String,
+    /// Human-readable archive type flags.
     pub archive_types: String,
+    /// Raw archive type flag bits.
     pub archive_types_bits: u16,
+    /// Human-readable archive flag names.
     pub archive_flags: Vec<String>,
+    /// Raw archive flag bits.
     pub archive_flags_bits: u32,
+    /// Raw archive flag bits this tool does not know how to preserve during rewrite.
     pub unsupported_archive_flags_bits: u32,
+    /// Path/name storage mode reported by the backend.
     pub name_mode: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// BA2 archive metadata that affects rewrite behavior.
+#[non_exhaustive]
 pub struct Ba2Info {
+    /// Human-readable BA2 archive version reported by the backend.
     pub version: String,
+    /// Human-readable BA2 payload format, such as general or texture payloads.
     pub payload_format: String,
+    /// Human-readable compression format reported by the backend.
     pub compression_format: String,
+    /// Whether the archive contains a string table.
     pub strings: bool,
 }
 
@@ -240,6 +254,7 @@ impl ArchiveTool {
         OpenArchive::open(path)
     }
 
+    /// Detect an archive format from its file header without opening it as a full archive.
     pub fn guess_format(path: impl AsRef<Path>) -> Result<ArchiveFormat> {
         crate::format::guess_format(path.as_ref())
     }

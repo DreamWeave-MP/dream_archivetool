@@ -8,6 +8,7 @@ use crate::{ArchiveError, Result};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// Supported Bethesda archive families.
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum ArchiveFormat {
     /// Morrowind-era BSA archives.
     Tes3,

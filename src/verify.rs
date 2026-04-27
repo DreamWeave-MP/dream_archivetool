@@ -21,28 +21,45 @@ pub struct VerifyOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Archive verification report suitable for CLI and GUI callers.
+#[non_exhaustive]
 pub struct VerifyReport {
+    /// Archive label/path formatted for display.
     pub path: String,
+    /// Detected archive family.
     pub format: ArchiveFormat,
+    /// Total file entries in the archive.
     pub file_count: usize,
+    /// Entries with recoverable path names.
     pub named_entry_count: usize,
+    /// Entries without recoverable path names.
     pub unnameable_entries: usize,
+    /// Whether this tool can rewrite the archive without known lossy behavior.
     pub rewritable: bool,
+    /// Explanation when `rewritable` is false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rewrite_blocker: Option<String>,
+    /// Duplicate normalized lookup paths found in the archive.
     pub duplicate_normalized_paths: Vec<VerifyPathIssue>,
+    /// Paths rejected by safe extraction target validation.
     pub unsafe_paths: Vec<VerifyPathIssue>,
+    /// Number of payloads streamed when payload verification was requested and possible.
     pub payloads_read: Option<usize>,
+    /// Non-fatal verification warnings.
     pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Path-level issue reported by verification.
+#[non_exhaustive]
 pub struct VerifyPathIssue {
+    /// Archive path formatted for display.
     pub path: String,
+    /// Hex-encoded normalized archive-path lookup key, not raw identity.
     pub path_bytes_hex: String,
+    /// Hex-encoded raw archive path bytes when they differ from the normalized lookup key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_path_bytes_hex: Option<String>,
+    /// Hex-encoded raw path bytes for a previous entry with the same normalized lookup key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colliding_raw_path_bytes_hex: Option<String>,
 }

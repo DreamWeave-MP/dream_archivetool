@@ -6,13 +6,14 @@ use crate::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// A single file entry listed from an archive.
+#[non_exhaustive]
 pub struct ArchiveEntry {
     /// Normalized archive path using `/` separators, converted lossily for display.
     ///
     /// This is presentation text, not the authoritative identity for entries whose names are not
-    /// valid UTF-8. Use [`Self::path_bytes_hex`] for scriptable round-tripping.
+    /// valid UTF-8. Use [`Self::path_bytes_hex`] for scriptable normalized lookup.
     pub path: String,
-    /// Hex-encoded normalized archive path bytes for scriptable round-tripping.
+    /// Hex-encoded normalized archive path bytes for scriptable lookup, not raw identity.
     #[serde(default)]
     pub path_bytes_hex: String,
     /// Decompressed size when known.

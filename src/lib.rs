@@ -6,7 +6,9 @@
 //! shared by the CLI and optional Lua bindings. The main entry point is [`ArchiveTool`]; callers doing
 //! repeated operations against one archive can use [`OpenArchive`] to keep the archive loaded.
 //! `dream_archive` is re-exported so embedding applications can register the matching lower-level Lua
-//! API without adding a second dependency just to spell the same crate name.
+//! API without adding a second dependency just to spell the same crate name. That re-export is part
+//! of this crate's embedding compatibility surface; `dream_archive` upgrades can affect downstream
+//! Lua/module integration even when `dream-archivetool` policy APIs do not change.
 //!
 //! # Example
 //!

@@ -67,6 +67,7 @@ impl Default for ExtractAllOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Summary returned by extraction operations.
+#[non_exhaustive]
 pub struct ExtractSummary {
     /// Number of files written.
     pub extracted: usize,
@@ -76,16 +77,22 @@ pub struct ExtractSummary {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Plan for extracting every archive entry without writing files.
+#[non_exhaustive]
 pub struct ExtractAllPlan {
+    /// Extraction operation represented by this plan.
     pub operation: ExtractPlanOperation,
+    /// Archive label/path formatted for display.
     pub archive: String,
+    /// Output directory formatted for display.
     pub output: String,
+    /// Planned extraction entries in stable report order.
     pub entries: Vec<ExtractPlanEntry>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 /// Extraction dry-run operation represented by a plan.
+#[non_exhaustive]
 pub enum ExtractPlanOperation {
     Extract,
     ExtractAll,
@@ -93,16 +100,22 @@ pub enum ExtractPlanOperation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// A single planned extraction target.
+#[non_exhaustive]
 pub struct ExtractPlanEntry {
+    /// Planned extraction action for this entry.
     pub action: ExtractPlanAction,
+    /// Archive path formatted for display.
     pub path: String,
+    /// Hex-encoded normalized archive-path lookup key, not raw identity.
     pub path_bytes_hex: String,
+    /// Host output target formatted for display.
     pub target: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 /// Planned extraction action.
+#[non_exhaustive]
 pub enum ExtractPlanAction {
     Extract,
     Skip,

@@ -76,6 +76,7 @@ pub struct AddOptions {
 /// Supported TES4-family BSA versions for archive creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Tes4Version {
     /// The Elder Scrolls IV: Oblivion BSA format.
     Oblivion,
@@ -90,6 +91,7 @@ pub enum Tes4Version {
 /// Supported BA2-family BA2 archive kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Ba2ArchiveKind {
     /// General-purpose BA2 archive.
     Gnrl,
@@ -103,6 +105,7 @@ pub enum Ba2ArchiveKind {
 /// Supported BA2-family BA2 versions for archive creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+#[non_exhaustive]
 pub enum Ba2Version {
     /// Fallout 4 BA2 version.
     Fallout4,

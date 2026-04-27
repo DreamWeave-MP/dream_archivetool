@@ -118,7 +118,7 @@ pub(super) enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
-        /// Print extraction plan without writing files
+        /// Print JSON extraction plan without writing files
         #[arg(long)]
         dry_run: bool,
         /// Sync file contents and parent directory after writing
@@ -137,7 +137,7 @@ pub(super) enum Command {
         /// TES4 BSA version; only valid with --format tes4
         #[arg(long, value_enum)]
         tes4_version: Option<CliTes4Version>,
-        /// BA2 archive kind; only valid with --format ba2. GNMF update/create is rejected.
+        /// BA2 archive kind; only valid with --format ba2. GNMF archive writing is rejected.
         #[arg(long, value_enum)]
         ba2_kind: Option<CliBa2ArchiveKind>,
         /// BA2 version; only valid with --format ba2
@@ -146,7 +146,7 @@ pub(super) enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
-        /// Print archive creation plan without writing files
+        /// Print JSON archive creation plan without writing files
         #[arg(long)]
         dry_run: bool,
         /// Sync file contents and parent directory after writing the archive
@@ -169,7 +169,7 @@ pub(super) enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
-        /// Print archive update plan without writing files
+        /// Print JSON archive update plan without writing files
         #[arg(long)]
         dry_run: bool,
         /// Sync file contents and parent directory after writing the archive
