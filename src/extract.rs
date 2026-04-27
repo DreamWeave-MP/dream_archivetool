@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::paths::{flat_target_path, safe_target_path};
+use crate::paths::{flat_target_path_bytes, normalize_archive_path_bytes, safe_target_path_bytes};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -91,14 +91,24 @@ pub fn extract_entry_to_writer(
 /// Extract a single archive entry to disk.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
-    let target = if options.preserve_paths {
-        safe_target_path(&root, entry)?
-    } else {
-        flat_target_path(&root, entry)?
-    };
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    let archive_path = archive
+        .list_loaded_entries()?
+        .into_iter()
+        .find(|candidate| candidate.path == normalize_archive_path_bytes(entry.as_bytes()))
+        .map_or_else(
+            || normalize_archive_path_bytes(entry.as_bytes()),
+            |entry| entry.path,
+        );
+    let target = if options.preserve_paths {
+        safe_target_path_bytes(&root, &archive_path)?
+    } else {
+        flat_target_path_bytes(&root, &archive_path)?
+    };
     write_target_with(&target, options.overwrite, options.fsync, |output| {
-        archive.extract_entry_to_writer(entry, output).map(|_| ())
+        archive
+            .extract_entry_path_to_writer(&archive_path, output)
+            .map(|_| ())
     })
 }
 
@@ -118,11 +128,12 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
                 .to_string(),
         ));
     }
-    let targets = planned_extract_targets(&root, archive.list_entries()?, options.overwrite)?;
+    let targets =
+        planned_extract_targets(&root, archive.list_loaded_entries()?, options.overwrite)?;
     for target in targets {
         let result = write_target_with(&target.path, options.overwrite, options.fsync, |output| {
             archive
-                .extract_entry_to_writer(&target.archive_path, output)
+                .extract_entry_path_to_writer(&target.archive_path, output)
                 .map(|_| ())
         })?;
         summary.extracted += result.extracted;
@@ -133,19 +144,19 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
 
 #[derive(Debug)]
 struct PlannedExtractTarget {
-    archive_path: String,
+    archive_path: Vec<u8>,
     path: PathBuf,
 }
 
 fn planned_extract_targets(
     root: &Path,
-    entries: Vec<crate::ArchiveEntry>,
+    entries: Vec<crate::loaded::LoadedEntry>,
     overwrite: OverwriteMode,
 ) -> Result<Vec<PlannedExtractTarget>> {
     let mut targets = Vec::with_capacity(entries.len());
     let mut seen = BTreeSet::new();
     for entry in entries {
-        let path = safe_target_path(root, &entry.path)?;
+        let path = safe_target_path_bytes(root, &entry.path)?;
         if !seen.insert(path.clone()) {
             return Err(ArchiveError::Archive(format!(
                 "duplicate extraction target after normalization: {}",
@@ -184,16 +195,26 @@ fn write_target_with(
         }
     }
 
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent)?;
-    }
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let directory_sync_targets = if fsync {
+        directory_sync_targets_for_create(parent)
+    } else {
+        Vec::new()
+    };
+    fs::create_dir_all(parent)?;
     let mut temp = NamedTempFile::new_in(parent)?;
     write(temp.as_file_mut())?;
     if fsync {
         temp.as_file_mut().sync_all()?;
     }
-    persist_temp(temp, target, parent, overwrite, fsync)
+    persist_temp(
+        temp,
+        target,
+        parent,
+        overwrite,
+        fsync,
+        &directory_sync_targets,
+    )
 }
 
 fn persist_temp(
@@ -202,6 +223,7 @@ fn persist_temp(
     parent: &Path,
     overwrite: OverwriteMode,
     fsync: bool,
+    directory_sync_targets: &[PathBuf],
 ) -> Result<ExtractSummary> {
     match overwrite {
         OverwriteMode::Overwrite => {
@@ -231,11 +253,31 @@ fn persist_temp(
     }
     if fsync {
         sync_parent_dir(parent)?;
+        for directory_parent in directory_sync_targets {
+            sync_parent_dir(directory_parent)?;
+        }
     }
     Ok(ExtractSummary {
         extracted: 1,
         skipped: 0,
     })
+}
+
+fn directory_sync_targets_for_create(parent: &Path) -> Vec<PathBuf> {
+    let mut sync_targets = Vec::new();
+    let mut cursor = Some(parent);
+    while let Some(path) = cursor {
+        if path.exists() {
+            break;
+        }
+        if let Some(parent) = path.parent() {
+            sync_targets.push(parent.to_path_buf());
+            cursor = Some(parent);
+        } else {
+            break;
+        }
+    }
+    sync_targets
 }
 
 fn sync_parent_dir(parent: &Path) -> Result<()> {
@@ -318,22 +360,22 @@ mod tests {
 
     #[test]
     fn rejects_traversal_paths() {
-        let err = safe_target_path(Path::new("out"), "../evil.txt").unwrap_err();
+        let err = safe_target_path_bytes(Path::new("out"), b"../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path(Path::new("out"), "/evil.txt").unwrap_err();
+        let err = safe_target_path_bytes(Path::new("out"), b"/evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path(Path::new("out"), "textures/../../evil.txt").unwrap_err();
+        let err = safe_target_path_bytes(Path::new("out"), b"textures/../../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path(Path::new("out"), "textures\\..\\evil.txt").unwrap_err();
+        let err = safe_target_path_bytes(Path::new("out"), br"textures\..\evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
     }
 
     #[test]
     fn accepts_current_directory_components() {
-        let path = safe_target_path(Path::new("out"), "./textures/./example.dds").unwrap();
+        let path = safe_target_path_bytes(Path::new("out"), b"./textures/./example.dds").unwrap();
         assert_eq!(path, Path::new("out").join("textures/example.dds"));
     }
 
@@ -527,13 +569,15 @@ mod tests {
     fn extract_all_rejects_duplicate_planned_targets() {
         let dir = unique_dir("extract-all-duplicate-target");
         let entries = vec![
-            crate::ArchiveEntry {
-                path: "textures/example.dds".to_string(),
+            crate::loaded::LoadedEntry {
+                path: b"textures/example.dds".to_vec(),
+                display_path: "textures/example.dds".to_string(),
                 size: None,
                 compressed_size: None,
             },
-            crate::ArchiveEntry {
-                path: "textures\\EXAMPLE.DDS".to_string(),
+            crate::loaded::LoadedEntry {
+                path: b"textures/example.dds".to_vec(),
+                display_path: "textures/EXAMPLE.DDS".to_string(),
                 size: None,
                 compressed_size: None,
             },
@@ -542,5 +586,44 @@ mod tests {
         let err = planned_extract_targets(&dir, entries, OverwriteMode::Overwrite).unwrap_err();
 
         assert!(err.to_string().contains("duplicate extraction target"));
+    }
+
+    #[test]
+    fn extract_entry_uses_stored_path_for_output_target() {
+        let dir = unique_dir("extract-canonical-target");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let output = dir.join("out");
+
+        extract_entry(
+            &archive_path,
+            "TEXTURES//EXAMPLE.DDS",
+            &ExtractOptions {
+                output: Some(output.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            fs::read(output.join("textures/example.dds")).unwrap(),
+            b"payload"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn fsync_directory_plan_includes_new_directory_parents() {
+        let dir = unique_dir("fsync-plan");
+        fs::create_dir_all(&dir).unwrap();
+        let parent = dir.join("a/b/c");
+
+        let plan = directory_sync_targets_for_create(&parent);
+
+        assert!(plan.contains(&dir.join("a/b")));
+        assert!(plan.contains(&dir.join("a")));
+        assert!(plan.contains(&dir));
+        fs::remove_dir_all(dir).unwrap();
     }
 }

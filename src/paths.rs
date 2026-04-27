@@ -1,7 +1,8 @@
-use std::path::{Component, Path, PathBuf};
-
+#[cfg(unix)]
+use std::ffi::OsStr;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
+use std::path::{Component, Path, PathBuf};
 
 use dream_archive::ByteSlice;
 use dream_path::NormalizedPath;
@@ -44,38 +45,47 @@ pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
     Ok(normalized)
 }
 
-pub(crate) fn safe_target_path(root: &Path, archive_path: &str) -> Result<PathBuf> {
-    if archive_path.starts_with('/') || archive_path.starts_with('\\') {
-        return Err(ArchiveError::UnsafePath(archive_path.to_string()));
+pub(crate) fn safe_target_path_bytes(root: &Path, archive_path: &[u8]) -> Result<PathBuf> {
+    if archive_path.starts_with(b"/") || archive_path.starts_with(b"\\") {
+        return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
+            archive_path,
+        )));
     }
-
-    let normalized = normalize_archive_path(archive_path);
-    validate_virtual_path(&normalized)?;
-
+    let normalized = normalize_archive_path_bytes(archive_path);
+    validate_virtual_path_bytes(&normalized)?;
+    #[cfg(not(unix))]
+    std::str::from_utf8(&normalized)
+        .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(&normalized)))?;
     let mut target = PathBuf::from(root);
-    for component in Path::new(&normalized).components() {
-        match component {
-            Component::Normal(part) => target.push(part),
-            Component::CurDir => {}
-            _ => return Err(ArchiveError::UnsafePath(archive_path.to_string())),
+    for component in normalized.split(|byte| *byte == b'/') {
+        if component == b"." {
+            continue;
         }
+        push_component_bytes(&mut target, component);
     }
     Ok(target)
 }
 
-pub(crate) fn flat_target_path(root: &Path, archive_path: &str) -> Result<PathBuf> {
-    let normalized = normalize_archive_path(archive_path);
-    validate_virtual_path(&normalized)?;
-    let file_name = NormalizedPath::new(normalized.as_bytes())
+pub(crate) fn flat_target_path_bytes(root: &Path, archive_path: &[u8]) -> Result<PathBuf> {
+    let normalized = normalize_archive_path_bytes(archive_path);
+    validate_virtual_path_bytes(&normalized)?;
+    #[cfg(not(unix))]
+    std::str::from_utf8(&normalized)
+        .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(&normalized)))?;
+    let normalized_path = NormalizedPath::new(&normalized);
+    let file_name = normalized_path
         .file_name()
-        .ok_or_else(|| ArchiveError::UnsafePath(archive_path.to_string()))?
-        .to_str_lossy()
-        .into_owned();
-    Ok(root.join(file_name))
+        .ok_or_else(|| ArchiveError::UnsafePath(archive_path_bytes_to_display(archive_path)))?;
+    let mut target = PathBuf::from(root);
+    push_component_bytes(&mut target, file_name.as_bytes());
+    Ok(target)
 }
 
-fn validate_virtual_path(path: &str) -> Result<()> {
-    validate_virtual_path_bytes(path.as_bytes())
+fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
+    #[cfg(unix)]
+    target.push(OsStr::from_bytes(component));
+    #[cfg(not(unix))]
+    target.push(std::str::from_utf8(component).expect("validated UTF-8 archive path component"));
 }
 
 fn validate_virtual_path_bytes(path: &[u8]) -> Result<()> {

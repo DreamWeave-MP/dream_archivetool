@@ -116,11 +116,12 @@ fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
 ///
 /// Existing archive entries are preserved unless replaced by an input path. The source archive is
 /// opened once and is not modified in place.
-pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
+pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize> {
     if options.inputs.is_empty() {
         return Err(ArchiveError::Archive("no input files supplied".to_string()));
     }
-    let archive = crate::loaded::LoadedArchive::open(archive)?;
+    reject_same_archive_output(archive_path, &options.output)?;
+    let archive = crate::loaded::LoadedArchive::open(archive_path)?;
     reject_unrewritable_archive(&archive)?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
@@ -132,8 +133,8 @@ pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     let mut entries = read_input_entries(input_entries)?;
     let input_keys = entries.keys().cloned().collect::<BTreeSet<_>>();
     let mut existing_keys = BTreeSet::new();
-    for entry in archive.list_entries()? {
-        let key = normalize_archive_path_bytes(entry.path.as_bytes());
+    for entry in archive.list_loaded_entries()? {
+        let key = normalize_archive_path_bytes(&entry.path);
         if !existing_keys.insert(key.clone()) {
             return Err(ArchiveError::Archive(format!(
                 "archive contains duplicate normalized path: {}",
@@ -145,12 +146,34 @@ pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
         }
         match entries.entry(key) {
             Entry::Vacant(entry_slot) => {
-                entry_slot.insert(archive.read_entry_bytes(&entry.path)?);
+                entry_slot.insert(archive.read_entry_bytes_by_path(&entry.path)?);
             }
             Entry::Occupied(_) => unreachable!("input keys were handled before archive insertion"),
         }
     }
     write_entries_like(&options.output, entries, &archive, options.fsync)
+}
+
+fn reject_same_archive_output(input: &Path, output: &Path) -> Result<()> {
+    let input = comparable_path(input)?;
+    let output = comparable_path(output)?;
+    if input == output {
+        return Err(ArchiveError::Archive(
+            "output archive path must differ from input archive path".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn comparable_path(path: &Path) -> Result<PathBuf> {
+    if path.exists() {
+        return Ok(path.canonicalize()?);
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = parent.canonicalize()?;
+    Ok(path
+        .file_name()
+        .map_or(parent.clone(), |name| parent.join(name)))
 }
 
 fn reject_unrewritable_archive(archive: &crate::loaded::LoadedArchive) -> Result<()> {
@@ -464,7 +487,7 @@ fn write_fo4(
     let version = match version {
         Fo4Version::Fallout4 => Ba2ArchiveVersion::v1,
         Fo4Version::Starfield => Ba2ArchiveVersion::v2,
-        Fo4Version::Fallout4NextGen => Ba2ArchiveVersion::v7,
+        Fo4Version::Fallout4NextGen => Ba2ArchiveVersion::v8,
     };
     write_fo4_with_format(output, entries, format, version)
 }
@@ -768,7 +791,7 @@ mod tests {
         .unwrap();
 
         let archive = dream_archive::ba2::Archive::open_path(&archive).unwrap();
-        assert_eq!(archive.info().version, Ba2ArchiveVersion::v7);
+        assert_eq!(archive.info().version, Ba2ArchiveVersion::v8);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1009,6 +1032,95 @@ mod tests {
         let entries = collect_input_entry_paths(&dir).unwrap();
 
         assert!(entries.contains_key(b"foo\xff.txt".as_slice()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_rejects_output_matching_input_archive() {
+        let dir = unique_dir("add-same-output");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("base.bsa");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+
+        let err = add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: archive.clone(),
+                fsync: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("must differ"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn created_non_utf8_archive_can_be_listed_extracted_and_rewritten() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = unique_dir("non-utf8-roundtrip");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        let file_name = OsString::from_vec(vec![b'F', b'O', b'O', 0xff, b'.', b'T', b'X', b'T']);
+        fs::write(input.join(&file_name), b"payload").unwrap();
+        let archive = dir.join("out.bsa");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let entries = ArchiveTool::list(&archive).unwrap();
+        assert_eq!(entries.len(), 1);
+        let extract_dir = dir.join("extract");
+        crate::extract::extract_all(
+            &archive,
+            &crate::ExtractAllOptions {
+                output: Some(extract_dir.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let normalized_name =
+            OsString::from_vec(vec![b'f', b'o', b'o', 0xff, b'.', b't', b'x', b't']);
+        assert_eq!(
+            fs::read(extract_dir.join(normalized_name)).unwrap(),
+            b"payload"
+        );
+
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+        let updated = dir.join("updated.bsa");
+        add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: updated.clone(),
+                fsync: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(ArchiveTool::list(&updated).unwrap().len(), 2);
         fs::remove_dir_all(dir).unwrap();
     }
 }
