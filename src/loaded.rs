@@ -2,6 +2,7 @@ use std::path::Path;
 
 use dream_archive::{Archive, BStr, ByteSlice};
 
+use crate::paths::{normalize_archive_path, normalize_archive_path_bytes};
 use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
 
 pub enum LoadedArchive {
@@ -89,6 +90,14 @@ impl LoadedArchive {
         }
     }
 
+    pub fn named_entry_count(&self) -> usize {
+        self.list_entries().len()
+    }
+
+    pub fn has_unnameable_entries(&self) -> bool {
+        self.named_entry_count() != self.file_count()
+    }
+
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
         let entry = normalize_archive_path(entry);
         let bytes = match self {
@@ -104,25 +113,10 @@ impl LoadedArchive {
         };
         bytes.ok_or(ArchiveError::EntryNotFound(entry))
     }
-
-    pub fn for_each_entry_bytes(
-        &self,
-        mut visit: impl FnMut(&str, Vec<u8>) -> Result<()>,
-    ) -> Result<()> {
-        for entry in self.list_entries() {
-            let bytes = self.read_entry_bytes(&entry.path)?;
-            visit(&entry.path, bytes)?;
-        }
-        Ok(())
-    }
 }
 
 fn path_to_string(path: &BStr) -> String {
-    normalize_archive_path(&path.to_str_lossy())
-}
-
-fn normalize_archive_path(path: &str) -> String {
-    path.replace('\\', "/")
+    normalize_archive_path_bytes(path.as_bytes())
 }
 
 #[cfg(test)]
@@ -150,12 +144,10 @@ mod tests {
 
         let archive = LoadedArchive::open(&archive_path).unwrap();
         let mut entries = Vec::new();
-        archive
-            .for_each_entry_bytes(|path, bytes| {
-                entries.push((path.to_string(), bytes));
-                Ok(())
-            })
-            .unwrap();
+        for entry in archive.list_entries() {
+            let bytes = archive.read_entry_bytes(&entry.path).unwrap();
+            entries.push((entry.path, bytes));
+        }
 
         entries.sort_by(|left, right| left.0.cmp(&right.0));
         assert_eq!(

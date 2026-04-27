@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +10,7 @@ use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::ArchiveFormat;
+use crate::paths::{normalize_archive_path, path_to_archive_string};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone)]
@@ -88,8 +89,18 @@ pub enum Fo4Version {
 /// Returns the number of archive entries written. Writes go through a temporary file in the output
 /// directory before replacing `output`.
 pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> Result<usize> {
+    reject_unsupported_create_options(options)?;
     let entries = collect_input_entries(input)?;
     write_entries(output, entries, options)
+}
+
+fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
+    if options.format == ArchiveFormat::Fo4 && options.fo4_kind == Fo4ArchiveKind::Gnmf {
+        return Err(ArchiveError::Archive(
+            "creating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Add or replace entries in an existing archive by writing a new archive.
@@ -98,16 +109,22 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
 /// opened once and is not modified in place.
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     let archive = crate::loaded::LoadedArchive::open(archive)?;
+    if archive.has_unnameable_entries() {
+        return Err(ArchiveError::Archive(
+            "archive contains entries without recoverable paths; refusing to rewrite it lossy"
+                .to_string(),
+        ));
+    }
     let mut entries = BTreeMap::new();
     for input in &options.inputs {
         entries.extend(collect_input_entries(input)?);
     }
-    archive.for_each_entry_bytes(|path, bytes| {
-        if !entries.contains_key(path) {
-            entries.insert(path.to_string(), bytes);
+    for entry in archive.list_entries() {
+        let key = normalize_archive_path(&entry.path);
+        if let Entry::Vacant(entry_slot) = entries.entry(key) {
+            entry_slot.insert(archive.read_entry_bytes(&entry.path)?);
         }
-        Ok(())
-    })?;
+    }
     write_entries_like(&options.output, entries, &archive)
 }
 
@@ -117,7 +134,11 @@ fn collect_input_entries(input: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         let name = input
             .file_name()
             .ok_or_else(|| ArchiveError::UnsafePath(input.display().to_string()))?;
-        entries.insert(path_to_archive_string(Path::new(name))?, fs::read(input)?);
+        insert_entry(
+            &mut entries,
+            &path_to_archive_string(Path::new(name))?,
+            fs::read(input)?,
+        )?;
         return Ok(entries);
     }
 
@@ -130,9 +151,22 @@ fn collect_input_entries(input: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         let relative = path
             .strip_prefix(input)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-        entries.insert(path_to_archive_string(relative)?, fs::read(path)?);
+        insert_entry(
+            &mut entries,
+            &path_to_archive_string(relative)?,
+            fs::read(path)?,
+        )?;
     }
     Ok(entries)
+}
+
+fn insert_entry(entries: &mut BTreeMap<String, Vec<u8>>, path: &str, bytes: Vec<u8>) -> Result<()> {
+    if entries.insert(path.to_string(), bytes).is_some() {
+        return Err(ArchiveError::Archive(format!(
+            "duplicate archive path after normalization: {path}"
+        )));
+    }
+    Ok(())
 }
 
 fn write_entries(
@@ -178,6 +212,15 @@ fn with_temp_output(output: &Path, write: impl FnOnce(&mut fs::File) -> Result<(
     temp.as_file_mut().sync_all()?;
     temp.persist(output)
         .map_err(|err| ArchiveError::Io(err.error))?;
+    sync_parent_dir(parent)?;
+    Ok(())
+}
+
+fn sync_parent_dir(parent: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        fs::File::open(parent)?.sync_all()?;
+    }
     Ok(())
 }
 
@@ -371,14 +414,6 @@ fn fo4_kind_from_payload_format(format: PayloadFormat) -> Fo4ArchiveKind {
     }
 }
 
-fn path_to_archive_string(path: &Path) -> Result<String> {
-    let value = path.to_string_lossy().replace('\\', "/");
-    if value.is_empty() || value.starts_with('/') || value.split('/').any(|part| part == "..") {
-        return Err(ArchiveError::UnsafePath(value));
-    }
-    Ok(value)
-}
-
 #[cfg(test)]
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -526,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_gnf_gnmf_inputs_without_clobbering_output() {
+    fn rejects_gnmf_creation_without_clobbering_output() {
         let dir = unique_dir("create-gnmf-invalid");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
@@ -551,7 +586,7 @@ mod tests {
     }
 
     #[test]
-    fn accepts_uppercase_gnmf_extensions() {
+    fn rejects_gnmf_creation_before_extension_policy_matters() {
         let dir = unique_dir("create-gnmf-uppercase");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
@@ -569,7 +604,7 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(!err.to_string().contains("can only contain .gnf"));
+        assert!(err.to_string().contains("GNMF"));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -758,6 +793,21 @@ mod tests {
             ArchiveTool::read_entry(&output, "keep.txt").unwrap(),
             b"keep"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_duplicate_paths_after_normalization() {
+        let dir = unique_dir("duplicate-normalized");
+        let input = dir.join("input");
+        fs::create_dir_all(input.join("textures")).unwrap();
+        fs::write(input.join("textures/example.dds"), b"lower").unwrap();
+        fs::write(input.join("textures/EXAMPLE.DDS"), b"upper").unwrap();
+        let archive = dir.join("out.bsa");
+
+        let err = create_archive(&archive, &input, &CreateOptions::default()).unwrap_err();
+
+        assert!(err.to_string().contains("duplicate archive path"));
         fs::remove_dir_all(dir).unwrap();
     }
 }

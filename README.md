@@ -138,16 +138,16 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. `extract-all` streams entries to disk as it iterates the loaded archive instead of buffering the whole archive payload, reopening, reparsing, or doing list-plus-lookup scans for each file. `--skip-existing` checks the destination before decoding entry payloads. `add` also iterates the loaded archive directly and skips decoding existing entries that are replaced by new inputs.
+Archives are opened once per high-level operation. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs.
 
-Creation and update currently stage output archive entries in memory before writing because the `ba2` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory.
+Creation and update currently stage output archive entries in memory before writing because the `dream_archive` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory.
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where the `ba2` crate exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8.
+- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names are rejected rather than rewritten lossy.
 - `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
-- `create --format fo4 --ba2-kind gnmf` only accepts `.gnf` entries. This extension check is case-insensitive; the underlying writer may still reject invalid GNF data.
+- `create --format fo4 --ba2-kind gnmf` is currently rejected. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
 - FO4/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 

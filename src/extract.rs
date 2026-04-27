@@ -1,9 +1,11 @@
 use std::fs;
 use std::io::Write;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use tempfile::NamedTempFile;
 
+use crate::paths::{flat_target_path, safe_target_path};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -73,17 +75,17 @@ pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
 
 /// Extract a single archive entry to disk.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
-    let bytes = read_entry_bytes(path, entry)?;
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let target = if options.preserve_paths {
         safe_target_path(&root, entry)?
     } else {
-        let file_name = Path::new(entry)
-            .file_name()
-            .ok_or_else(|| ArchiveError::UnsafePath(entry.to_string()))?;
-        root.join(file_name)
+        flat_target_path(&root, entry)?
     };
-    write_target(&target, &bytes, options.overwrite)
+    let archive = crate::loaded::LoadedArchive::open(path)?;
+    write_target_with(&target, options.overwrite, |output| {
+        let bytes = archive.read_entry_bytes(entry)?;
+        output.write_all(&bytes).map_err(ArchiveError::Io)
+    })
 }
 
 /// Extract every archive entry to disk.
@@ -96,47 +98,22 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    archive.for_each_entry_bytes(|path, bytes| {
-        let target = safe_target_path(&root, path)?;
+    if archive.has_unnameable_entries() {
+        return Err(ArchiveError::Archive(
+            "archive contains entries without recoverable paths; refusing to extract it lossy"
+                .to_string(),
+        ));
+    }
+    for entry in archive.list_entries() {
+        let target = safe_target_path(&root, &entry.path)?;
         let result = write_target_with(&target, options.overwrite, |output| {
+            let bytes = archive.read_entry_bytes(&entry.path)?;
             output.write_all(&bytes).map_err(ArchiveError::Io)
         })?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
-        Ok(())
-    })?;
+    }
     Ok(summary)
-}
-
-fn normalize_archive_path(path: &str) -> String {
-    path.replace('\\', "/")
-}
-
-fn safe_target_path(root: &Path, archive_path: &str) -> Result<PathBuf> {
-    let normalized = normalize_archive_path(archive_path);
-    let path = Path::new(&normalized);
-    if path.is_absolute() {
-        return Err(ArchiveError::UnsafePath(archive_path.to_string()));
-    }
-
-    let mut target = PathBuf::from(root);
-    for component in path.components() {
-        match component {
-            Component::Normal(part) => target.push(part),
-            Component::CurDir => {}
-            _ => return Err(ArchiveError::UnsafePath(archive_path.to_string())),
-        }
-    }
-    Ok(target)
-}
-
-fn write_target(target: &Path, bytes: &[u8], overwrite: OverwriteMode) -> Result<ExtractSummary> {
-    write_target_with(target, overwrite, |output| {
-        use std::io::Write;
-
-        output.write_all(bytes)?;
-        Ok(())
-    })
 }
 
 fn write_target_with(
@@ -162,12 +139,25 @@ fn write_target_with(
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut output = fs::File::create(target)?;
-    write(&mut output)?;
+    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let mut temp = NamedTempFile::new_in(parent)?;
+    write(temp.as_file_mut())?;
+    temp.as_file_mut().sync_all()?;
+    temp.persist(target)
+        .map_err(|err| ArchiveError::Io(err.error))?;
+    sync_parent_dir(parent)?;
     Ok(ExtractSummary {
         extracted: 1,
         skipped: 0,
     })
+}
+
+fn sync_parent_dir(parent: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -339,6 +329,30 @@ mod tests {
             fs::read(output_dir.join("textures/example.dds")).unwrap(),
             b"existing"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn flat_extraction_uses_virtual_path_basename() {
+        let dir = unique_dir("extract-flat-backslash");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let output = dir.join("out");
+
+        extract_entry(
+            &archive_path,
+            "textures\\example.dds",
+            &ExtractOptions {
+                output: Some(output.clone()),
+                overwrite: OverwriteMode::Fail,
+                preserve_paths: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"payload");
+        assert!(!output.join("textures\\example.dds").exists());
         fs::remove_dir_all(dir).unwrap();
     }
 

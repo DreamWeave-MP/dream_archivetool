@@ -299,6 +299,7 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "criterion",
+ "dream-path",
  "dream_archive",
  "mlua",
  "serde",

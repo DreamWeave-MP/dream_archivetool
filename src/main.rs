@@ -54,19 +54,22 @@ enum Command {
         /// Entry path inside the archive
         entry: String,
         /// Output directory
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "stdout")]
         output: Option<PathBuf>,
         /// Write file bytes to stdout
-        #[arg(long)]
+        #[arg(
+            long,
+            conflicts_with_all = ["output", "flat", "overwrite", "skip_existing"]
+        )]
         stdout: bool,
         /// Discard archive directories and write only the basename
-        #[arg(long)]
+        #[arg(long, conflicts_with = "stdout")]
         flat: bool,
         /// Replace existing files
-        #[arg(long, conflicts_with = "skip_existing")]
+        #[arg(long, conflicts_with_all = ["skip_existing", "stdout"])]
         overwrite: bool,
         /// Leave existing files untouched
-        #[arg(long, conflicts_with = "overwrite")]
+        #[arg(long, conflicts_with_all = ["overwrite", "stdout"])]
         skip_existing: bool,
     },
     /// Extract every archive entry

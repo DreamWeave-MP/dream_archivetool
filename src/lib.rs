@@ -31,6 +31,7 @@ pub mod error;
 pub mod extract;
 pub mod format;
 mod loaded;
+mod paths;
 
 #[cfg(feature = "lua")]
 pub mod lua;
