@@ -133,7 +133,7 @@ pub fn plan_create_archive(
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
     if options.format == ArchiveFormat::Ba2 && options.ba2_kind == Ba2ArchiveKind::Gnmf {
         return Err(ArchiveError::Archive(
-            "creating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+            crate::rewrite_policy::GNMF_BLOCKER.to_string(),
         ));
     }
     Ok(())
@@ -252,10 +252,10 @@ fn write_entries_like(
     fsync: bool,
 ) -> Result<usize> {
     let count = count_rewritten_entries(&entries, archive)?;
-    with_temp_output(output, fsync, |file| match archive {
-        crate::loaded::LoadedArchive::Tes3(archive) => write_tes3_like(file, entries, archive),
-        crate::loaded::LoadedArchive::Tes4(archive) => write_tes4_like(file, entries, archive),
-        crate::loaded::LoadedArchive::Ba2(archive) => write_ba2_like(file, entries, archive),
+    with_temp_output(output, fsync, |file| match archive.as_dream_archive() {
+        dream_archive::Archive::Tes3Bsa(archive) => write_tes3_like(file, entries, archive),
+        dream_archive::Archive::Tes4Bsa(archive) => write_tes4_like(file, entries, archive),
+        dream_archive::Archive::BA2(archive) => write_ba2_like(file, entries, archive),
     })?;
     Ok(count)
 }
@@ -274,8 +274,8 @@ fn count_rewritten_entries(
 
 fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTreeSet<Vec<u8>>> {
     let mut existing = BTreeSet::new();
-    match archive {
-        crate::loaded::LoadedArchive::Tes3(archive) => {
+    match archive.as_dream_archive() {
+        dream_archive::Archive::Tes3Bsa(archive) => {
             for entry in archive.entries() {
                 insert_existing_archive_path(
                     &mut existing,
@@ -283,7 +283,7 @@ fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTre
                 )?;
             }
         }
-        crate::loaded::LoadedArchive::Tes4(archive) => {
+        dream_archive::Archive::Tes4Bsa(archive) => {
             for entry in archive.entries() {
                 let Some(path) = entry.path() else { continue };
                 insert_existing_archive_path(
@@ -292,7 +292,7 @@ fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTre
                 )?;
             }
         }
-        crate::loaded::LoadedArchive::Ba2(archive) => {
+        dream_archive::Archive::BA2(archive) => {
             for entry in archive.entries() {
                 if entry.name().is_empty() {
                     continue;
@@ -351,13 +351,9 @@ fn preflight_add_paths<'a>(
     paths: impl IntoIterator<Item = &'a Vec<u8>>,
     archive: &crate::loaded::LoadedArchive,
 ) -> Result<()> {
-    if let crate::loaded::LoadedArchive::Ba2(archive) = archive {
+    if let dream_archive::Archive::BA2(archive) = archive.as_dream_archive() {
         let kind = ba2_kind_from_payload_format(archive.info().format);
-        if kind == Ba2ArchiveKind::Gnmf {
-            return Err(ArchiveError::Archive(
-                "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
-            ));
-        }
+        crate::rewrite_policy::ensure_ba2_payload_format_writable(archive.info().format)?;
         validate_ba2_paths(paths, kind)?;
     }
     Ok(())
@@ -543,13 +539,14 @@ fn write_ba2_like(
 ) -> Result<()> {
     let info = archive.info();
     if info.format == PayloadFormat::DX10 {
-        return write_dx10_ba2_like(output, entries, archive, info.version);
+        return write_dx10_ba2_like_buffering_preserved_entries(
+            output,
+            entries,
+            archive,
+            info.version,
+        );
     }
-    if info.format == PayloadFormat::GNMF {
-        return Err(ArchiveError::Archive(
-            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
-        ));
-    }
+    crate::rewrite_policy::ensure_ba2_payload_format_writable(info.format)?;
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(info.version);
     let source_archive = Arc::new(archive.clone());
@@ -582,11 +579,7 @@ fn write_ba2_with_format(
     if format == PayloadFormat::DX10 {
         return write_dx10_ba2(output, entries, version);
     }
-    if format == PayloadFormat::GNMF {
-        return Err(ArchiveError::Archive(
-            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
-        ));
-    }
+    crate::rewrite_policy::ensure_ba2_payload_format_writable(format)?;
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(version);
     for (path, source) in entries {
@@ -608,7 +601,7 @@ fn write_dx10_ba2(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_dx10_ba2_like(
+fn write_dx10_ba2_like_buffering_preserved_entries(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,

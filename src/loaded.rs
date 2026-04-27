@@ -28,39 +28,34 @@ impl LoadedEntry {
     }
 }
 
-pub enum LoadedArchive {
-    Tes3(dream_archive::bsa::tes3::Archive),
-    Tes4(dream_archive::bsa::tes4::Archive),
-    Ba2(dream_archive::ba2::Archive),
+pub struct LoadedArchive {
+    archive: Archive,
 }
 
 impl LoadedArchive {
     pub fn open(path: &Path) -> Result<Self> {
-        match Archive::open_path(path).map_err(|err| {
+        let archive = Archive::open_path(path).map_err(|err| {
             ArchiveError::Archive(format!(
                 "failed to open archive '{}': {err}",
                 path.display()
             ))
-        })? {
-            Archive::Tes3Bsa(archive) => Ok(Self::Tes3(archive)),
-            Archive::Tes4Bsa(archive) => Ok(Self::Tes4(archive)),
-            Archive::BA2(archive) => Ok(Self::Ba2(archive)),
-        }
+        })?;
+        Ok(Self { archive })
+    }
+
+    pub(crate) fn as_dream_archive(&self) -> &Archive {
+        &self.archive
     }
 
     pub fn file_count(&self) -> usize {
-        match self {
-            Self::Tes3(archive) => archive.len(),
-            Self::Tes4(archive) => archive.len(),
-            Self::Ba2(archive) => archive.len(),
-        }
+        self.archive.len()
     }
 
     pub fn format(&self) -> ArchiveFormat {
-        match self {
-            Self::Tes3(_) => ArchiveFormat::Tes3,
-            Self::Tes4(_) => ArchiveFormat::Tes4,
-            Self::Ba2(_) => ArchiveFormat::Ba2,
+        match self.archive.format() {
+            dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES3) => ArchiveFormat::Tes3,
+            dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES4) => ArchiveFormat::Tes4,
+            dream_archive::FileFormat::BA2 => ArchiveFormat::Ba2,
         }
     }
 
@@ -73,8 +68,8 @@ impl LoadedArchive {
     }
 
     pub(crate) fn list_loaded_entries(&self) -> Result<Vec<LoadedEntry>> {
-        Ok(match self {
-            Self::Tes3(archive) => archive
+        Ok(match &self.archive {
+            Archive::Tes3Bsa(archive) => archive
                 .entries()
                 .iter()
                 .map(|entry| {
@@ -86,7 +81,7 @@ impl LoadedArchive {
                     })
                 })
                 .collect::<Result<Vec<_>>>()?,
-            Self::Tes4(archive) => archive
+            Archive::Tes4Bsa(archive) => archive
                 .entries()
                 .iter()
                 .filter_map(|entry| {
@@ -102,7 +97,7 @@ impl LoadedArchive {
                     }))
                 })
                 .collect::<Result<Vec<_>>>()?,
-            Self::Ba2(archive) => archive
+            Archive::BA2(archive) => archive
                 .entries()
                 .iter()
                 .filter(|entry| !entry.name().is_empty())
@@ -132,14 +127,14 @@ impl LoadedArchive {
     }
 
     pub fn named_entry_count(&self) -> usize {
-        match self {
-            Self::Tes3(archive) => archive.len(),
-            Self::Tes4(archive) => archive
+        match &self.archive {
+            Archive::Tes3Bsa(archive) => archive.len(),
+            Archive::Tes4Bsa(archive) => archive
                 .entries()
                 .iter()
                 .filter(|entry| entry.path().is_some())
                 .count(),
-            Self::Ba2(archive) => archive
+            Archive::BA2(archive) => archive
                 .entries()
                 .iter()
                 .filter(|entry| !entry.name().is_empty())
@@ -166,17 +161,10 @@ impl LoadedArchive {
     }
 
     pub(crate) fn read_entry_bytes_by_normalized_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
-        let bytes = match self {
-            Self::Tes3(archive) => archive
-                .read_file(entry)
-                .map_err(|err| ArchiveError::Archive(err.to_string()))?,
-            Self::Tes4(archive) => archive
-                .read_file(entry)
-                .map_err(|err| ArchiveError::Archive(err.to_string()))?,
-            Self::Ba2(archive) => archive
-                .read_file(entry)
-                .map_err(|err| ArchiveError::Archive(err.to_string()))?,
-        };
+        let bytes = self
+            .archive
+            .read_file(entry)
+            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
         bytes.ok_or_else(|| ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry)))
     }
 
@@ -199,36 +187,16 @@ impl LoadedArchive {
         entry: &[u8],
         out: &mut dyn Write,
     ) -> Result<u64> {
-        let written = match self {
-            Self::Tes3(archive) => archive
-                .extract_file_required(entry, out)
-                .map_err(|err| map_bsa_error(err, entry))?,
-            Self::Tes4(archive) => archive
-                .extract_file_required(entry, out)
-                .map_err(|err| map_bsa_error(err, entry))?,
-            Self::Ba2(archive) => archive
-                .extract_file_required(entry, out)
-                .map_err(|err| map_ba2_error(err, entry))?,
-        };
+        let written = self
+            .archive
+            .extract_file_required(entry, out)
+            .map_err(|err| match err {
+                dream_archive::Error::FileNotFound(_) => {
+                    ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
+                }
+                err => ArchiveError::Archive(err.to_string()),
+            })?;
         Ok(written)
-    }
-}
-
-fn map_bsa_error(err: dream_archive::bsa::Error, entry: &[u8]) -> ArchiveError {
-    match err {
-        dream_archive::bsa::Error::FileNotFound(_) => {
-            ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
-        }
-        err => ArchiveError::Archive(err.to_string()),
-    }
-}
-
-fn map_ba2_error(err: dream_archive::ba2::Error, entry: &[u8]) -> ArchiveError {
-    match err {
-        dream_archive::ba2::Error::FileNotFound(_) => {
-            ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
-        }
-        err => ArchiveError::Archive(err.to_string()),
     }
 }
 

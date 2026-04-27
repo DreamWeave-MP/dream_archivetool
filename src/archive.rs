@@ -150,7 +150,7 @@ fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveIn
 }
 
 fn tes4_info(archive: &crate::loaded::LoadedArchive) -> Option<Tes4Info> {
-    let crate::loaded::LoadedArchive::Tes4(archive) = archive else {
+    let dream_archive::Archive::Tes4Bsa(archive) = archive.as_dream_archive() else {
         return None;
     };
     let info = archive.info();
@@ -199,7 +199,7 @@ fn tes4_name_mode(
 }
 
 fn ba2_info(archive: &crate::loaded::LoadedArchive) -> Option<Ba2Info> {
-    let crate::loaded::LoadedArchive::Ba2(archive) = archive else {
+    let dream_archive::Archive::BA2(archive) = archive.as_dream_archive() else {
         return None;
     };
     let info = archive.info();

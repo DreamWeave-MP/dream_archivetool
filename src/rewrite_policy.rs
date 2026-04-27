@@ -10,26 +10,35 @@ const UNNAMEABLE_ENTRIES_BLOCKER: &str =
     "archive contains entries without recoverable paths; refusing to rewrite it lossy";
 const TES4_HASH_ONLY_BLOCKER: &str =
     "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy";
-const GNMF_BLOCKER: &str = "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive";
+pub(crate) const GNMF_BLOCKER: &str = "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive";
 
 /// Return the reason an archive cannot be safely rewritten, if this tool knows one.
 pub(crate) fn rewrite_blocker(archive: &LoadedArchive) -> Option<&'static str> {
     if archive.has_unnameable_entries() {
         return Some(UNNAMEABLE_ENTRIES_BLOCKER);
     }
-    match archive {
-        LoadedArchive::Tes4(archive)
+    match archive.as_dream_archive() {
+        dream_archive::Archive::Tes4Bsa(archive)
             if !tes4_has_recoverable_path_storage(archive.info().archive_flags) =>
         {
             Some(TES4_HASH_ONLY_BLOCKER)
         }
-        LoadedArchive::Ba2(archive)
+        dream_archive::Archive::BA2(archive)
             if archive.info().format == dream_archive::ba2::PayloadFormat::GNMF =>
         {
             Some(GNMF_BLOCKER)
         }
         _ => None,
     }
+}
+
+pub(crate) fn ensure_ba2_payload_format_writable(
+    format: dream_archive::ba2::PayloadFormat,
+) -> Result<()> {
+    if format == dream_archive::ba2::PayloadFormat::GNMF {
+        return Err(ArchiveError::Archive(GNMF_BLOCKER.to_string()));
+    }
+    Ok(())
 }
 
 /// Reject archives whose rewrite would be lossy or depend on unsupported format semantics.
