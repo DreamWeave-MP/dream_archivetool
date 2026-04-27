@@ -53,8 +53,10 @@ pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyRepo
         if !seen.insert(entry.path.clone()) {
             duplicate_normalized_paths.push(path_issue(&entry.path));
         }
-        if safe_target_path_normalized(Path::new("."), &entry.path).is_err() {
-            unsafe_paths.push(path_issue(&entry.path));
+        if crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path).is_err()
+            || safe_target_path_normalized(Path::new("."), &entry.path).is_err()
+        {
+            unsafe_paths.push(path_issue(&entry.raw_path));
         }
     }
 

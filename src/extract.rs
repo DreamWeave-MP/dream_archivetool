@@ -250,6 +250,7 @@ fn planned_extract_targets(
     let mut targets = Vec::with_capacity(entries.len());
     let mut seen = BTreeSet::new();
     for entry in entries {
+        crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path)?;
         let path = safe_target_path_normalized(root, &entry.path)?;
         if !seen.insert(path.clone()) {
             return Err(ArchiveError::Archive(format!(
@@ -715,11 +716,13 @@ mod tests {
         let dir = unique_dir("extract-all-duplicate-target");
         let entries = vec![
             crate::loaded::LoadedEntry {
+                raw_path: b"textures/example.dds".to_vec(),
                 path: b"textures/example.dds".to_vec(),
                 size: None,
                 compressed_size: None,
             },
             crate::loaded::LoadedEntry {
+                raw_path: b"textures/example.dds".to_vec(),
                 path: b"textures/example.dds".to_vec(),
                 size: None,
                 compressed_size: None,

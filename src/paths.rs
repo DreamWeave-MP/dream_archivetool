@@ -17,6 +17,16 @@ pub(crate) fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> Vec<u8> {
     NormalizedPath::new(path).into()
 }
 
+pub(crate) fn normalize_lookup_archive_path_bytes(path: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+    let normalized = normalize_archive_path_bytes(path);
+    if normalized.is_empty() || normalized.contains(&b'\0') {
+        return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
+            &normalized,
+        )));
+    }
+    Ok(normalized)
+}
+
 pub(crate) fn archive_path_bytes_to_hex(path: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut encoded = String::with_capacity(path.len() * 2);
@@ -56,7 +66,7 @@ pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
 
 pub(crate) fn normalize_safe_archive_path_bytes(path: impl AsRef<[u8]>) -> Result<Vec<u8>> {
     validate_archive_path_bytes_for_extraction(path.as_ref())?;
-    let normalized = normalize_archive_path_bytes(path);
+    let normalized = normalize_lookup_archive_path_bytes(path)?;
     validate_archive_path_bytes_for_extraction(&normalized)?;
     Ok(normalized)
 }

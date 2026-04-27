@@ -6,12 +6,13 @@ use dream_path::ByteSlice;
 
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path,
-    normalize_safe_archive_path_bytes,
+    normalize_lookup_archive_path_bytes,
 };
 use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
 
 #[derive(Debug, Clone)]
 pub(crate) struct LoadedEntry {
+    pub raw_path: Vec<u8>,
     pub path: Vec<u8>,
     pub size: Option<u64>,
     pub compressed_size: Option<u64>,
@@ -73,8 +74,10 @@ impl LoadedArchive {
                 .entries()
                 .iter()
                 .map(|entry| {
-                    let path = normalize_safe_archive_path_bytes(entry.path().as_bytes())?;
+                    let raw_path = entry.path().as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
                     Ok(LoadedEntry {
+                        raw_path,
                         path,
                         size: Some(entry.file().size.into()),
                         compressed_size: None,
@@ -86,10 +89,12 @@ impl LoadedArchive {
                 .iter()
                 .filter_map(|entry| {
                     let path = entry.path()?;
-                    let path = normalize_safe_archive_path_bytes(path.as_bytes());
+                    let raw_path = path.as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path);
                     let record = entry.file();
                     Some(path.map(|path| {
                         LoadedEntry {
+                            raw_path,
                             path,
                             size: None,
                             compressed_size: record
@@ -117,8 +122,10 @@ impl LoadedArchive {
                         .filter(|chunk| chunk.is_compressed())
                         .map(|chunk| u64::from(chunk.packed_size()))
                         .sum::<u64>();
-                    let path = normalize_safe_archive_path_bytes(entry.name().as_bytes())?;
+                    let raw_path = entry.name().as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
                     Ok(LoadedEntry {
+                        raw_path,
                         path,
                         size: Some(size),
                         compressed_size: (compressed_size > 0).then_some(compressed_size),
@@ -149,7 +156,6 @@ impl LoadedArchive {
     }
 
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
-        crate::paths::validate_archive_path_bytes_for_extraction(entry.as_bytes())?;
         let entry = normalize_archive_path(entry);
         self.read_entry_bytes_by_path(entry.as_bytes())
             .map_err(|err| match err {
@@ -159,7 +165,7 @@ impl LoadedArchive {
     }
 
     pub fn read_entry_bytes_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
-        let entry = normalize_safe_archive_path_bytes(entry)?;
+        let entry = normalize_lookup_archive_path_bytes(entry)?;
         self.read_entry_bytes_by_normalized_path(&entry)
     }
 
@@ -172,7 +178,6 @@ impl LoadedArchive {
     }
 
     pub fn extract_entry_to_writer(&self, entry: &str, out: &mut dyn Write) -> Result<u64> {
-        crate::paths::validate_archive_path_bytes_for_extraction(entry.as_bytes())?;
         let entry = normalize_archive_path(entry);
         self.extract_entry_path_to_writer(entry.as_bytes(), out)
             .map_err(|err| match err {
@@ -182,7 +187,7 @@ impl LoadedArchive {
     }
 
     pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
-        let entry = normalize_safe_archive_path_bytes(entry)?;
+        let entry = normalize_lookup_archive_path_bytes(entry)?;
         self.extract_normalized_entry_path_to_writer(&entry, out)
     }
 

@@ -67,6 +67,8 @@ struct DiffEntryData {
 pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<DiffReport> {
     let old_archive = crate::loaded::LoadedArchive::open(old)?;
     let new_archive = crate::loaded::LoadedArchive::open(new)?;
+    reject_unnameable_entries(&old_archive, old)?;
+    reject_unnameable_entries(&new_archive, new)?;
     let old_entries = diff_entries(&old_archive, options.hash_payloads)?;
     let new_entries = diff_entries(&new_archive, options.hash_payloads)?;
     let mut added = Vec::new();
@@ -105,6 +107,16 @@ pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<Di
         changed,
         unchanged,
     })
+}
+
+fn reject_unnameable_entries(archive: &crate::loaded::LoadedArchive, path: &Path) -> Result<()> {
+    if archive.has_unnameable_entries() {
+        return Err(ArchiveError::Archive(format!(
+            "archive '{}' contains entries without recoverable paths; refusing to diff it lossy",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn diff_entries(
