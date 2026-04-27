@@ -2,7 +2,7 @@
 
 `dream-archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
 
-The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support.
+The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support. See [`docs/architecture.md`](docs/architecture.md) for subsystem ownership, compatibility contracts, and Lua handle semantics.
 
 ## Goals
 
@@ -395,7 +395,7 @@ cargo build --release --no-default-features
 cargo bench --bench archive_ops
 ```
 
-Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, whole-archive extraction, skip-existing extraction, creation, and update paths. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is useful for checking peak resident memory while tuning large archive operations.
+Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, whole-archive extraction, skip-existing extraction, creation, update, verify, and diff paths. The bench binary installs a tracking allocator and prints peak allocator deltas for one representative run of each operation before Criterion times it. Those numbers are not a replacement for OS-level RSS measurements, but they catch surprise heap growth inside the policy layer. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is still useful for checking peak resident memory while tuning large archive operations.
 
 ## License
 
