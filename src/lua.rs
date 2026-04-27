@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use mlua::{Error as LuaError, Lua, Result as LuaResult, Table};
+use mlua::{Error as LuaError, Lua, Result as LuaResult, String as LuaString, Table};
 
 use crate::{
     AddOptions, ArchiveFormat, ArchivePlanAction, ArchivePlanOperation, ArchiveTool,
@@ -12,12 +12,13 @@ use crate::{
 /// Create a Lua table for common [`ArchiveTool`] operations.
 ///
 /// The returned table contains tool-policy operations: `info`, `verify`, `diff`, `extract`,
-/// `extract_hex`, `extract_all`, `plan_extract_all`, `create`, `plan_create`, `add`, and
-/// `plan_add`. Archive-format primitives such as listing and payload reads belong to
-/// `dream_archive`'s Lua API instead. The table is not registered globally unless [`register`] is
-/// called.
+/// `extract_by_path_hex`, `extract_hex`, `extract_all`, `plan_extract_all`, `create`,
+/// `plan_create`, `add`, and `plan_add`. Archive-format primitives such as listing and payload
+/// reads belong to `dream_archive`'s Lua API instead. Archive entry arguments are Lua byte strings,
+/// so `dream_archive` entry paths can be passed to `extract` without a UTF-8 boundary. The table is
+/// not registered globally unless [`register`] is called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
-    let module = lua.create_table()?;
+    let module = lua.create_table_with_capacity(0, 12)?;
 
     module.set(
         "info",
@@ -37,16 +38,30 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "extract",
         lua.create_function(
-            |lua, (path, entry, opts): (String, String, Option<Table>)| {
+            |lua, (path, entry, opts): (String, LuaString, Option<Table>)| {
                 let options = extract_options(opts)?;
-                let summary =
-                    ArchiveTool::extract(path, &entry, &options).map_err(LuaError::external)?;
+                let entry = entry.as_bytes();
+                let summary = ArchiveTool::extract_by_path_bytes(path, entry.as_ref(), &options)
+                    .map_err(LuaError::external)?;
                 summary_table(lua, summary.extracted, summary.skipped)
             },
         )?,
     )?;
     module.set(
         "extract_hex",
+        lua.create_function(
+            |lua, (path, entry_hex, opts): (String, String, Option<Table>)| {
+                let entry =
+                    crate::path::decode_archive_path_hex(&entry_hex).map_err(LuaError::external)?;
+                let options = extract_options(opts)?;
+                let summary = ArchiveTool::extract_by_path_bytes(path, &entry, &options)
+                    .map_err(LuaError::external)?;
+                summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
+    )?;
+    module.set(
+        "extract_by_path_hex",
         lua.create_function(
             |lua, (path, entry_hex, opts): (String, String, Option<Table>)| {
                 let entry =
@@ -309,14 +324,14 @@ fn parse_overwrite(value: Option<&str>) -> LuaResult<OverwriteMode> {
 }
 
 fn summary_table(lua: &Lua, extracted: usize, skipped: usize) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 2)?;
     table.set("extracted", extracted)?;
     table.set("skipped", skipped)?;
     Ok(table)
 }
 
 fn archive_info_table(lua: &Lua, info: crate::ArchiveInfo) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 9)?;
     table.set("path", info.path)?;
     table.set("format", format_name(info.format))?;
     table.set("file_count", info.file_count)?;
@@ -331,7 +346,7 @@ fn archive_info_table(lua: &Lua, info: crate::ArchiveInfo) -> LuaResult<Table> {
 
 fn optional_tes4_info_table(lua: &Lua, info: Option<crate::Tes4Info>) -> LuaResult<Option<Table>> {
     info.map(|info| {
-        let table = lua.create_table()?;
+        let table = lua.create_table_with_capacity(0, 7)?;
         table.set("version", info.version)?;
         table.set("archive_types", info.archive_types)?;
         table.set("archive_types_bits", info.archive_types_bits)?;
@@ -349,7 +364,7 @@ fn optional_tes4_info_table(lua: &Lua, info: Option<crate::Tes4Info>) -> LuaResu
 
 fn optional_ba2_info_table(lua: &Lua, info: Option<crate::Ba2Info>) -> LuaResult<Option<Table>> {
     info.map(|info| {
-        let table = lua.create_table()?;
+        let table = lua.create_table_with_capacity(0, 4)?;
         table.set("version", info.version)?;
         table.set("payload_format", info.payload_format)?;
         table.set("compression_format", info.compression_format)?;
@@ -360,7 +375,7 @@ fn optional_ba2_info_table(lua: &Lua, info: Option<crate::Ba2Info>) -> LuaResult
 }
 
 fn verify_report_table(lua: &Lua, report: crate::VerifyReport) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 11)?;
     table.set("path", report.path)?;
     table.set("format", format_name(report.format))?;
     table.set("file_count", report.file_count)?;
@@ -382,9 +397,9 @@ fn verify_report_table(lua: &Lua, report: crate::VerifyReport) -> LuaResult<Tabl
 }
 
 fn verify_path_issue_array(lua: &Lua, issues: Vec<crate::VerifyPathIssue>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(issues.len(), 0)?;
     for (index, issue) in issues.into_iter().enumerate() {
-        let issue_table = lua.create_table()?;
+        let issue_table = lua.create_table_with_capacity(0, 4)?;
         issue_table.set("path", issue.path)?;
         issue_table.set("path_bytes_hex", issue.path_bytes_hex)?;
         issue_table.set("raw_path_bytes_hex", issue.raw_path_bytes_hex)?;
@@ -398,7 +413,7 @@ fn verify_path_issue_array(lua: &Lua, issues: Vec<crate::VerifyPathIssue>) -> Lu
 }
 
 fn diff_report_table(lua: &Lua, report: crate::DiffReport) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 8)?;
     table.set("old", report.old)?;
     table.set("new", report.new)?;
     table.set("comparison", diff_comparison_name(report.comparison))?;
@@ -411,7 +426,7 @@ fn diff_report_table(lua: &Lua, report: crate::DiffReport) -> LuaResult<Table> {
 }
 
 fn diff_entry_array(lua: &Lua, entries: Vec<crate::DiffEntry>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(entries.len(), 0)?;
     for (index, entry) in entries.into_iter().enumerate() {
         table.set(index + 1, diff_entry_table(lua, entry)?)?;
     }
@@ -419,7 +434,7 @@ fn diff_entry_array(lua: &Lua, entries: Vec<crate::DiffEntry>) -> LuaResult<Tabl
 }
 
 fn diff_entry_table(lua: &Lua, entry: crate::DiffEntry) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 5)?;
     table.set("path", entry.path)?;
     table.set("path_bytes_hex", entry.path_bytes_hex)?;
     table.set("size", entry.size)?;
@@ -429,9 +444,9 @@ fn diff_entry_table(lua: &Lua, entry: crate::DiffEntry) -> LuaResult<Table> {
 }
 
 fn diff_change_array(lua: &Lua, changes: Vec<crate::DiffChange>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(changes.len(), 0)?;
     for (index, change) in changes.into_iter().enumerate() {
-        let change_table = lua.create_table()?;
+        let change_table = lua.create_table_with_capacity(0, 4)?;
         change_table.set("path", change.path)?;
         change_table.set("path_bytes_hex", change.path_bytes_hex)?;
         change_table.set("old", diff_entry_state_table(lua, change.old)?)?;
@@ -442,7 +457,7 @@ fn diff_change_array(lua: &Lua, changes: Vec<crate::DiffChange>) -> LuaResult<Ta
 }
 
 fn diff_entry_state_table(lua: &Lua, state: crate::DiffEntryState) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 3)?;
     table.set("size", state.size)?;
     table.set("compressed_size", state.compressed_size)?;
     table.set("payload_fingerprint", state.payload_fingerprint)?;
@@ -450,7 +465,7 @@ fn diff_entry_state_table(lua: &Lua, state: crate::DiffEntryState) -> LuaResult<
 }
 
 fn extract_all_plan_table(lua: &Lua, plan: crate::ExtractAllPlan) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 4)?;
     table.set("operation", extract_plan_operation_name(plan.operation))?;
     table.set("archive", plan.archive)?;
     table.set("output", plan.output)?;
@@ -459,9 +474,9 @@ fn extract_all_plan_table(lua: &Lua, plan: crate::ExtractAllPlan) -> LuaResult<T
 }
 
 fn extract_plan_entry_array(lua: &Lua, entries: Vec<crate::ExtractPlanEntry>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(entries.len(), 0)?;
     for (index, entry) in entries.into_iter().enumerate() {
-        let entry_table = lua.create_table()?;
+        let entry_table = lua.create_table_with_capacity(0, 4)?;
         entry_table.set("action", extract_plan_action_name(entry.action))?;
         entry_table.set("path", entry.path)?;
         entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
@@ -472,7 +487,7 @@ fn extract_plan_entry_array(lua: &Lua, entries: Vec<crate::ExtractPlanEntry>) ->
 }
 
 fn create_plan_table(lua: &Lua, plan: crate::CreatePlan) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 5)?;
     table.set("operation", archive_plan_operation_name(plan.operation))?;
     table.set("format", format_name(plan.format))?;
     table.set("output", plan.output)?;
@@ -482,7 +497,7 @@ fn create_plan_table(lua: &Lua, plan: crate::CreatePlan) -> LuaResult<Table> {
 }
 
 fn add_plan_table(lua: &Lua, plan: crate::AddPlan) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(0, 9)?;
     table.set("operation", archive_plan_operation_name(plan.operation))?;
     table.set("archive", plan.archive)?;
     table.set("output", plan.output)?;
@@ -496,9 +511,9 @@ fn add_plan_table(lua: &Lua, plan: crate::AddPlan) -> LuaResult<Table> {
 }
 
 fn archive_plan_entry_array(lua: &Lua, entries: Vec<crate::ArchivePlanEntry>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(entries.len(), 0)?;
     for (index, entry) in entries.into_iter().enumerate() {
-        let entry_table = lua.create_table()?;
+        let entry_table = lua.create_table_with_capacity(0, 5)?;
         entry_table.set("action", archive_plan_action_name(entry.action))?;
         entry_table.set("source", entry.source)?;
         entry_table.set("path", entry.path)?;
@@ -510,7 +525,7 @@ fn archive_plan_entry_array(lua: &Lua, entries: Vec<crate::ArchivePlanEntry>) ->
 }
 
 fn string_array(lua: &Lua, values: Vec<String>) -> LuaResult<Table> {
-    let table = lua.create_table()?;
+    let table = lua.create_table_with_capacity(values.len(), 0)?;
     for (index, value) in values.into_iter().enumerate() {
         table.set(index + 1, value)?;
     }

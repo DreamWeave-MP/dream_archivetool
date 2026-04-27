@@ -124,7 +124,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature only enables the bindings; it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature only enables the bindings; it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; those companion crates must use the same `mlua` major version and runtime-selection policy before enabling all Lua APIs in one embedding application.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -176,6 +176,10 @@ dream_archivetool::lua::register(&lua)?;
 
 The registered `dream_archivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Lua API.
 
+Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` accepts the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex` accept the serialized `path_bytes_hex` identity used by archivetool reports. Display `path` fields are for people; `path_bytes_hex` is the stable round-trip value.
+
+The two Lua APIs are intended to be registered into the same Lua state once `dream_archive` uses the same runtime-selection split as this crate. Until then, the version/runtime policy has to be aligned by the embedding application or by updating `dream_archive`; pretending two different `mlua` contracts are one contract would be convenient and false.
+
 ```lua
 local tool = dream_archivetool
 
@@ -183,13 +187,18 @@ local info = tool.info("Morrowind.bsa")
 local verify = tool.verify("Morrowind.bsa", { read_payloads = true })
 local diff = tool.diff("old.bsa", "new.bsa", { fingerprint_payloads = true })
 
+-- Natural bridge from dream_archive once both modules are registered:
+-- local archive = dream_archive.open_path("Morrowind.bsa")
+-- local entry = archive:entries()[1]
+-- tool.extract("Morrowind.bsa", entry.path, { output = "out" })
+
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   output = "out",
   overwrite = "fail", -- fail | overwrite | skip
   preserve_paths = true,
 })
 
-local exact_extracted = tool.extract_hex("Morrowind.bsa", "69636f6e732f676f6c642e646473", {
+local exact_extracted = tool.extract_by_path_hex("Morrowind.bsa", "69636f6e732f676f6c642e646473", {
   output = "out",
   overwrite = "fail",
   preserve_paths = true,
@@ -229,8 +238,9 @@ Lua functions and return values:
 - `info(path) -> { path, format, file_count, named_entry_count, has_unnameable_entries, rewritable, rewrite_blocker, tes4?, ba2? }`
 - `verify(path, opts?) -> verification report table`
 - `diff(old, new, opts?) -> diff report table`
-- `extract(path, entry, opts?) -> { extracted, skipped }`
-- `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
+- `extract(path, entry_bytes, opts?) -> { extracted, skipped }`
+- `extract_by_path_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
+- `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }` compatibility alias
 - `extract_all(path, opts?) -> { extracted, skipped }`
 - `plan_extract_all(path, opts?) -> extract-all plan table`
 - `create(output, input, opts?) -> file_count`
