@@ -16,14 +16,14 @@ clap_complete = { version = "4", optional = true }
 clap_mangen = { version = "0.2", optional = true }
 mlua = { version = "0.10", optional = true, features = ["luajit52", "vendored"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", optional = true }
 tempfile = "3"
 thiserror = "2"
 walkdir = "2"
 
 [features]
 default = ["cli"]
-cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen"]
+cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:serde_json"]
 lua = ["dep:mlua"]
 
 [dev-dependencies]

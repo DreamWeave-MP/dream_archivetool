@@ -34,6 +34,11 @@ pub struct CreateOptions {
     pub ba2_version: Ba2Version,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
+    /// Follow symbolic links while collecting input files.
+    ///
+    /// Disabled by default so archive creation does not silently package bytes outside the input
+    /// root. Enable only when the input tree is trusted and that behavior is intentional.
+    pub follow_symlinks: bool,
 }
 
 impl Default for CreateOptions {
@@ -44,6 +49,7 @@ impl Default for CreateOptions {
             ba2_kind: Ba2ArchiveKind::Gnrl,
             ba2_version: Ba2Version::Fallout4,
             fsync: false,
+            follow_symlinks: false,
         }
     }
 }
@@ -57,6 +63,11 @@ pub struct AddOptions {
     pub output: PathBuf,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
+    /// Follow symbolic links while collecting input files.
+    ///
+    /// Disabled by default so archive updates do not silently package bytes outside an input root.
+    /// Enable only when the input trees are trusted and that behavior is intentional.
+    pub follow_symlinks: bool,
 }
 
 /// Supported TES4-family BSA versions for archive creation.
@@ -104,7 +115,7 @@ pub enum Ba2Version {
 /// directory before replacing `output`.
 pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> Result<usize> {
     reject_unsupported_create_options(options)?;
-    let input_entries = collect_input_entry_paths(input)?;
+    let input_entries = collect_input_entry_paths(input, options.follow_symlinks)?;
     preflight_create_paths(input_entries.keys(), options)?;
     write_entries(output, input_entries, options)
 }
@@ -116,7 +127,7 @@ pub fn plan_create_archive(
     options: &CreateOptions,
 ) -> Result<CreatePlan> {
     reject_unsupported_create_options(options)?;
-    let input_entries = collect_input_entry_paths(input)?;
+    let input_entries = collect_input_entry_paths(input, options.follow_symlinks)?;
     preflight_create_paths(input_entries.keys(), options)?;
     let entries = input_entries
         .iter()
@@ -153,7 +164,7 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
-        for (path, source) in collect_input_entry_paths(input)? {
+        for (path, source) in collect_input_entry_paths(input, options.follow_symlinks)? {
             insert_input_path(&mut input_entries, &path, source)?;
         }
     }
@@ -171,7 +182,7 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
-        for (path, source) in collect_input_entry_paths(input)? {
+        for (path, source) in collect_input_entry_paths(input, options.follow_symlinks)? {
             insert_input_path(&mut input_entries, &path, source)?;
         }
     }
@@ -907,6 +918,7 @@ mod tests {
                 inputs: vec![added],
                 output: output.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap();
@@ -938,6 +950,7 @@ mod tests {
                 inputs: vec![added],
                 output: output.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap();
@@ -973,6 +986,7 @@ mod tests {
                 inputs: vec![added],
                 output: output.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap();
@@ -1017,6 +1031,7 @@ mod tests {
                 inputs: vec![replacement],
                 output: output.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap();
@@ -1078,6 +1093,7 @@ mod tests {
                 inputs: vec![first, second],
                 output: dir.join("updated.bsa"),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap_err();
@@ -1103,6 +1119,7 @@ mod tests {
                 inputs: vec![added],
                 output: dir.join("updated.bsa"),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap_err();
@@ -1123,9 +1140,43 @@ mod tests {
         let file_path = dir.join(file_name);
         fs::write(&file_path, b"payload").unwrap();
 
-        let entries = collect_input_entry_paths(&dir).unwrap();
+        let entries = collect_input_entry_paths(&dir, false).unwrap();
 
         assert!(entries.contains_key(b"foo\xff.txt".as_slice()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_collection_rejects_symlinks_by_default() {
+        use std::os::unix::fs::symlink;
+
+        let dir = unique_dir("symlink-reject");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(dir.join("outside.txt"), b"outside").unwrap();
+        symlink(dir.join("outside.txt"), input.join("linked.txt")).unwrap();
+
+        let err = collect_input_entry_paths(&input, false).unwrap_err();
+
+        assert!(err.to_string().contains("refusing to follow symlink"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_collection_can_follow_symlinks_explicitly() {
+        use std::os::unix::fs::symlink;
+
+        let dir = unique_dir("symlink-follow");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(dir.join("outside.txt"), b"outside").unwrap();
+        symlink(dir.join("outside.txt"), input.join("linked.txt")).unwrap();
+
+        let entries = collect_input_entry_paths(&input, true).unwrap();
+
+        assert!(entries.contains_key(b"linked.txt".as_slice()));
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1154,6 +1205,7 @@ mod tests {
                 inputs: vec![added],
                 output: archive.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap_err();
@@ -1211,6 +1263,7 @@ mod tests {
                 inputs: vec![added],
                 output: updated.clone(),
                 fsync: false,
+                follow_symlinks: false,
             },
         )
         .unwrap();

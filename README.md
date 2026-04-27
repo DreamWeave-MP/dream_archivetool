@@ -32,6 +32,7 @@ dream-archivetool extract-all archive.bsa --output out/
 dream-archivetool create out.bsa input_dir/ --format tes3
 dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
 dream-archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
+dream-archivetool create out.bsa input_dir/ --format tes3 --follow-symlinks
 dream-archivetool add base.bsa new_file.txt --output updated.bsa
 dream-archivetool add base.bsa new_dir/ --output updated.bsa --dry-run --json
 dream-archivetool --generate-completion bash > dream-archivetool.bash
@@ -70,6 +71,8 @@ input_dir/textures/a.dds -> textures/a.dds
 ```
 
 The root directory name itself is not stored unless it is part of the path below the input root.
+Symbolic links are rejected by default while collecting input files; pass `--follow-symlinks` only
+when the input tree is trusted and packaging the symlink target bytes is intentional.
 
 ### JSON Shapes
 
@@ -103,13 +106,14 @@ and optional payload-read counts when `--read-payloads` is used.
 
 `create --dry-run --json`, `add --dry-run --json`, and
 `extract-all --dry-run --json` expose the same normalized paths and policy checks
-the mutating commands use, but stop before writing output.
+the mutating commands use, but stop before writing output. Add plans use stable report order grouped
+by action; they are not a physical archive-order manifest.
 
 ## Library
 
 The crate exposes `ArchiveTool` and option structs for reuse by other applications:
 
-GUI or embedding projects that do not need the command-line interface should disable default features to avoid pulling in `clap`, completion generation, and manpage generation dependencies:
+GUI or embedding projects that do not need the command-line interface should disable default features to avoid pulling in `clap`, completion generation, manpage generation, and `serde_json` dependencies:
 
 ```toml
 [dependencies]
@@ -145,6 +149,7 @@ let updated = ArchiveTool::add(
         inputs: vec!["new_file.txt".into()],
         output: "updated.bsa".into(),
         fsync: false,
+        follow_symlinks: false,
     },
 )?;
 # Ok(())
@@ -222,14 +227,14 @@ Lua option tables:
 
 - `extract`: `output`, `overwrite`, `preserve_paths`, `fsync`
 - `extract_all`: `output`, `overwrite`, `fsync`
-- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`
-- `add`: `output`, `inputs`, `fsync`
+- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`
+- `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
 
 ## Safety
 
 Extraction rejects absolute paths, `..` components, NUL bytes, and colon-containing components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted. These checks validate archive path syntax; they are not an `openat`-style filesystem jail, so extract into an output tree whose pre-existing directories and symlinks you trust.
 
-Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive. Input trees are trusted: create/add follow symlinked input files the same way normal filesystem reads do.
+Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive. Input symlinks are rejected by default; `--follow-symlinks` opts into normal filesystem symlink-following behavior and should only be used with trusted input trees.
 
 ## Performance
 
@@ -239,13 +244,13 @@ Archive creation and update preflight archive paths and format policy before add
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's TES4/BA2 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v2 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
+- `add` writes a new archive and preserves source archive settings only where `dream_archive` currently exposes them; BA2 version variants such as Starfield v2 and Fallout 4 next-gen v8 are preserved. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
 - Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format ba2`.
 - `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names. Use `extract --entry-hex HEX` to feed those bytes back into the CLI.
 - `create --format ba2 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format ba2 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
 - `create --format ba2 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
-- BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
+- Newly-created BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 
 ## Development

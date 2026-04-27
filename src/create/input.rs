@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use walkdir::WalkDir;
@@ -6,9 +7,13 @@ use walkdir::WalkDir;
 use crate::paths::{archive_path_bytes_to_display, path_to_archive_bytes};
 use crate::{ArchiveError, Result};
 
-pub(super) fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>, PathBuf>> {
+pub(super) fn collect_input_entry_paths(
+    input: &Path,
+    follow_symlinks: bool,
+) -> Result<BTreeMap<Vec<u8>, PathBuf>> {
     let mut entries = BTreeMap::new();
-    if input.is_file() {
+    reject_symlink(input, follow_symlinks)?;
+    if input_metadata(input, follow_symlinks)?.is_file() {
         let name = input
             .file_name()
             .ok_or_else(|| ArchiveError::UnsafePath(input.display().to_string()))?;
@@ -20,10 +25,11 @@ pub(super) fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>
         return Ok(entries);
     }
 
-    for item in WalkDir::new(input) {
+    for item in WalkDir::new(input).follow_links(follow_symlinks) {
         let item = item.map_err(|err| ArchiveError::Archive(err.to_string()))?;
         let path = item.path();
-        if !path.is_file() {
+        reject_symlink(path, follow_symlinks)?;
+        if !item.file_type().is_file() {
             continue;
         }
         let relative = path
@@ -36,6 +42,27 @@ pub(super) fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>
         )?;
     }
     Ok(entries)
+}
+
+fn reject_symlink(path: &Path, follow_symlinks: bool) -> Result<()> {
+    if follow_symlinks {
+        return Ok(());
+    }
+    if fs::symlink_metadata(path)?.file_type().is_symlink() {
+        return Err(ArchiveError::Archive(format!(
+            "refusing to follow symlink input path: {}; pass follow_symlinks to opt in",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn input_metadata(path: &Path, follow_symlinks: bool) -> Result<fs::Metadata> {
+    if follow_symlinks {
+        Ok(fs::metadata(path)?)
+    } else {
+        Ok(fs::symlink_metadata(path)?)
+    }
 }
 
 pub(super) fn insert_input_path(

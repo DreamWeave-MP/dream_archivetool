@@ -60,7 +60,7 @@ pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyRepo
         }
     }
 
-    let payloads_read = if options.read_payloads {
+    let payloads_read = if options.read_payloads && duplicate_normalized_paths.is_empty() {
         let mut sink = io::sink();
         for entry in &entries {
             archive.extract_normalized_entry_path_to_writer(&entry.path, &mut sink)?;
@@ -76,6 +76,12 @@ pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyRepo
     }
     if !duplicate_normalized_paths.is_empty() {
         warnings.push("archive contains duplicate normalized paths".to_string());
+    }
+    if options.read_payloads && !duplicate_normalized_paths.is_empty() {
+        warnings.push(
+            "payload read verification skipped because duplicate normalized paths prevent per-entry coverage"
+                .to_string(),
+        );
     }
     if !unsafe_paths.is_empty() {
         warnings.push("archive contains paths unsafe to extract directly".to_string());

@@ -286,6 +286,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                         inputs: vec![replacement.clone()],
                         output: output.clone(),
                         fsync: false,
+                        follow_symlinks: false,
                     },
                 )
                 .unwrap();
@@ -319,6 +320,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                         inputs: vec![large_replacement.clone()],
                         output: output.clone(),
                         fsync: false,
+                        follow_symlinks: false,
                     },
                 )
                 .unwrap();

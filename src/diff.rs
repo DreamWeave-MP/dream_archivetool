@@ -10,7 +10,8 @@ use crate::{ArchiveError, Result};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Options controlling archive comparison.
 pub struct DiffOptions {
-    /// Hash extracted payload bytes instead of comparing only listed metadata.
+    /// Compute a fast non-cryptographic FNV-1a payload fingerprint instead of comparing only
+    /// listed metadata.
     pub hash_payloads: bool,
 }
 
@@ -34,7 +35,7 @@ pub struct DiffEntry {
     pub size: Option<u64>,
     pub compressed_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload_hash: Option<String>,
+    pub payload_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +53,7 @@ pub struct DiffEntryState {
     pub size: Option<u64>,
     pub compressed_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub payload_hash: Option<String>,
+    pub payload_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +61,7 @@ struct DiffEntryData {
     path: Vec<u8>,
     size: Option<u64>,
     compressed_size: Option<u64>,
-    payload_hash: Option<String>,
+    payload_fingerprint: Option<String>,
 }
 
 /// Compare two archives by normalized path bytes and metadata, optionally hashing payloads.
@@ -131,8 +132,8 @@ fn diff_entries(
                 archive_path_bytes_to_display(&entry.path)
             )));
         }
-        let payload_hash = if hash_payloads {
-            Some(payload_hash(archive, &entry.path)?)
+        let payload_fingerprint = if hash_payloads {
+            Some(payload_fingerprint(archive, &entry.path)?)
         } else {
             None
         };
@@ -142,14 +143,14 @@ fn diff_entries(
                 path: entry.path,
                 size: entry.size,
                 compressed_size: entry.compressed_size,
-                payload_hash,
+                payload_fingerprint,
             },
         );
     }
     Ok(entries)
 }
 
-fn payload_hash(archive: &crate::loaded::LoadedArchive, path: &[u8]) -> Result<String> {
+fn payload_fingerprint(archive: &crate::loaded::LoadedArchive, path: &[u8]) -> Result<String> {
     let mut hasher = Fnv1a64Writer::default();
     archive.extract_normalized_entry_path_to_writer(path, &mut hasher)?;
     Ok(format!("{:016x}", hasher.finish()))
@@ -188,7 +189,7 @@ impl Write for Fnv1a64Writer {
 fn same_entry_state(left: &DiffEntryData, right: &DiffEntryData) -> bool {
     left.size == right.size
         && left.compressed_size == right.compressed_size
-        && left.payload_hash == right.payload_hash
+        && left.payload_fingerprint == right.payload_fingerprint
 }
 
 fn diff_entry(entry: &DiffEntryData) -> DiffEntry {
@@ -197,7 +198,7 @@ fn diff_entry(entry: &DiffEntryData) -> DiffEntry {
         path_bytes_hex: archive_path_bytes_to_hex(&entry.path),
         size: entry.size,
         compressed_size: entry.compressed_size,
-        payload_hash: entry.payload_hash.clone(),
+        payload_fingerprint: entry.payload_fingerprint.clone(),
     }
 }
 
@@ -205,7 +206,7 @@ fn entry_state(entry: &DiffEntryData) -> DiffEntryState {
     DiffEntryState {
         size: entry.size,
         compressed_size: entry.compressed_size,
-        payload_hash: entry.payload_hash.clone(),
+        payload_fingerprint: entry.payload_fingerprint.clone(),
     }
 }
 

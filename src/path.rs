@@ -6,7 +6,10 @@
 
 use crate::{ArchiveError, Result};
 
-/// Normalize archive virtual-path bytes using the same rules as archive lookup and extraction.
+/// Normalize archive virtual-path bytes only.
+///
+/// This is not a safety check. Lookup and extraction apply additional validation before reading or
+/// writing files.
 #[must_use]
 pub fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> Vec<u8> {
     crate::paths::normalize_archive_path_bytes(path)

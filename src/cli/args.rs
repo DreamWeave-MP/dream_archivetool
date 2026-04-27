@@ -152,6 +152,9 @@ pub(super) enum Command {
         /// Sync file contents and parent directory after writing the archive
         #[arg(long)]
         fsync: bool,
+        /// Follow symbolic links while collecting input files
+        #[arg(long)]
+        follow_symlinks: bool,
     },
     /// Add or update entries by writing a new archive
     Add {
@@ -172,6 +175,9 @@ pub(super) enum Command {
         /// Sync file contents and parent directory after writing the archive
         #[arg(long)]
         fsync: bool,
+        /// Follow symbolic links while collecting input files
+        #[arg(long)]
+        follow_symlinks: bool,
     },
 }
 

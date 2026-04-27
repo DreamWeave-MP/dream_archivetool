@@ -54,6 +54,17 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             hash,
             json,
         } => write_diff(stdout, old, new, hash, json),
+        command @ (Command::Extract { .. } | Command::ExtractAll { .. }) => {
+            handle_extraction_command(stdout, command)
+        }
+        command @ (Command::Create { .. } | Command::Add { .. }) => {
+            handle_mutation_command(stdout, command)
+        }
+    }
+}
+
+fn handle_extraction_command(stdout: &mut dyn Write, command: Command) -> Result<()> {
+    match command {
         Command::Extract {
             archive,
             entry,
@@ -65,11 +76,12 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             overwrite,
             skip_existing,
             json,
-        } => write_extract(
+        } => handle_extract_command(
             stdout,
-            ExtractCommandOptions {
+            ExtractCliCommand {
                 archive,
-                entry: entry_selector(entry, entry_hex)?,
+                entry,
+                entry_hex,
                 destination: if stdout_mode {
                     ExtractDestination::Stdout
                 } else {
@@ -89,15 +101,23 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             json,
             dry_run,
             fsync,
-        } => write_extract_all(
+        } => handle_extract_all_command(
             stdout,
-            archive,
-            output,
-            overwrite_mode(overwrite, skip_existing),
-            json,
-            dry_run,
-            fsync,
+            ExtractAllCliCommand {
+                archive,
+                output,
+                overwrite: overwrite_mode(overwrite, skip_existing),
+                json,
+                dry_run,
+                fsync,
+            },
         ),
+        _ => unreachable!("non-extraction command routed to extraction handler"),
+    }
+}
+
+fn handle_mutation_command(stdout: &mut dyn Write, command: Command) -> Result<()> {
+    match command {
         Command::Create {
             archive,
             input,
@@ -108,10 +128,21 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             json,
             dry_run,
             fsync,
-        } => {
-            let options = create_options(format, tes4_version, ba2_kind, ba2_version, fsync)?;
-            write_create(stdout, archive, input, &options, json, dry_run)
-        }
+            follow_symlinks,
+        } => handle_create_command(
+            stdout,
+            CreateCommand {
+                archive,
+                input,
+                format,
+                tes4_version,
+                ba2_kind,
+                ba2_version,
+                output: CommandOutput { json, dry_run },
+                fsync,
+                input_collection: InputCollection { follow_symlinks },
+            },
+        ),
         Command::Add {
             archive,
             inputs,
@@ -119,8 +150,61 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             json,
             dry_run,
             fsync,
-        } => write_add(stdout, archive, inputs, output, json, dry_run, fsync),
+            follow_symlinks,
+        } => handle_add_command(
+            stdout,
+            archive,
+            &AddOptions {
+                inputs,
+                output,
+                fsync,
+                follow_symlinks,
+            },
+            json,
+            dry_run,
+        ),
+        _ => unreachable!("non-mutation command routed to mutation handler"),
     }
+}
+
+struct CreateCommand {
+    archive: PathBuf,
+    input: PathBuf,
+    format: CliArchiveFormat,
+    tes4_version: Option<CliTes4Version>,
+    ba2_kind: Option<CliBa2ArchiveKind>,
+    ba2_version: Option<CliBa2Version>,
+    output: CommandOutput,
+    fsync: bool,
+    input_collection: InputCollection,
+}
+
+struct CommandOutput {
+    json: bool,
+    dry_run: bool,
+}
+
+struct InputCollection {
+    follow_symlinks: bool,
+}
+
+fn handle_create_command(stdout: &mut dyn Write, command: CreateCommand) -> Result<()> {
+    let options = create_options(
+        command.format,
+        command.tes4_version,
+        command.ba2_kind,
+        command.ba2_version,
+        command.fsync,
+        command.input_collection.follow_symlinks,
+    )?;
+    write_create(
+        stdout,
+        command.archive,
+        command.input,
+        &options,
+        command.output.json,
+        command.output.dry_run,
+    )
 }
 
 fn create_options(
@@ -129,6 +213,7 @@ fn create_options(
     ba2_kind: Option<CliBa2ArchiveKind>,
     ba2_version: Option<CliBa2Version>,
     fsync: bool,
+    follow_symlinks: bool,
 ) -> Result<CreateOptions> {
     let format = ArchiveFormat::from(format);
     match format {
@@ -139,6 +224,7 @@ fn create_options(
             Ok(CreateOptions {
                 format,
                 fsync,
+                follow_symlinks,
                 ..Default::default()
             })
         }
@@ -149,6 +235,7 @@ fn create_options(
                 format,
                 tes4_version: tes4_version.map_or(Tes4Version::Oblivion, Tes4Version::from),
                 fsync,
+                follow_symlinks,
                 ..Default::default()
             })
         }
@@ -159,6 +246,7 @@ fn create_options(
                 ba2_kind: ba2_kind.map_or(Ba2ArchiveKind::Gnrl, Ba2ArchiveKind::from),
                 ba2_version: ba2_version.map_or(Ba2Version::Fallout4, Ba2Version::from),
                 fsync,
+                follow_symlinks,
                 ..Default::default()
             })
         }
@@ -314,9 +402,35 @@ struct ExtractCommandOptions {
     json: bool,
 }
 
+struct ExtractCliCommand {
+    archive: PathBuf,
+    entry: Option<OsString>,
+    entry_hex: Option<String>,
+    destination: ExtractDestination,
+    fsync: bool,
+    preserve_paths: bool,
+    overwrite: OverwriteMode,
+    json: bool,
+}
+
 enum ExtractDestination {
     Stdout,
     Disk(Option<PathBuf>),
+}
+
+fn handle_extract_command(stdout: &mut dyn Write, command: ExtractCliCommand) -> Result<()> {
+    write_extract(
+        stdout,
+        ExtractCommandOptions {
+            archive: command.archive,
+            entry: entry_selector(command.entry, command.entry_hex)?,
+            destination: command.destination,
+            fsync: command.fsync,
+            preserve_paths: command.preserve_paths,
+            overwrite: command.overwrite,
+            json: command.json,
+        },
+    )
 }
 
 fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Result<()> {
@@ -336,6 +450,27 @@ fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Resu
     } else {
         write_summary(stdout, &summary)
     }
+}
+
+struct ExtractAllCliCommand {
+    archive: PathBuf,
+    output: Option<PathBuf>,
+    overwrite: OverwriteMode,
+    json: bool,
+    dry_run: bool,
+    fsync: bool,
+}
+
+fn handle_extract_all_command(stdout: &mut dyn Write, command: ExtractAllCliCommand) -> Result<()> {
+    write_extract_all(
+        stdout,
+        command.archive,
+        command.output,
+        command.overwrite,
+        command.json,
+        command.dry_run,
+        command.fsync,
+    )
 }
 
 fn write_extract_all(
@@ -383,31 +518,24 @@ fn write_create(
     write_count(stdout, count, json)
 }
 
-fn write_add(
+fn handle_add_command(
     stdout: &mut dyn Write,
     archive: PathBuf,
-    inputs: Vec<PathBuf>,
-    output: PathBuf,
+    options: &AddOptions,
     json: bool,
     dry_run: bool,
-    fsync: bool,
 ) -> Result<()> {
-    if inputs.is_empty() {
+    if options.inputs.is_empty() {
         return Err(dream_archivetool::ArchiveError::Archive(
             "no input files supplied".to_string(),
         ));
     }
-    let options = AddOptions {
-        inputs,
-        output,
-        fsync,
-    };
     if dry_run {
-        let plan = ArchiveTool::plan_add(&archive, &options)?;
+        let plan = ArchiveTool::plan_add(&archive, options)?;
         write_json(stdout, &plan)?;
         return Ok(());
     }
-    let count = ArchiveTool::add(archive, &options)?;
+    let count = ArchiveTool::add(archive, options)?;
     write_count(stdout, count, json)
 }
 

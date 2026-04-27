@@ -172,6 +172,9 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
         ba2_kind: parse_ba2_kind(ba2_kind.as_deref())?,
         ba2_version: parse_ba2_version(ba2_version.as_deref())?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
+        follow_symlinks: opts
+            .get::<Option<bool>>("follow_symlinks")?
+            .unwrap_or(false),
     })
 }
 
@@ -199,6 +202,9 @@ fn add_options(opts: &Table) -> LuaResult<AddOptions> {
         inputs: paths,
         output: PathBuf::from(opts.get::<String>("output")?),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
+        follow_symlinks: opts
+            .get::<Option<bool>>("follow_symlinks")?
+            .unwrap_or(false),
     })
 }
 

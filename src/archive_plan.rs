@@ -15,6 +15,9 @@ pub struct CreatePlan {
 }
 
 /// Plan for adding to an archive without writing it.
+///
+/// `entries` is a stable report order grouped by action, not a promise of final physical archive
+/// ordering. Existing entries may be preserved in backend archive order when writing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddPlan {
     pub operation: ArchivePlanOperation,
