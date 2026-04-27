@@ -138,6 +138,13 @@ impl OpenArchive {
 }
 
 pub(crate) fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveInfo {
+    archive_info_ref(path, archive.as_ref())
+}
+
+pub(crate) fn archive_info_ref(
+    path: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+) -> ArchiveInfo {
     let rewrite_blocker = crate::rewrite_policy::rewrite_blocker(archive).map(str::to_string);
     ArchiveInfo {
         path: path.to_string(),
@@ -152,7 +159,7 @@ pub(crate) fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -
     }
 }
 
-fn tes4_info(archive: &crate::loaded::LoadedArchive) -> Option<Tes4Info> {
+fn tes4_info(archive: crate::loaded::LoadedArchiveRef<'_>) -> Option<Tes4Info> {
     let dream_archive::Archive::Tes4Bsa(archive) = archive.as_dream_archive() else {
         return None;
     };
@@ -206,7 +213,7 @@ fn tes4_name_mode(
     }
 }
 
-fn ba2_info(archive: &crate::loaded::LoadedArchive) -> Option<Ba2Info> {
+fn ba2_info(archive: crate::loaded::LoadedArchiveRef<'_>) -> Option<Ba2Info> {
     let dream_archive::Archive::BA2(archive) = archive.as_dream_archive() else {
         return None;
     };

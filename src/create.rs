@@ -166,7 +166,7 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     reject_explicit_same_archive_output(archive_path, options)?;
     let output = add_output_path(archive_path, options);
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
-    crate::rewrite_policy::ensure_rewritable(&archive)?;
+    crate::rewrite_policy::ensure_rewritable(archive.as_ref())?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
         for (path, source) in collect_input_entry_paths(input, options.follow_symlinks)? {
@@ -189,7 +189,7 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     reject_explicit_same_archive_output(archive_path, options)?;
     let output = add_output_path(archive_path, options);
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
-    crate::rewrite_policy::ensure_rewritable(&archive)?;
+    crate::rewrite_policy::ensure_rewritable(archive.as_ref())?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
         for (path, source) in collect_input_entry_paths(input, options.follow_symlinks)? {

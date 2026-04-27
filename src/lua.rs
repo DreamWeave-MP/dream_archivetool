@@ -16,7 +16,8 @@
 use std::path::PathBuf;
 
 use mlua::{
-    Error as LuaError, Function, Lua, Result as LuaResult, String as LuaString, Table, Value,
+    AnyUserData, Error as LuaError, Function, Lua, Result as LuaResult, String as LuaString, Table,
+    UserDataMethods, UserDataRegistry, Value,
 };
 
 use crate::{
@@ -25,6 +26,193 @@ use crate::{
     ExtractOptions, ExtractPlanAction, ExtractPlanOperation, OverwriteMode, Tes4Version,
     VerifyOptions,
 };
+
+/// Create a `dream_archive` Lua module with `dream_archivetool` policy methods attached to
+/// `dream_archive.open_*` archive userdata.
+///
+/// Call this before any `dream_archive::lua::LuaArchive` userdata is created in the same Lua
+/// state. The returned table is the lower-level `dream_archive` module; register
+/// [`create_module`] separately when scripts also need path-based create/add helpers.
+pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
+    dream_archive::lua::create_module_with_archive_methods(lua, add_archive_tool_methods)
+}
+
+/// Register `dream_archivetool` policy methods on `dream_archive::lua::LuaArchive`.
+///
+/// This must run before any archive userdata is created in the Lua state. Use
+/// [`create_dream_archive_module`] when possible; it also makes `dream_archive.open_*` create
+/// userdata through `mlua`'s type registry so the added methods are visible.
+pub fn register_dream_archive_methods(lua: &Lua) -> LuaResult<()> {
+    dream_archive::lua::register_archive_methods(lua, add_archive_tool_methods)
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "Lua userdata method registration is a flat API table"
+)]
+fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::LuaArchive>) {
+    methods.add_method("tool_info", |lua, this, ()| {
+        archive_info_table(
+            lua,
+            crate::archive::archive_info_ref(&lua_archive_label(this), lua_archive_ref(this)),
+        )
+    });
+    methods.add_method("verify", |lua, this, opts: Option<Table>| {
+        let options = verify_options(opts)?;
+        let report = crate::verify::verify_loaded_archive(
+            &lua_archive_label(this),
+            lua_archive_ref(this),
+            options,
+        )
+        .map_err(LuaError::external)?;
+        verify_report_table(lua, report)
+    });
+    methods.add_method(
+        "diff",
+        |lua, this, (other, opts): (AnyUserData, Option<Table>)| {
+            let other = other.borrow::<dream_archive::lua::LuaArchive>()?;
+            let options = diff_options(opts)?;
+            let report = crate::diff::diff_loaded_archives(
+                &lua_archive_label(this),
+                lua_archive_ref(this),
+                &lua_archive_label(&other),
+                lua_archive_ref(&other),
+                options,
+            )
+            .map_err(LuaError::external)?;
+            diff_report_table(lua, report)
+        },
+    );
+    methods.add_method(
+        "extract",
+        |lua, this, (entry, opts): (LuaString, Option<Table>)| {
+            let options = extract_options(opts, "archive:extract")?;
+            let summary = crate::extract::extract_entry_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                lua_archive_ref(this),
+                entry.as_bytes().as_ref(),
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            summary_table(lua, summary.extracted, summary.skipped)
+        },
+    );
+    methods.add_method(
+        "extract_many",
+        |lua, this, (entries, opts): (Table, Option<Table>)| {
+            let entries = lua_byte_string_array(&entries, "archive:extract_many", "entries")?;
+            let options = extract_options(opts, "archive:extract_many")?;
+            let summary = crate::extract::extract_entries_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                lua_archive_ref(this),
+                &entries,
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            summary_table(lua, summary.extracted, summary.skipped)
+        },
+    );
+    methods.add_method(
+        "plan_extract",
+        |lua, this, (entries, opts): (Table, Option<Table>)| {
+            let entries = lua_byte_string_array(&entries, "archive:plan_extract", "entries")?;
+            let options = extract_options(opts, "archive:plan_extract")?;
+            let plan = crate::extract::plan_extract_entries_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                &entries,
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            extract_all_plan_table(lua, plan)
+        },
+    );
+    methods.add_method(
+        "extract_by_path_hex",
+        |lua, this, (entry_hex, opts): (LuaString, Option<Table>)| {
+            let entry = lua_path_hex(&entry_hex, "archive:extract_by_path_hex")?;
+            let options = extract_options(opts, "archive:extract_by_path_hex")?;
+            let summary = crate::extract::extract_entry_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                lua_archive_ref(this),
+                &entry,
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            summary_table(lua, summary.extracted, summary.skipped)
+        },
+    );
+    methods.add_method(
+        "extract_many_by_path_hex",
+        |lua, this, (entries, opts): (Table, Option<Table>)| {
+            let entries =
+                lua_hex_string_array(&entries, "archive:extract_many_by_path_hex", "entries")?;
+            let options = extract_options(opts, "archive:extract_many_by_path_hex")?;
+            let summary = crate::extract::extract_entries_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                lua_archive_ref(this),
+                &entries,
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            summary_table(lua, summary.extracted, summary.skipped)
+        },
+    );
+    methods.add_method(
+        "plan_extract_by_path_hex",
+        |lua, this, (entries, opts): (Table, Option<Table>)| {
+            let entries =
+                lua_hex_string_array(&entries, "archive:plan_extract_by_path_hex", "entries")?;
+            let options = extract_options(opts, "archive:plan_extract_by_path_hex")?;
+            let plan = crate::extract::plan_extract_entries_by_path_from_loaded_archive(
+                &lua_archive_label(this),
+                &entries,
+                &options,
+            )
+            .map_err(LuaError::external)?;
+            extract_all_plan_table(lua, plan)
+        },
+    );
+    methods.add_method("extract_all", |lua, this, opts: Option<Table>| {
+        let options = extract_all_options(opts, "archive:extract_all")?;
+        let summary = crate::extract::extract_all_from_loaded_archive(
+            &lua_archive_label(this),
+            lua_archive_ref(this),
+            &options,
+        )
+        .map_err(LuaError::external)?;
+        summary_table(lua, summary.extracted, summary.skipped)
+    });
+    methods.add_method("plan_extract_all", |lua, this, opts: Option<Table>| {
+        let options = extract_all_options(opts, "archive:plan_extract_all")?;
+        let plan = crate::extract::plan_extract_all_from_loaded_archive(
+            &lua_archive_label(this),
+            lua_archive_ref(this),
+            &options,
+        )
+        .map_err(LuaError::external)?;
+        extract_all_plan_table(lua, plan)
+    });
+}
+
+fn lua_archive_ref(
+    archive: &dream_archive::lua::LuaArchive,
+) -> crate::loaded::LoadedArchiveRef<'_> {
+    crate::loaded::LoadedArchiveRef::from_archive(archive.archive())
+}
+
+fn lua_archive_label(archive: &dream_archive::lua::LuaArchive) -> String {
+    archive
+        .path()
+        .map_or_else(|| "<memory>".to_string(), |path| path.display().to_string())
+}
+
+fn lua_path_hex(entry_hex: &LuaString, context: &str) -> LuaResult<Vec<u8>> {
+    let entry_hex = entry_hex.to_str().map_err(|_| {
+        LuaError::external(format!("{context}.path_bytes_hex must be a UTF-8 string"))
+    })?;
+    crate::path::decode_archive_path_hex(entry_hex.as_ref())
+        .map_err(|err| LuaError::external(format!("{context}: invalid path_bytes_hex: {err}")))
+}
 
 /// Create a Lua table for common [`ArchiveTool`] operations.
 ///
@@ -961,6 +1149,130 @@ mod tests {
         )
         .unwrap();
         archive
+    }
+
+    fn write_tes3_archive(path: &Path, payload: &[u8]) {
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes("textures/example.dds", payload).unwrap();
+        builder.write_path(path).unwrap();
+    }
+
+    #[test]
+    fn lua_archive_userdata_methods_verify_diff_and_plan() {
+        let dir = unique_dir("archive-methods");
+        fs::create_dir_all(&dir).unwrap();
+        let old_archive = dir.join("old.bsa");
+        let new_archive = dir.join("new.bsa");
+        write_tes3_archive(&old_archive, b"old");
+        write_tes3_archive(&new_archive, b"new");
+
+        let lua = Lua::new();
+        let dream_archive_module = create_dream_archive_module(&lua).unwrap();
+        lua.globals()
+            .set("dream_archive", dream_archive_module)
+            .unwrap();
+        lua.globals()
+            .set("old_path", old_archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("new_path", new_archive.to_str().unwrap())
+            .unwrap();
+
+        let (payloads_read, comparison, changed, planned): (usize, String, usize, usize) = lua
+            .load(
+                r"
+                local old = dream_archive.open_path(old_path)
+                local new = dream_archive.open_path(new_path)
+                local verify = old:verify({ read_payloads = true })
+                local diff = old:diff(new, { fingerprint_payloads = true })
+                local entry = old:entries()[1]
+                local plan = old:plan_extract({ entry.path }, { preserve_paths = false })
+                return verify.payloads_read, diff.comparison, #diff.changed, #plan.entries
+                ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(payloads_read, 1);
+        assert_eq!(comparison, "payload-fingerprint");
+        assert_eq!(changed, 1);
+        assert_eq!(planned, 1);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_archive_userdata_open_bytes_uses_snapshot_not_stale_path() {
+        let dir = unique_dir("archive-methods-stale-path");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("archive.bsa");
+        let output = dir.join("out");
+        write_tes3_archive(&archive, b"old");
+
+        let lua = Lua::new();
+        let dream_archive_module = create_dream_archive_module(&lua).unwrap();
+        lua.globals()
+            .set("dream_archive", dream_archive_module)
+            .unwrap();
+        let archive_bytes = fs::read(&archive).unwrap();
+        lua.globals()
+            .set("archive_bytes", lua.create_string(&archive_bytes).unwrap())
+            .unwrap();
+        lua.globals()
+            .set("out_path", output.to_str().unwrap())
+            .unwrap();
+        lua.load("archive = dream_archive.open_bytes(archive_bytes)")
+            .exec()
+            .unwrap();
+
+        write_tes3_archive(&archive, b"new");
+
+        lua.load(
+            r#"
+            archive:extract("textures/example.dds", {
+                output = out_path,
+                preserve_paths = false,
+            })
+            "#,
+        )
+        .exec()
+        .unwrap();
+
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"old");
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_archive_userdata_open_bytes_reports_memory_label() {
+        let dir = unique_dir("archive-methods-open-bytes");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("archive.bsa");
+        write_tes3_archive(&archive, b"payload");
+        let bytes = fs::read(&archive).unwrap();
+
+        let lua = Lua::new();
+        let dream_archive_module = create_dream_archive_module(&lua).unwrap();
+        lua.globals()
+            .set("dream_archive", dream_archive_module)
+            .unwrap();
+        lua.globals()
+            .set("archive_bytes", lua.create_string(&bytes).unwrap())
+            .unwrap();
+
+        let path: String = lua
+            .load(
+                r"
+                local archive = dream_archive.open_bytes(archive_bytes)
+                return archive:verify().path
+                ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(path, "<memory>");
+
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

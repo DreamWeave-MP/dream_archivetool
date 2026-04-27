@@ -50,7 +50,15 @@ pub struct VerifyPathIssue {
 /// Verify archive index health and, optionally, payload readability.
 pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyReport> {
     let archive = crate::loaded::LoadedArchive::open(path)?;
-    let info = crate::archive::archive_info(&path.display().to_string(), &archive);
+    verify_loaded_archive(&path.display().to_string(), archive.as_ref(), *options)
+}
+
+pub(crate) fn verify_loaded_archive(
+    label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    options: VerifyOptions,
+) -> Result<VerifyReport> {
+    let info = crate::archive::archive_info_ref(label, archive);
     let entries = archive.list_loaded_entries()?;
     let mut seen: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
     let mut duplicate_normalized_paths = Vec::new();

@@ -148,8 +148,22 @@ pub fn extract_entry_by_path(
     entry: &[u8],
     options: &ExtractOptions,
 ) -> Result<ExtractSummary> {
-    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    extract_entry_by_path_from_loaded_archive(
+        &path.display().to_string(),
+        archive.as_ref(),
+        entry,
+        options,
+    )
+}
+
+pub(crate) fn extract_entry_by_path_from_loaded_archive(
+    _label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    entry: &[u8],
+    options: &ExtractOptions,
+) -> Result<ExtractSummary> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive_path = crate::paths::normalize_safe_archive_path_bytes(entry)?;
     let target = if options.preserve_paths {
         safe_target_path_normalized(&root, &archive_path)?
@@ -169,8 +183,22 @@ pub fn extract_entries_by_path(
     entries: &[Vec<u8>],
     options: &ExtractOptions,
 ) -> Result<ExtractSummary> {
-    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    extract_entries_by_path_from_loaded_archive(
+        &path.display().to_string(),
+        archive.as_ref(),
+        entries,
+        options,
+    )
+}
+
+pub(crate) fn extract_entries_by_path_from_loaded_archive(
+    _label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    entries: &[Vec<u8>],
+    options: &ExtractOptions,
+) -> Result<ExtractSummary> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let mut summary = ExtractSummary {
         extracted: 0,
         skipped: 0,
@@ -205,6 +233,14 @@ pub fn plan_extract_entries_by_path(
     entries: &[Vec<u8>],
     options: &ExtractOptions,
 ) -> Result<ExtractAllPlan> {
+    plan_extract_entries_by_path_from_loaded_archive(&path.display().to_string(), entries, options)
+}
+
+pub(crate) fn plan_extract_entries_by_path_from_loaded_archive(
+    label: &str,
+    entries: &[Vec<u8>],
+    options: &ExtractOptions,
+) -> Result<ExtractAllPlan> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let targets = planned_extract_targets_from_paths(
         &root,
@@ -215,7 +251,7 @@ pub fn plan_extract_entries_by_path(
     let entries = plan_entries_from_targets(targets, options.overwrite);
     Ok(ExtractAllPlan {
         operation: ExtractPlanOperation::Extract,
-        archive: path.display().to_string(),
+        archive: label.to_string(),
         output: root.display().to_string(),
         entries,
     })
@@ -225,8 +261,16 @@ pub fn plan_extract_entries_by_path(
 ///
 /// In skip-existing mode, target existence is checked before entry bytes are decoded.
 pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSummary> {
-    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    extract_all_from_loaded_archive(&path.display().to_string(), archive.as_ref(), options)
+}
+
+pub(crate) fn extract_all_from_loaded_archive(
+    _label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    options: &ExtractAllOptions,
+) -> Result<ExtractSummary> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let mut summary = ExtractSummary {
         extracted: 0,
         skipped: 0,
@@ -259,8 +303,16 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
 
 /// Plan full archive extraction without writing files.
 pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractAllPlan> {
-    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    plan_extract_all_from_loaded_archive(&path.display().to_string(), archive.as_ref(), options)
+}
+
+pub(crate) fn plan_extract_all_from_loaded_archive(
+    label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    options: &ExtractAllOptions,
+) -> Result<ExtractAllPlan> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let entries = archive.list_loaded_entries()?;
     if entries.len() != archive.file_count() {
         return Err(ArchiveError::Archive(
@@ -272,7 +324,7 @@ pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<Extr
     let entries = plan_entries_from_targets(targets, options.overwrite);
     Ok(ExtractAllPlan {
         operation: ExtractPlanOperation::ExtractAll,
-        archive: path.display().to_string(),
+        archive: label.to_string(),
         output: root.display().to_string(),
         entries,
     })

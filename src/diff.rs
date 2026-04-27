@@ -83,10 +83,26 @@ struct DiffEntryData {
 pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<DiffReport> {
     let old_archive = crate::loaded::LoadedArchive::open(old)?;
     let new_archive = crate::loaded::LoadedArchive::open(new)?;
-    reject_unnameable_entries(&old_archive, old)?;
-    reject_unnameable_entries(&new_archive, new)?;
-    let old_entries = diff_entries(&old_archive, options.fingerprint_payloads)?;
-    let new_entries = diff_entries(&new_archive, options.fingerprint_payloads)?;
+    diff_loaded_archives(
+        &old.display().to_string(),
+        old_archive.as_ref(),
+        &new.display().to_string(),
+        new_archive.as_ref(),
+        *options,
+    )
+}
+
+pub(crate) fn diff_loaded_archives(
+    old_label: &str,
+    old_archive: crate::loaded::LoadedArchiveRef<'_>,
+    new_label: &str,
+    new_archive: crate::loaded::LoadedArchiveRef<'_>,
+    options: DiffOptions,
+) -> Result<DiffReport> {
+    reject_unnameable_entries(old_archive, old_label)?;
+    reject_unnameable_entries(new_archive, new_label)?;
+    let old_entries = diff_entries(old_archive, options.fingerprint_payloads)?;
+    let new_entries = diff_entries(new_archive, options.fingerprint_payloads)?;
     let mut added = Vec::new();
     let mut removed = Vec::new();
     let mut changed = Vec::new();
@@ -115,8 +131,8 @@ pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<Di
     }
 
     Ok(DiffReport {
-        old: old.display().to_string(),
-        new: new.display().to_string(),
+        old: old_label.to_string(),
+        new: new_label.to_string(),
         comparison: if options.fingerprint_payloads {
             DiffComparison::PayloadFingerprint
         } else {
@@ -130,18 +146,20 @@ pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<Di
     })
 }
 
-fn reject_unnameable_entries(archive: &crate::loaded::LoadedArchive, path: &Path) -> Result<()> {
+fn reject_unnameable_entries(
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    label: &str,
+) -> Result<()> {
     if archive.has_unnameable_entries() {
         return Err(ArchiveError::Archive(format!(
-            "archive '{}' contains entries without recoverable paths; refusing to diff it lossy",
-            path.display()
+            "archive '{label}' contains entries without recoverable paths; refusing to diff it lossy"
         )));
     }
     Ok(())
 }
 
 fn diff_entries(
-    archive: &crate::loaded::LoadedArchive,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
     fingerprint_payloads: bool,
 ) -> Result<BTreeMap<Vec<u8>, DiffEntryData>> {
     let mut entries = BTreeMap::new();
@@ -176,7 +194,10 @@ fn diff_entries(
     Ok(entries)
 }
 
-fn payload_fingerprint(archive: &crate::loaded::LoadedArchive, path: &[u8]) -> Result<String> {
+fn payload_fingerprint(
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    path: &[u8],
+) -> Result<String> {
     let mut hasher = Fnv1a64Writer::default();
     archive.extract_normalized_entry_path_to_writer(path, &mut hasher)?;
     Ok(format!("{:016x}", hasher.finish()))

@@ -33,6 +33,11 @@ pub struct LoadedArchive {
     archive: Archive,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct LoadedArchiveRef<'a> {
+    archive: &'a Archive,
+}
+
 impl LoadedArchive {
     pub fn open(path: &Path) -> Result<Self> {
         let archive = Archive::open_path(path).map_err(|err| {
@@ -42,6 +47,12 @@ impl LoadedArchive {
             ))
         })?;
         Ok(Self { archive })
+    }
+
+    pub(crate) fn as_ref(&self) -> LoadedArchiveRef<'_> {
+        LoadedArchiveRef {
+            archive: &self.archive,
+        }
     }
 
     pub(crate) fn as_dream_archive(&self) -> &Archive {
@@ -135,26 +146,6 @@ impl LoadedArchive {
         })
     }
 
-    pub fn named_entry_count(&self) -> usize {
-        match &self.archive {
-            Archive::Tes3Bsa(archive) => archive.len(),
-            Archive::Tes4Bsa(archive) => archive
-                .entries()
-                .iter()
-                .filter(|entry| entry.path().is_some())
-                .count(),
-            Archive::BA2(archive) => archive
-                .entries()
-                .iter()
-                .filter(|entry| !entry.name().is_empty())
-                .count(),
-        }
-    }
-
-    pub fn has_unnameable_entries(&self) -> bool {
-        self.named_entry_count() != self.file_count()
-    }
-
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
         let entry = normalize_archive_path(entry);
         self.read_entry_bytes_by_path(entry.as_bytes())
@@ -193,6 +184,133 @@ impl LoadedArchive {
 
     pub(crate) fn extract_normalized_entry_path_to_writer(
         &self,
+        entry: &[u8],
+        out: &mut dyn Write,
+    ) -> Result<u64> {
+        let written = self
+            .archive
+            .extract_file_required(entry, out)
+            .map_err(|err| match err {
+                dream_archive::Error::FileNotFound(_) => {
+                    ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
+                }
+                err => ArchiveError::Archive(err.to_string()),
+            })?;
+        Ok(written)
+    }
+}
+
+impl<'a> LoadedArchiveRef<'a> {
+    #[cfg(feature = "lua")]
+    pub(crate) fn from_archive(archive: &'a Archive) -> Self {
+        Self { archive }
+    }
+
+    pub(crate) fn as_dream_archive(self) -> &'a Archive {
+        self.archive
+    }
+
+    pub(crate) fn file_count(self) -> usize {
+        self.archive.len()
+    }
+
+    pub(crate) fn format(self) -> ArchiveFormat {
+        match self.archive.format() {
+            dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES3) => ArchiveFormat::Tes3,
+            dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES4) => ArchiveFormat::Tes4,
+            dream_archive::FileFormat::BA2 => ArchiveFormat::Ba2,
+        }
+    }
+
+    pub(crate) fn list_loaded_entries(self) -> Result<Vec<LoadedEntry>> {
+        Ok(match self.archive {
+            Archive::Tes3Bsa(archive) => archive
+                .entries()
+                .iter()
+                .map(|entry| {
+                    let raw_path = entry.path().as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
+                    Ok(LoadedEntry {
+                        raw_path,
+                        path,
+                        size: Some(entry.file().size.into()),
+                        compressed_size: None,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            Archive::Tes4Bsa(archive) => archive
+                .entries()
+                .iter()
+                .filter_map(|entry| {
+                    let path = entry.path()?;
+                    let raw_path = path.as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path);
+                    let record = entry.file();
+                    Some(path.map(|path| {
+                        LoadedEntry {
+                            raw_path,
+                            path,
+                            size: None,
+                            compressed_size: record
+                                .is_compressed(archive.info().archive_flags)
+                                .then_some(record.stored_size.into()),
+                        }
+                    }))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            Archive::BA2(archive) => archive
+                .entries()
+                .iter()
+                .filter(|entry| !entry.name().is_empty())
+                .map(|entry| {
+                    let size = entry
+                        .file()
+                        .chunks()
+                        .iter()
+                        .map(|chunk| u64::from(chunk.size()))
+                        .sum();
+                    let compressed_size = entry
+                        .file()
+                        .chunks()
+                        .iter()
+                        .filter(|chunk| chunk.is_compressed())
+                        .map(|chunk| u64::from(chunk.packed_size()))
+                        .sum::<u64>();
+                    let raw_path = entry.name().as_bytes().to_vec();
+                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
+                    Ok(LoadedEntry {
+                        raw_path,
+                        path,
+                        size: Some(size),
+                        compressed_size: (compressed_size > 0).then_some(compressed_size),
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+        })
+    }
+
+    pub(crate) fn named_entry_count(self) -> usize {
+        match self.archive {
+            Archive::Tes3Bsa(archive) => archive.len(),
+            Archive::Tes4Bsa(archive) => archive
+                .entries()
+                .iter()
+                .filter(|entry| entry.path().is_some())
+                .count(),
+            Archive::BA2(archive) => archive
+                .entries()
+                .iter()
+                .filter(|entry| !entry.name().is_empty())
+                .count(),
+        }
+    }
+
+    pub(crate) fn has_unnameable_entries(self) -> bool {
+        self.named_entry_count() != self.file_count()
+    }
+
+    pub(crate) fn extract_normalized_entry_path_to_writer(
+        self,
         entry: &[u8],
         out: &mut dyn Write,
     ) -> Result<u64> {

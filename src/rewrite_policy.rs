@@ -4,7 +4,7 @@
 //! archive be rewritten without known path loss or unsupported format semantics? Keep that contract
 //! here rather than teaching every caller its own slightly different lie.
 
-use crate::{ArchiveError, Result, loaded::LoadedArchive};
+use crate::{ArchiveError, Result, loaded::LoadedArchiveRef};
 
 const UNNAMEABLE_ENTRIES_BLOCKER: &str =
     "archive contains entries without recoverable paths; refusing to rewrite it lossy";
@@ -20,7 +20,7 @@ const TES4_REWRITABLE_ARCHIVE_FLAGS: u32 = dream_archive::bsa::tes4::ArchiveFlag
     | dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES.bits();
 
 /// Return the reason an archive cannot be safely rewritten, if this tool knows one.
-pub(crate) fn rewrite_blocker(archive: &LoadedArchive) -> Option<&'static str> {
+pub(crate) fn rewrite_blocker(archive: LoadedArchiveRef<'_>) -> Option<&'static str> {
     if archive.has_unnameable_entries() {
         return Some(UNNAMEABLE_ENTRIES_BLOCKER);
     }
@@ -54,7 +54,7 @@ pub(crate) fn ensure_ba2_payload_format_writable(
 }
 
 /// Reject archives whose rewrite would be lossy or depend on unsupported format semantics.
-pub(crate) fn ensure_rewritable(archive: &LoadedArchive) -> Result<()> {
+pub(crate) fn ensure_rewritable(archive: LoadedArchiveRef<'_>) -> Result<()> {
     if let Some(blocker) = rewrite_blocker(archive) {
         return Err(ArchiveError::Archive(blocker.to_string()));
     }
