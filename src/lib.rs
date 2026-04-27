@@ -3,7 +3,8 @@
 //! Library support for inspecting, extracting, creating, and updating Bethesda archives.
 //!
 //! `dream-archivetool` wraps the [`dream_archive`] crate behind a small, application-oriented API that is
-//! shared by the CLI and optional Lua bindings. The main entry point is [`ArchiveTool`].
+//! shared by the CLI and optional Lua bindings. The main entry point is [`ArchiveTool`]; callers doing
+//! repeated operations against one archive can use [`OpenArchive`] to keep the archive loaded.
 //!
 //! # Example
 //!
@@ -11,8 +12,9 @@
 //! use dream_archivetool::{ArchiveTool, CreateOptions};
 //!
 //! # fn main() -> dream_archivetool::Result<()> {
-//! let entries = ArchiveTool::list("Morrowind.bsa")?;
-//! let bytes = ArchiveTool::read_entry("Morrowind.bsa", "icons/gold.dds")?;
+//! let archive = ArchiveTool::open("Morrowind.bsa")?;
+//! let entries = archive.list()?;
+//! let bytes = archive.read_entry("icons/gold.dds")?;
 //! let count = ArchiveTool::create("out.bsa", "input_dir", &CreateOptions::default())?;
 //! # Ok(())
 //! # }
@@ -38,7 +40,7 @@ mod paths;
 #[cfg(feature = "lua")]
 pub mod lua;
 
-pub use archive::{ArchiveInfo, ArchiveTool};
+pub use archive::{ArchiveInfo, ArchiveTool, OpenArchive};
 pub use create::{AddOptions, CreateOptions, Fo4ArchiveKind, Fo4Version, Tes4Version};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};

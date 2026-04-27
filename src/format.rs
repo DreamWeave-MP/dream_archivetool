@@ -20,8 +20,20 @@ pub enum ArchiveFormat {
 
 /// Detect an archive format from its file header.
 pub fn guess_format(path: &Path) -> Result<ArchiveFormat> {
-    let mut file = File::open(path)?;
-    let format = dream_archive::guess_format(&mut file)?.ok_or(ArchiveError::UnknownFormat)?;
+    let mut file = File::open(path).map_err(|err| {
+        ArchiveError::Archive(format!(
+            "failed to open archive '{}': {err}",
+            path.display()
+        ))
+    })?;
+    let format = dream_archive::guess_format(&mut file)
+        .map_err(|err| {
+            ArchiveError::Archive(format!(
+                "failed to read archive header '{}': {err}",
+                path.display()
+            ))
+        })?
+        .ok_or(ArchiveError::UnknownFormat)?;
     match format {
         dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES3) => Ok(ArchiveFormat::Tes3),
         dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES4) => Ok(ArchiveFormat::Tes4),

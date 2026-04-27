@@ -35,7 +35,12 @@ pub enum LoadedArchive {
 
 impl LoadedArchive {
     pub fn open(path: &Path) -> Result<Self> {
-        match Archive::open_path(path).map_err(|err| ArchiveError::Archive(err.to_string()))? {
+        match Archive::open_path(path).map_err(|err| {
+            ArchiveError::Archive(format!(
+                "failed to open archive '{}': {err}",
+                path.display()
+            ))
+        })? {
             Archive::Tes3Bsa(archive) => Ok(Self::Tes3(archive)),
             Archive::Tes4Bsa(archive) => Ok(Self::Tes4(archive)),
             Archive::BA2(archive) => Ok(Self::Fo4(archive)),

@@ -22,6 +22,7 @@ dream-archivetool list --long archive.bsa
 dream-archivetool list --json archive.bsa
 dream-archivetool extract archive.bsa textures/example.dds --output out/
 dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
+dream-archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds
 dream-archivetool extract-all archive.bsa --output out/
 # extract/extract-all default to the current directory when --output is omitted
 dream-archivetool create out.bsa input_dir/ --format tes3
@@ -30,6 +31,59 @@ dream-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
 dream-archivetool add base.bsa new_file.txt --output updated.bsa
 dream-archivetool --generate-completion bash > dream-archivetool.bash
 dream-archivetool --generate-manpage > dream-archivetool.1
+```
+
+## CLI Contracts
+
+Running `dream-archivetool` without a subcommand intentionally prints top-level help and exits successfully. Argument parsing errors still use clap's nonzero misuse exit code, and runtime archive/file failures return a runtime error.
+
+Human output is for people. JSON output is the scripting contract and is written to stdout without progress text; diagnostics go to stderr in the binary. `extract --stdout` writes only payload bytes to stdout and conflicts with JSON and disk-write options.
+
+### Archive Path Contract
+
+Archive paths are normalized as virtual paths using `/` separators. Matching treats `\` as `/` and follows the case-normalized lookup behavior exposed by the archive backend. Extraction rejects absolute paths and `..` components before writing files.
+
+`list --json` reports both a display path and exact normalized path bytes:
+
+```json
+[
+  {
+    "path": "textures/example.dds",
+    "path_bytes_hex": "74657874757265732f6578616d706c652e646473",
+    "size": 123,
+    "compressed_size": null
+  }
+]
+```
+
+`path` is a lossy display string for humans. `path_bytes_hex` is the stable round-trip value for scripts, including non-UTF-8 Unix archive names. Feed it back with `extract --entry-hex HEX`; otherwise pass a positional entry path. Positional non-UTF-8 entry bytes are accepted on Unix through raw argv bytes.
+
+Directory inputs for `create` and `add` are stored relative to each directory root:
+
+```text
+input_dir/textures/a.dds -> textures/a.dds
+```
+
+The root directory name itself is not stored unless it is part of the path below the input root.
+
+### JSON Shapes
+
+`info --json`:
+
+```json
+{ "path": "archive.bsa", "format": "tes3", "file_count": 2 }
+```
+
+`extract --json` and `extract-all --json`:
+
+```json
+{ "extracted": 1, "skipped": 0 }
+```
+
+`create --json` and `add --json`:
+
+```json
+{ "files": 2 }
 ```
 
 ## Library
@@ -42,8 +96,9 @@ use dream_archivetool::{
 };
 
 # fn main() -> dream_archivetool::Result<()> {
-let entries = ArchiveTool::list("Morrowind.bsa")?;
-let bytes = ArchiveTool::read_entry("Morrowind.bsa", "icons/gold.dds")?;
+let archive = ArchiveTool::open("Morrowind.bsa")?;
+let entries = archive.list()?;
+let bytes = archive.read_entry("icons/gold.dds")?;
 let extracted = ArchiveTool::extract(
     "Morrowind.bsa",
     "icons/gold.dds",
@@ -141,7 +196,7 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
+The stateless `ArchiveTool` facade opens archives once per high-level operation; use `ArchiveTool::open` / `OpenArchive` for repeated list/read/extract calls against the same archive. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
 
 Archive creation and update preflight archive paths and format policy before reading payload bytes, but currently stage output archive entries in memory before writing because the `dream_archive` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory until the backend grows deferred source/reader builder APIs.
 
@@ -149,7 +204,7 @@ Archive creation and update preflight archive paths and format policy before rea
 
 - `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
 - Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format fo4`.
-- `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names.
+- `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names. Use `extract --entry-hex HEX` to feed those bytes back into the CLI.
 - `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
 - `create --format fo4 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.

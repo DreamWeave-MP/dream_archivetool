@@ -54,7 +54,11 @@ enum Command {
         /// Archive path
         archive: PathBuf,
         /// Entry path inside the archive. Non-UTF-8 Unix bytes are accepted.
-        entry: OsString,
+        #[arg(required_unless_present = "entry_hex", conflicts_with = "entry_hex")]
+        entry: Option<OsString>,
+        /// Hex-encoded normalized entry path bytes from `list --json` `path_bytes_hex`
+        #[arg(long, value_name = "HEX", conflicts_with = "entry")]
+        entry_hex: Option<String>,
         /// Output directory. Defaults to the current directory.
         #[arg(short, long, conflicts_with = "stdout")]
         output: Option<PathBuf>,
@@ -183,6 +187,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
         Command::Extract {
             archive,
             entry,
+            entry_hex,
             output,
             stdout: stdout_mode,
             fsync,
@@ -194,7 +199,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             stdout,
             ExtractCommandOptions {
                 archive,
-                entry,
+                entry: entry_selector(entry, entry_hex)?,
                 destination: if stdout_mode {
                     ExtractDestination::Stdout
                 } else {
@@ -299,6 +304,45 @@ fn reject_irrelevant_create_option(
     Ok(())
 }
 
+fn entry_selector(entry: Option<OsString>, entry_hex: Option<String>) -> Result<Vec<u8>> {
+    if let Some(hex) = entry_hex {
+        return decode_hex_entry(&hex);
+    }
+    let entry = entry.ok_or_else(|| {
+        dream_archivetool::ArchiveError::Archive(
+            "entry path or --entry-hex is required".to_string(),
+        )
+    })?;
+    Ok(archive_entry_bytes(&entry).into_owned())
+}
+
+fn decode_hex_entry(hex: &str) -> Result<Vec<u8>> {
+    let bytes = hex.as_bytes();
+    if !bytes.len().is_multiple_of(2) {
+        return Err(dream_archivetool::ArchiveError::Archive(
+            "--entry-hex must contain an even number of hexadecimal digits".to_string(),
+        ));
+    }
+    let mut decoded = Vec::with_capacity(bytes.len() / 2);
+    for chunk in bytes.chunks_exact(2) {
+        let high = hex_nibble(chunk[0])?;
+        let low = hex_nibble(chunk[1])?;
+        decoded.push((high << 4) | low);
+    }
+    Ok(decoded)
+}
+
+fn hex_nibble(byte: u8) -> Result<u8> {
+    match byte {
+        b'0'..=b'9' => Ok(byte - b'0'),
+        b'a'..=b'f' => Ok(byte - b'a' + 10),
+        b'A'..=b'F' => Ok(byte - b'A' + 10),
+        _ => Err(dream_archivetool::ArchiveError::Archive(
+            "--entry-hex contains a non-hexadecimal digit".to_string(),
+        )),
+    }
+}
+
 #[cfg(unix)]
 fn archive_entry_bytes(entry: &std::ffi::OsStr) -> Cow<'_, [u8]> {
     use std::os::unix::ffi::OsStrExt;
@@ -346,7 +390,7 @@ fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) 
 
 struct ExtractCommandOptions {
     archive: PathBuf,
-    entry: OsString,
+    entry: Vec<u8>,
     destination: ExtractDestination,
     fsync: bool,
     preserve_paths: bool,
@@ -361,8 +405,7 @@ enum ExtractDestination {
 
 fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Result<()> {
     let ExtractDestination::Disk(output) = options.destination else {
-        let entry = archive_entry_bytes(&options.entry);
-        ArchiveTool::extract_entry_path_to_writer(&options.archive, entry.as_ref(), stdout)?;
+        ArchiveTool::extract_entry_path_to_writer(&options.archive, &options.entry, stdout)?;
         return Ok(());
     };
     let extract_options = ExtractOptions {
@@ -371,8 +414,7 @@ fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Resu
         preserve_paths: options.preserve_paths,
         fsync: options.fsync,
     };
-    let entry = archive_entry_bytes(&options.entry);
-    let summary = ArchiveTool::extract_by_path(options.archive, entry.as_ref(), &extract_options)?;
+    let summary = ArchiveTool::extract_by_path(options.archive, &options.entry, &extract_options)?;
     if options.json {
         write_summary_json(stdout, &summary)
     } else {
@@ -910,5 +952,93 @@ mod tests {
 
         assert_eq!(stdout, b"bytes");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_command_accepts_entry_hex() {
+        let dir = unique_dir("extract-entry-hex");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "extract",
+                archive_path.to_str().unwrap(),
+                "--entry-hex",
+                "69636f6e732f6578616d706c652e646473",
+                "--stdout",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert_eq!(stdout, b"payload");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn entry_hex_conflicts_with_positional_entry() {
+        let err = Cli::try_parse_from([
+            "dream-archivetool",
+            "extract",
+            "test.bsa",
+            "icons/example.dds",
+            "--entry-hex",
+            "00",
+        ])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
+    fn invalid_entry_hex_is_rejected() {
+        let err = run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "extract",
+                "test.bsa",
+                "--entry-hex",
+                "abc",
+                "--stdout",
+            ]),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("even number"));
+    }
+
+    #[test]
+    fn no_subcommand_prints_help_successfully() {
+        let mut stdout = Vec::new();
+
+        run(Cli::parse_from(["dream-archivetool"]), &mut stdout).unwrap();
+
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .contains("Inspect and manipulate")
+        );
+    }
+
+    #[test]
+    fn missing_archive_error_includes_path_context() {
+        let dir = unique_dir("missing-archive");
+        let archive_path = dir.join("missing.bsa");
+        let mut stdout = Vec::new();
+
+        let err = run(
+            Cli::parse_from(["dream-archivetool", "list", archive_path.to_str().unwrap()]),
+            &mut stdout,
+        )
+        .unwrap_err();
+
+        let message = err.to_string();
+        assert!(message.contains("failed to open archive"));
+        assert!(message.contains("missing.bsa"));
     }
 }

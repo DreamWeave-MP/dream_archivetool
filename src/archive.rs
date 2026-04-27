@@ -19,16 +19,85 @@ pub struct ArchiveInfo {
     pub file_count: usize,
 }
 
+/// Opened archive handle for batch inspection and extraction without reopening the file.
+pub struct OpenArchive {
+    path: String,
+    archive: crate::loaded::LoadedArchive,
+}
+
+impl OpenArchive {
+    /// Open an archive once and keep its index available for repeated operations.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let archive = crate::loaded::LoadedArchive::open(path)?;
+        Ok(Self {
+            path: path.display().to_string(),
+            archive,
+        })
+    }
+
+    /// Return archive format plus file-count metadata.
+    #[must_use]
+    pub fn info(&self) -> ArchiveInfo {
+        ArchiveInfo {
+            path: self.path.clone(),
+            format: self.format(),
+            file_count: self.file_count(),
+        }
+    }
+
+    /// Return the detected archive family.
+    #[must_use]
+    pub fn format(&self) -> ArchiveFormat {
+        self.archive.format()
+    }
+
+    /// Return the number of file entries in the archive.
+    #[must_use]
+    pub fn file_count(&self) -> usize {
+        self.archive.file_count()
+    }
+
+    /// List all entries in the archive.
+    pub fn list(&self) -> Result<Vec<ArchiveEntry>> {
+        self.archive.list_entries()
+    }
+
+    /// Read a single archive entry into memory.
+    pub fn read_entry(&self, entry: &str) -> Result<Vec<u8>> {
+        self.archive.read_entry_bytes(entry)
+    }
+
+    /// Read a single archive entry selected by raw archive path bytes into memory.
+    pub fn read_entry_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
+        self.archive.read_entry_bytes_by_path(entry)
+    }
+
+    /// Extract a single archive entry into a writer without materializing the whole payload.
+    pub fn extract_entry_to_writer(&self, entry: &str, out: &mut dyn Write) -> Result<u64> {
+        self.archive.extract_entry_to_writer(entry, out)
+    }
+
+    /// Extract a single archive entry selected by raw archive path bytes into a writer.
+    pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
+        self.archive.extract_entry_path_to_writer(entry, out)
+    }
+}
+
 /// Stateless facade for archive inspection, extraction, creation, and update operations.
 ///
 /// This type exists to provide a compact public API shared by the CLI and Lua bindings. Each method
-/// opens the archive it operates on; callers that need lower-level lifetime control should use the
-/// specific free functions exposed by the submodules.
+/// opens the archive it operates on; callers that need repeated list/read/extract operations should
+/// use [`OpenArchive`] to avoid reopening and rebuilding archive indexes.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ArchiveTool;
 
 impl ArchiveTool {
     /// Detect the archive format from the file header.
+    pub fn open(path: impl AsRef<Path>) -> Result<OpenArchive> {
+        OpenArchive::open(path)
+    }
+
     pub fn guess_format(path: impl AsRef<Path>) -> Result<ArchiveFormat> {
         crate::format::guess_format(path.as_ref())
     }
@@ -156,6 +225,30 @@ mod tests {
 
         assert_eq!(info.format, ArchiveFormat::Tes3);
         assert_eq!(info.file_count, 1);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn open_archive_reuses_loaded_index() {
+        let dir = std::env::temp_dir().join(format!(
+            "dream-archivetool-open-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes("icons/gold.dds", b"gold").unwrap();
+        builder.write_path(&archive_path).unwrap();
+
+        let archive = ArchiveTool::open(&archive_path).unwrap();
+
+        assert_eq!(archive.info().file_count, 1);
+        assert_eq!(archive.list().unwrap()[0].path, "icons/gold.dds");
+        assert_eq!(archive.read_entry("icons/gold.dds").unwrap(), b"gold");
 
         fs::remove_dir_all(dir).unwrap();
     }
