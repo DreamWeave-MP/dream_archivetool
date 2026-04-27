@@ -98,9 +98,17 @@ impl OpenArchive {
         self.archive.read_entry_bytes(entry)
     }
 
-    /// Read a single archive entry selected by raw archive path bytes into memory.
-    pub fn read_entry_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
+    /// Read a single archive entry selected by normalized archive path bytes into memory.
+    pub fn read_entry_by_path_bytes(&self, entry: &[u8]) -> Result<Vec<u8>> {
         self.archive.read_entry_bytes_by_path(entry)
+    }
+
+    /// Read a single archive entry selected by normalized archive path bytes into memory.
+    ///
+    /// Prefer [`Self::read_entry_by_path_bytes`] in new code; this name predates the explicit
+    /// distinction between display paths, filesystem paths, and archive path bytes.
+    pub fn read_entry_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
+        self.read_entry_by_path_bytes(entry)
     }
 
     /// Extract a single archive entry into a writer without materializing the whole payload.
@@ -108,9 +116,21 @@ impl OpenArchive {
         self.archive.extract_entry_to_writer(entry, out)
     }
 
-    /// Extract a single archive entry selected by raw archive path bytes into a writer.
-    pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
+    /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    pub fn extract_entry_by_path_bytes_to_writer(
+        &self,
+        entry: &[u8],
+        out: &mut dyn Write,
+    ) -> Result<u64> {
         self.archive.extract_entry_path_to_writer(entry, out)
+    }
+
+    /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    ///
+    /// Prefer [`Self::extract_entry_by_path_bytes_to_writer`] in new code; this name predates the
+    /// explicit byte-path API naming convention.
+    pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
+        self.extract_entry_by_path_bytes_to_writer(entry, out)
     }
 }
 
@@ -228,9 +248,17 @@ impl ArchiveTool {
         crate::extract::read_entry_bytes(path.as_ref(), entry)
     }
 
-    /// Read a single archive entry selected by raw archive path bytes into memory.
-    pub fn read_entry_by_path(path: impl AsRef<Path>, entry: &[u8]) -> Result<Vec<u8>> {
+    /// Read a single archive entry selected by normalized archive path bytes into memory.
+    pub fn read_entry_by_path_bytes(path: impl AsRef<Path>, entry: &[u8]) -> Result<Vec<u8>> {
         crate::extract::read_entry_bytes_by_path(path.as_ref(), entry)
+    }
+
+    /// Read a single archive entry selected by normalized archive path bytes into memory.
+    ///
+    /// Prefer [`Self::read_entry_by_path_bytes`] in new code; this name predates the explicit
+    /// distinction between display paths, filesystem paths, and archive path bytes.
+    pub fn read_entry_by_path(path: impl AsRef<Path>, entry: &[u8]) -> Result<Vec<u8>> {
+        Self::read_entry_by_path_bytes(path, entry)
     }
 
     /// Extract a single archive entry into a writer without materializing the whole payload.
@@ -244,13 +272,25 @@ impl ArchiveTool {
         crate::extract::extract_entry_to_writer(path.as_ref(), entry, out)
     }
 
-    /// Extract a single archive entry selected by raw archive path bytes into a writer.
-    pub fn extract_entry_path_to_writer(
+    /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    pub fn extract_entry_by_path_bytes_to_writer(
         path: impl AsRef<Path>,
         entry: &[u8],
         out: &mut dyn Write,
     ) -> Result<u64> {
         crate::extract::extract_entry_path_to_writer(path.as_ref(), entry, out)
+    }
+
+    /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    ///
+    /// Prefer [`Self::extract_entry_by_path_bytes_to_writer`] in new code; this name predates the
+    /// explicit byte-path API naming convention.
+    pub fn extract_entry_path_to_writer(
+        path: impl AsRef<Path>,
+        entry: &[u8],
+        out: &mut dyn Write,
+    ) -> Result<u64> {
+        Self::extract_entry_by_path_bytes_to_writer(path, entry, out)
     }
 
     /// Extract a single archive entry to disk according to `options`.
@@ -262,13 +302,25 @@ impl ArchiveTool {
         crate::extract::extract_entry(path.as_ref(), entry, options)
     }
 
-    /// Extract a single archive entry selected by raw archive path bytes to disk.
-    pub fn extract_by_path(
+    /// Extract a single archive entry selected by normalized archive path bytes to disk.
+    pub fn extract_by_path_bytes(
         path: impl AsRef<Path>,
         entry: &[u8],
         options: &ExtractOptions,
     ) -> Result<ExtractSummary> {
         crate::extract::extract_entry_by_path(path.as_ref(), entry, options)
+    }
+
+    /// Extract a single archive entry selected by normalized archive path bytes to disk.
+    ///
+    /// Prefer [`Self::extract_by_path_bytes`] in new code; this name predates the explicit
+    /// byte-path API naming convention.
+    pub fn extract_by_path(
+        path: impl AsRef<Path>,
+        entry: &[u8],
+        options: &ExtractOptions,
+    ) -> Result<ExtractSummary> {
+        Self::extract_by_path_bytes(path, entry, options)
     }
 
     /// Extract every archive entry to disk according to `options`.

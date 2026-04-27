@@ -8,6 +8,9 @@ use crate::Result;
 /// A single file entry listed from an archive.
 pub struct ArchiveEntry {
     /// Normalized archive path using `/` separators, converted lossily for display.
+    ///
+    /// This is presentation text, not the authoritative identity for entries whose names are not
+    /// valid UTF-8. Use [`Self::path_bytes_hex`] for scriptable round-tripping.
     pub path: String,
     /// Hex-encoded normalized archive path bytes for scriptable round-tripping.
     #[serde(default)]
