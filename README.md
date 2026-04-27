@@ -10,6 +10,7 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 - Extract single files or whole archives safely.
 - Create TES3 BSA, TES4 BSA, and BA2/Starfield BA2 archives.
 - Add or update archive entries by writing a new archive output.
+- Keep CLI parsing dependencies behind the default `cli` feature so GUI/library consumers can opt out.
 - Expose an optional Lua embedding API behind the `lua` feature.
 
 ## Usage
@@ -107,6 +108,15 @@ the mutating commands use, but stop before writing output.
 ## Library
 
 The crate exposes `ArchiveTool` and option structs for reuse by other applications:
+
+GUI or embedding projects that do not need the command-line interface should disable default features to avoid pulling in `clap`, completion generation, and manpage generation dependencies:
+
+```toml
+[dependencies]
+dream-archivetool = { version = "0.1", default-features = false }
+```
+
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. Add `features = ["lua"]` if the embedding API is needed.
 
 ```rust,no_run
 use dream_archivetool::{
