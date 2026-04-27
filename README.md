@@ -169,6 +169,7 @@ use mlua::Lua;
 
 # fn main() -> mlua::Result<()> {
 let lua = Lua::new();
+lua.globals().set("dream_archive", dream_archive::lua::create_module(&lua)?)?;
 dream_archivetool::lua::register(&lua)?;
 # Ok(())
 # }
@@ -176,9 +177,9 @@ dream_archivetool::lua::register(&lua)?;
 
 The registered `dream_archivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Lua API.
 
-Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` accepts the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex` accept the serialized `path_bytes_hex` identity used by archivetool reports. Display `path` fields are for people; `path_bytes_hex` is the stable round-trip value.
+Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` accepts the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex` accept the serialized `path_bytes_hex` identity used by archivetool reports. Display `path` fields are for people; `path_bytes_hex` is the stable round-trip value. Wide archive sizes (`size`, `compressed_size`) are decimal strings, not Lua numbers, because LuaJIT numbers are not a u64 transport. Counts such as `files`, `added`, and `extracted` remain Lua numbers.
 
-`dream_path`'s Lua helpers are enabled with this crate's `lua` feature and can be registered by the embedding application alongside `dream_archivetool`. `dream_archive` is intended to join the same Lua state after it uses the same runtime-selection split as this crate. Until then, its version/runtime policy has to be aligned by the embedding application or by updating `dream_archive`; pretending two different `mlua` contracts are one contract would be convenient and false.
+The `lua` feature enables compatible Lua support in `dream_archive`, including its re-exported `dream_path` helpers. Embedding applications should register `dream_path`, `dream_archive`, and `dream_archivetool` into the same Lua state when they need the whole stack. `dream_archivetool` does not install those dependency globals behind your back; hidden globals are how APIs become haunted furniture.
 
 ```lua
 local tool = dream_archivetool
@@ -188,9 +189,9 @@ local verify = tool.verify("Morrowind.bsa", { read_payloads = true })
 local diff = tool.diff("old.bsa", "new.bsa", { fingerprint_payloads = true })
 
 -- Natural bridge from dream_archive once both modules are registered:
--- local archive = dream_archive.open_path("Morrowind.bsa")
--- local entry = archive:entries()[1]
--- tool.extract("Morrowind.bsa", entry.path, { output = "out" })
+local archive = dream_archive.open_path("Morrowind.bsa")
+local entry = archive:entries()[1]
+tool.extract("Morrowind.bsa", entry.path, { output = "out" })
 
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   output = "out",
@@ -208,6 +209,11 @@ local extract_plan = tool.plan_extract_all("Morrowind.bsa", {
   output = "out",
   overwrite = "skip",
 })
+for _, entry in ipairs(extract_plan.entries) do
+  if entry.action == "overwrite" then
+    error("refusing to overwrite " .. entry.path)
+  end
+end
 local all = tool.extract_all("Morrowind.bsa", {
   output = "out",
   overwrite = "skip",
@@ -236,17 +242,19 @@ local updated = tool.add("out.ba2", {
 Lua functions and return values:
 
 - `info(path) -> { path, format, file_count, named_entry_count, has_unnameable_entries, rewritable, rewrite_blocker, tes4?, ba2? }`
-- `verify(path, opts?) -> verification report table`
-- `diff(old, new, opts?) -> diff report table`
+- `verify(path, opts?) -> { path, format, file_count, named_entry_count, unnameable_entries, rewritable, rewrite_blocker, duplicate_normalized_paths, unsafe_paths, payloads_read, warnings }`
+- `diff(old, new, opts?) -> { old, new, comparison, fingerprint_payloads, added, removed, changed, unchanged }`
 - `extract(path, entry_bytes, opts?) -> { extracted, skipped }`
 - `extract_by_path_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
 - `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }` compatibility alias
 - `extract_all(path, opts?) -> { extracted, skipped }`
-- `plan_extract_all(path, opts?) -> extract-all plan table`
+- `plan_extract_all(path, opts?) -> { operation, archive, output, entries }`
 - `create(output, input, opts?) -> file_count`
-- `plan_create(output, input, opts?) -> create plan table`
+- `plan_create(output, input, opts?) -> { operation, format, output, files, entries }`
 - `add(path, opts) -> file_count`
-- `plan_add(path, opts) -> add plan table`
+- `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
+
+Report and plan entry tables use display `path` for humans and `path_bytes_hex` for identity. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.inputs` must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Lua option tables:
 
