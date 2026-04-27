@@ -124,7 +124,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature only enables the bindings; it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; those companion crates must use the same `mlua` major version and runtime-selection policy before enabling all Lua APIs in one embedding application.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables these bindings plus `dream_path`'s Lua helpers, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_path` is already wired through this crate, while `dream_archive` must use the same `mlua` major version and runtime-selection policy before enabling all Lua APIs in one embedding application.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -178,7 +178,7 @@ The registered `dream_archivetool` table exposes tool-policy operations that `dr
 
 Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` accepts the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex` accept the serialized `path_bytes_hex` identity used by archivetool reports. Display `path` fields are for people; `path_bytes_hex` is the stable round-trip value.
 
-The two Lua APIs are intended to be registered into the same Lua state once `dream_archive` uses the same runtime-selection split as this crate. Until then, the version/runtime policy has to be aligned by the embedding application or by updating `dream_archive`; pretending two different `mlua` contracts are one contract would be convenient and false.
+`dream_path`'s Lua helpers are enabled with this crate's `lua` feature and can be registered by the embedding application alongside `dream_archivetool`. `dream_archive` is intended to join the same Lua state after it uses the same runtime-selection split as this crate. Until then, its version/runtime policy has to be aligned by the embedding application or by updating `dream_archive`; pretending two different `mlua` contracts are one contract would be convenient and false.
 
 ```lua
 local tool = dream_archivetool

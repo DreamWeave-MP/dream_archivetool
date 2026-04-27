@@ -317,11 +317,12 @@ dependencies = [
 
 [[package]]
 name = "dream-path"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "301b5c1b23ec83d960055ac31804d1c3944fdf1b21a08b53f0a0d1bb1798cb60"
+checksum = "049f18a7dce57415b003762676b86f1ac8bf074e134556823d828dcbc04059f4"
 dependencies = [
  "bstr",
+ "mlua",
 ]
 
 [[package]]
