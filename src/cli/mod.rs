@@ -384,12 +384,24 @@ fn write_diff(
     if json {
         write_json(stdout, &report)?;
     } else {
+        writeln!(
+            stdout,
+            "comparison: {}",
+            diff_comparison_name(report.comparison)
+        )?;
         writeln!(stdout, "added: {}", report.added.len())?;
         writeln!(stdout, "removed: {}", report.removed.len())?;
         writeln!(stdout, "changed: {}", report.changed.len())?;
         writeln!(stdout, "unchanged: {}", report.unchanged)?;
     }
     Ok(())
+}
+
+fn diff_comparison_name(comparison: dream_archivetool::DiffComparison) -> &'static str {
+    match comparison {
+        dream_archivetool::DiffComparison::MetadataOnly => "metadata-only",
+        dream_archivetool::DiffComparison::PayloadFingerprint => "payload-fingerprint",
+    }
 }
 
 struct ExtractCommandOptions {

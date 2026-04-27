@@ -2,6 +2,7 @@
 name = "dream-archivetool"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.87"
 description = "Inspect, extract, create, and update Bethesda BSA and BA2 archives"
 license = "GPL-3.0-or-later"
 readme = "README.md"
@@ -32,3 +33,8 @@ criterion = "0.5"
 [[bench]]
 name = "archive_ops"
 harness = false
+
+[[bin]]
+name = "dream-archivetool"
+path = "src/main.rs"
+required-features = ["cli"]

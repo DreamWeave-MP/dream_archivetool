@@ -21,11 +21,24 @@ pub struct DiffOptions {
 pub struct DiffReport {
     pub old: String,
     pub new: String,
+    /// How entries were compared. `metadata-only` does not prove payload equality.
+    pub comparison: DiffComparison,
     pub fingerprint_payloads: bool,
     pub added: Vec<DiffEntry>,
     pub removed: Vec<DiffEntry>,
     pub changed: Vec<DiffChange>,
     pub unchanged: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+/// Diff comparison mode used for this report.
+pub enum DiffComparison {
+    /// Compare listed metadata only. Entries with incomplete metadata can be reported unchanged even
+    /// when payload bytes differ.
+    MetadataOnly,
+    /// Compare listed metadata and streamed non-cryptographic payload fingerprints.
+    PayloadFingerprint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,6 +117,11 @@ pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<Di
     Ok(DiffReport {
         old: old.display().to_string(),
         new: new.display().to_string(),
+        comparison: if options.fingerprint_payloads {
+            DiffComparison::PayloadFingerprint
+        } else {
+            DiffComparison::MetadataOnly
+        },
         fingerprint_payloads: options.fingerprint_payloads,
         added,
         removed,

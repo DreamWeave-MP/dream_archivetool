@@ -485,6 +485,13 @@ fn write_tes4_like(
     let input_count = entries.len();
     let mut preserved = 0;
     let info = archive.info();
+    let unsupported_flag_bits =
+        crate::rewrite_policy::tes4_unsupported_archive_flag_bits(info.archive_flags);
+    if unsupported_flag_bits != 0 {
+        return Err(ArchiveError::Archive(format!(
+            "TES4 archive uses header flag bits this tool cannot preserve (0x{unsupported_flag_bits:08x}); refusing to rewrite it lossy"
+        )));
+    }
     let mut builder = dream_archive::Tes4BsaBuilder::new();
     builder.set_version(info.version);
     builder.set_archive_types(info.archive_types);

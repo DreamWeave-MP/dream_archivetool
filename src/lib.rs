@@ -53,7 +53,9 @@ pub use create::{
     AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, Ba2ArchiveKind,
     Ba2Version, CreateOptions, CreatePlan, Tes4Version,
 };
-pub use diff::{DiffChange, DiffEntry, DiffEntryState, DiffOptions, DiffReport, diff_archives};
+pub use diff::{
+    DiffChange, DiffComparison, DiffEntry, DiffEntryState, DiffOptions, DiffReport, diff_archives,
+};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
 pub use extract::{

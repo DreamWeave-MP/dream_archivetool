@@ -43,7 +43,7 @@ dream-archivetool --generate-manpage > dream-archivetool.1
 
 Running `dream-archivetool` without a subcommand intentionally prints top-level help and exits successfully. Argument parsing errors still use clap's nonzero misuse exit code, and runtime archive/file failures return a runtime error.
 
-Human output is for people. JSON output is the scripting contract and is written to stdout without progress text; diagnostics go to stderr in the binary. `extract --stdout` writes only payload bytes to stdout and conflicts with JSON and disk-write options.
+Human output is for people. JSON output is the scripting contract and is written to stdout without progress text; diagnostics go to stderr in the binary. `extract --stdout` writes only payload bytes to stdout and conflicts with JSON and disk-write options. JSON compatibility follows the crate's semver contract; additive fields may appear in minor releases, while field removals or renames require a breaking release.
 
 ### Archive Path Contract
 
@@ -100,8 +100,7 @@ symlink target bytes is intentional.
 and optional payload-read counts when `--read-payloads` is used. Payload reads are skipped with a
 warning when duplicate normalized paths prevent per-entry coverage.
 
-`diff --hash` computes a fast non-cryptographic FNV-1a payload fingerprint and reports it as
-`payload_fingerprint`; it is for change detection, not integrity or adversarial collision checks.
+`diff` without `--hash` is a metadata-only comparison and does not prove payload equality, especially for archive formats where the backend cannot expose complete size metadata. `diff --hash` streams payload bytes through a fast non-cryptographic FNV-1a fingerprint and reports it as `payload_fingerprint`; it is for change detection, not integrity or adversarial collision checks.
 
 `create --json` and `add --json`:
 
@@ -125,7 +124,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. Add `features = ["lua"]` if the embedding API is needed.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -262,10 +261,16 @@ Archive creation and update preflight archive paths and format policy before add
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo clippy --all-targets --features lua -- -D warnings
-cargo test --features lua
+cargo test --workspace
+cargo test --workspace --all-features
+cargo test --workspace --no-default-features
+cargo test --workspace --no-default-features --features lua
+cargo check --no-default-features
+cargo check --no-default-features --features lua
+cargo clippy --workspace --all-targets --all-features -- -W clippy::pedantic -D warnings
+cargo clippy --workspace --all-targets --no-default-features -- -W clippy::pedantic -D warnings
+cargo build --release
+cargo build --release --no-default-features
 cargo bench --bench archive_ops
 ```
 

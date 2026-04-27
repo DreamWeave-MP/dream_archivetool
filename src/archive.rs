@@ -40,7 +40,10 @@ pub struct ArchiveInfo {
 pub struct Tes4Info {
     pub version: String,
     pub archive_types: String,
+    pub archive_types_bits: u16,
     pub archive_flags: Vec<String>,
+    pub archive_flags_bits: u32,
+    pub unsupported_archive_flags_bits: u32,
     pub name_mode: String,
 }
 
@@ -163,7 +166,12 @@ fn tes4_info(archive: &crate::loaded::LoadedArchive) -> Option<Tes4Info> {
     Some(Tes4Info {
         version: format!("{:?}", info.version),
         archive_types: format!("{:?}", info.archive_types),
+        archive_types_bits: info.archive_types.bits(),
         archive_flags: tes4_archive_flags(flags),
+        archive_flags_bits: flags.bits(),
+        unsupported_archive_flags_bits: crate::rewrite_policy::tes4_unsupported_archive_flag_bits(
+            flags,
+        ),
         name_mode: tes4_name_mode(directory_strings, file_strings, embedded_file_names).to_string(),
     })
 }

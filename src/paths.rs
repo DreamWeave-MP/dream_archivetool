@@ -125,10 +125,14 @@ fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
 }
 
 pub(crate) fn validate_archive_path_bytes_for_extraction(path: &[u8]) -> Result<()> {
+    let has_filename_component = path
+        .split(|byte| *byte == b'/' || *byte == b'\\')
+        .any(|part| !part.is_empty() && part != b".");
     if path.is_empty()
         || path.starts_with(b"/")
         || path.starts_with(b"\\")
         || path.contains(&b'\0')
+        || !has_filename_component
         || path
             .split(|byte| *byte == b'/' || *byte == b'\\')
             .any(|part| part == b".." || part.contains(&b':'))
@@ -153,8 +157,18 @@ mod tests {
             b"textures/has\0nul.txt",
             b"C:/evil.txt",
             b"C:evil.txt",
+            b".",
+            b"./.",
+            b".\\.",
         ] {
             assert!(validate_archive_path_bytes_for_extraction(path).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_dot_only_normalized_targets() {
+        for path in [b".".as_slice(), b"./.", b".\\."] {
+            assert!(safe_target_path_normalized(Path::new("out"), path).is_err());
         }
     }
 }
