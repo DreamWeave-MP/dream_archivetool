@@ -56,7 +56,7 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         lua.create_function(
             |lua, (path, entry, opts): (LuaString, LuaString, Option<Table>)| {
                 let path = path.to_str()?;
-                let options = extract_options(opts)?;
+                let options = extract_options(opts, "extract")?;
                 let entry = entry.as_bytes();
                 let summary =
                     ArchiveTool::extract_by_path_bytes(path.as_ref(), entry.as_ref(), &options)
@@ -71,7 +71,7 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
             let entry_hex = entry_hex.to_str()?;
             let entry = crate::path::decode_archive_path_hex(entry_hex.as_ref())
                 .map_err(LuaError::external)?;
-            let options = extract_options(opts)?;
+            let options = extract_options(opts, "extract_by_path_hex")?;
             let summary = ArchiveTool::extract_by_path_bytes(path.as_ref(), &entry, &options)
                 .map_err(LuaError::external)?;
             summary_table(lua, summary.extracted, summary.skipped)
@@ -114,7 +114,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "extract_all",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
             let path = path.to_str()?;
-            let options = extract_all_options(opts)?;
+            let options = extract_all_options(opts, "extract_all")?;
             let summary =
                 ArchiveTool::extract_all(path.as_ref(), &options).map_err(LuaError::external)?;
             summary_table(lua, summary.extracted, summary.skipped)
@@ -124,7 +124,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "plan_extract_all",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
             let path = path.to_str()?;
-            let options = extract_all_options(opts)?;
+            let options = extract_all_options(opts, "plan_extract_all")?;
             let plan = ArchiveTool::plan_extract_all(path.as_ref(), &options)
                 .map_err(LuaError::external)?;
             extract_all_plan_table(lua, plan)
@@ -136,7 +136,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
             |_, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
                 let output = output.to_str()?;
                 let input = input.to_str()?;
-                let options = create_options(opts)?;
+                let options = create_options(opts, "create")?;
                 ArchiveTool::create(output.as_ref(), input.as_ref(), &options)
                     .map_err(LuaError::external)
             },
@@ -148,7 +148,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
             |lua, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
                 let output = output.to_str()?;
                 let input = input.to_str()?;
-                let options = create_options(opts)?;
+                let options = create_options(opts, "plan_create")?;
                 let plan = ArchiveTool::plan_create(output.as_ref(), input.as_ref(), &options)
                     .map_err(LuaError::external)?;
                 create_plan_table(lua, plan)
@@ -159,7 +159,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "add",
         lua.create_function(|_, (archive, opts): (LuaString, Table)| {
             let archive = archive.to_str()?;
-            let options = add_options(&opts)?;
+            let options = add_options(&opts, "add")?;
             ArchiveTool::add(archive.as_ref(), &options).map_err(LuaError::external)
         })?,
     )?;
@@ -167,7 +167,7 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "plan_add",
         lua.create_function(|lua, (archive, opts): (LuaString, Table)| {
             let archive = archive.to_str()?;
-            let options = add_options(&opts)?;
+            let options = add_options(&opts, "plan_add")?;
             let plan =
                 ArchiveTool::plan_add(archive.as_ref(), &options).map_err(LuaError::external)?;
             add_plan_table(lua, plan)
@@ -185,19 +185,19 @@ pub fn register(lua: &Lua) -> LuaResult<()> {
 
 fn format_name(format: ArchiveFormat) -> &'static str {
     match format {
-        ArchiveFormat::Tes3 => "tes3",
-        ArchiveFormat::Tes4 => "tes4",
+        ArchiveFormat::Tes3 => "bsa-tes3",
+        ArchiveFormat::Tes4 => "bsa-tes4",
         ArchiveFormat::Ba2 => "ba2",
     }
 }
 
-fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
+fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions> {
     let Some(opts) = opts else {
         return Ok(CreateOptions::default());
     };
     reject_unknown_options(
         &opts,
-        "create",
+        context,
         &[
             "format",
             "tes4_version",
@@ -251,18 +251,20 @@ fn reject_irrelevant_create_option(
     Ok(())
 }
 
-fn add_options(opts: &Table) -> LuaResult<AddOptions> {
+fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
     reject_unknown_options(
         opts,
-        "add",
+        context,
         &["output", "inputs", "fsync", "follow_symlinks"],
     )?;
     let inputs: Table = opts
         .get("inputs")
-        .map_err(|_| LuaError::external("add requires opts.inputs"))?;
-    let len = validate_dense_string_array(&inputs, "add.inputs")?;
+        .map_err(|_| LuaError::external(format!("{context} requires opts.inputs")))?;
+    let len = validate_dense_string_array(&inputs, &format!("{context}.inputs"))?;
     if len == 0 {
-        return Err(LuaError::external("add requires at least one input path"));
+        return Err(LuaError::external(format!(
+            "{context} requires at least one input path"
+        )));
     }
     let mut paths = Vec::with_capacity(len);
     for index in 1..=len {
@@ -272,7 +274,12 @@ fn add_options(opts: &Table) -> LuaResult<AddOptions> {
     }
     Ok(AddOptions {
         inputs: paths,
-        output: PathBuf::from(opts.get::<LuaString>("output")?.to_str()?.as_ref()),
+        output: PathBuf::from(
+            opts.get::<LuaString>("output")
+                .map_err(|_| LuaError::external(format!("{context} requires opts.output")))?
+                .to_str()?
+                .as_ref(),
+        ),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
         follow_symlinks: opts
             .get::<Option<bool>>("follow_symlinks")?
@@ -302,13 +309,13 @@ fn diff_options(opts: Option<Table>) -> LuaResult<DiffOptions> {
     })
 }
 
-fn extract_options(opts: Option<Table>) -> LuaResult<ExtractOptions> {
+fn extract_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractOptions> {
     let Some(opts) = opts else {
         return Ok(ExtractOptions::default());
     };
     reject_unknown_options(
         &opts,
-        "extract",
+        context,
         &["output", "overwrite", "preserve_paths", "fsync"],
     )?;
     Ok(ExtractOptions {
@@ -319,11 +326,11 @@ fn extract_options(opts: Option<Table>) -> LuaResult<ExtractOptions> {
     })
 }
 
-fn extract_all_options(opts: Option<Table>) -> LuaResult<ExtractAllOptions> {
+fn extract_all_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractAllOptions> {
     let Some(opts) = opts else {
         return Ok(ExtractAllOptions::default());
     };
-    reject_unknown_options(&opts, "extract_all", &["output", "overwrite", "fsync"])?;
+    reject_unknown_options(&opts, context, &["output", "overwrite", "fsync"])?;
     Ok(ExtractAllOptions {
         output: optional_path(opts.get::<Option<LuaString>>("output")?)?,
         overwrite: parse_optional_overwrite(opts.get::<Option<LuaString>>("overwrite")?)?,
@@ -334,15 +341,25 @@ fn extract_all_options(opts: Option<Table>) -> LuaResult<ExtractAllOptions> {
 fn reject_unknown_options(opts: &Table, function: &str, allowed: &[&str]) -> LuaResult<()> {
     for pair in opts.clone().pairs::<Value, Value>() {
         let (key, _) = pair?;
-        let key = match key {
-            Value::String(key) => key.to_str()?.to_owned(),
-            Value::Integer(key) => key.to_string(),
-            other => format!("{other:?}"),
-        };
-        if !allowed.contains(&key.as_str()) {
-            return Err(LuaError::external(format!(
-                "{function}: unknown option key: {key}"
-            )));
+        match key {
+            Value::String(key) => {
+                let key = key.to_str()?;
+                if !allowed.contains(&key.as_ref()) {
+                    return Err(LuaError::external(format!(
+                        "{function}: unknown option key: {key}"
+                    )));
+                }
+            }
+            Value::Integer(key) => {
+                return Err(LuaError::external(format!(
+                    "{function}: unknown option key: {key}"
+                )));
+            }
+            other => {
+                return Err(LuaError::external(format!(
+                    "{function}: unknown option key: {other:?}"
+                )));
+            }
         }
     }
     Ok(())
@@ -350,7 +367,7 @@ fn reject_unknown_options(opts: &Table, function: &str, allowed: &[&str]) -> Lua
 
 fn validate_dense_string_array(inputs: &Table, name: &str) -> LuaResult<usize> {
     let len = inputs.raw_len();
-    let mut seen = vec![false; len];
+    let mut count = 0usize;
     for pair in inputs.clone().pairs::<Value, Value>() {
         let (key, value) = pair?;
         let Value::Integer(index) = key else {
@@ -368,13 +385,10 @@ fn validate_dense_string_array(inputs: &Table, name: &str) -> LuaResult<usize> {
                 "{name}[{index}] must be a string"
             )));
         }
-        seen[usize::try_from(index).expect("positive dense index checked") - 1] = true;
+        count += 1;
     }
-    if let Some(index) = seen.iter().position(|seen| !seen) {
-        return Err(LuaError::external(format!(
-            "{name} must not contain holes; missing index {}",
-            index + 1
-        )));
+    if count != len {
+        return Err(LuaError::external(format!("{name} must not contain holes")));
     }
     Ok(len)
 }
@@ -786,7 +800,7 @@ mod tests {
             .eval()
             .unwrap();
 
-        assert_eq!(format, "tes3");
+        assert_eq!(format, "bsa-tes3");
         assert!(rewritable);
         assert!(list_is_absent);
         assert!(read_is_absent);
@@ -859,10 +873,10 @@ mod tests {
     }
 
     #[test]
-    fn lua_extracts_path_from_dream_archive_entry() {
+    fn lua_extracts_paths_from_dream_archive_entry() {
         let dir = unique_dir("archive-bridge");
         let archive = create_test_archive(&dir);
-        let output = dir.join("output");
+        let raw_output = dir.join("raw-output");
         let lua = Lua::new();
         lua.globals()
             .set(
@@ -875,26 +889,25 @@ mod tests {
             .set("archive_path", archive.to_str().unwrap())
             .unwrap();
         lua.globals()
-            .set("output_path", output.to_str().unwrap())
+            .set("raw_output", raw_output.to_str().unwrap())
             .unwrap();
-
-        let extracted: usize = lua
+        let raw_extracted: usize = lua
             .load(
                 r"
                 local archive = dream_archive.open_path(archive_path)
                 local entry = archive:entries()[1]
-                local summary = dream_archivetool.extract(archive_path, entry.path, {
-                    output = output_path,
+                local raw = dream_archivetool.extract(archive_path, entry.path, {
+                    output = raw_output,
                     preserve_paths = false,
                 })
-                return summary.extracted
+                return raw.extracted
             ",
             )
             .eval()
             .unwrap();
 
-        assert_eq!(extracted, 1);
-        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
+        assert_eq!(raw_extracted, 1);
+        assert_eq!(fs::read(raw_output.join("example.dds")).unwrap(), b"hello");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -922,12 +935,22 @@ mod tests {
             },
         )
         .unwrap();
+        let bridge_output = dir.join("bridge");
         let raw_output = dir.join("raw");
         let hex_output = dir.join("hex");
         let lua = Lua::new();
+        lua.globals()
+            .set(
+                "dream_archive",
+                dream_archive::lua::create_module(&lua).unwrap(),
+            )
+            .unwrap();
         register(&lua).unwrap();
         lua.globals()
             .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("bridge_output", bridge_output.to_str().unwrap())
             .unwrap();
         lua.globals()
             .set("raw_output", raw_output.to_str().unwrap())
@@ -939,9 +962,15 @@ mod tests {
             .set("entry_bytes", lua.create_string(b"bad-\xff.dds").unwrap())
             .unwrap();
 
-        let (raw_extracted, hex_extracted): (usize, usize) = lua
+        let (bridge_extracted, raw_extracted, hex_extracted): (usize, usize, usize) = lua
             .load(
                 r"
+                local archive = dream_archive.open_path(archive_path)
+                local entry = archive:entries()[1]
+                local bridge = dream_archivetool.extract(archive_path, entry.path, {
+                    output = bridge_output,
+                    preserve_paths = false,
+                })
                 local raw = dream_archivetool.extract(archive_path, entry_bytes, {
                     output = raw_output,
                     preserve_paths = false,
@@ -950,14 +979,18 @@ mod tests {
                     output = hex_output,
                     preserve_paths = false,
                 })
-                return raw.extracted, by_hex.extracted
+                return bridge.extracted, raw.extracted, by_hex.extracted
             ",
             )
             .eval()
             .unwrap();
 
-        assert_eq!((raw_extracted, hex_extracted), (1, 1));
+        assert_eq!((bridge_extracted, raw_extracted, hex_extracted), (1, 1, 1));
         let output_name = OsString::from_vec(b"bad-\xff.dds".to_vec());
+        assert_eq!(
+            fs::read(bridge_output.join(&output_name)).unwrap(),
+            b"bytes"
+        );
         assert_eq!(fs::read(raw_output.join(&output_name)).unwrap(), b"bytes");
         assert_eq!(fs::read(hex_output.join(&output_name)).unwrap(), b"bytes");
         fs::remove_dir_all(dir).unwrap();
@@ -1066,7 +1099,7 @@ mod tests {
         let files: usize = lua
             .load(
                 r"
-                local created = dream_archivetool.create(archive_path, input_path, { format = 'tes3' })
+                local created = dream_archivetool.create(archive_path, input_path, { format = 'bsa-tes3' })
                 local updated = dream_archivetool.add(archive_path, {
                     output = updated_path,
                     inputs = { added_path },
@@ -1121,7 +1154,7 @@ mod tests {
                     output = output_path,
                 })
                 local create_plan = dream_archivetool.plan_create(updated_path, input_path, {
-                    format = 'tes3',
+                    format = 'bsa-tes3',
                 })
                 local add_plan = dream_archivetool.plan_add(archive_path, {
                     output = updated_path,
@@ -1276,7 +1309,26 @@ mod tests {
             .load("return dream_archivetool.add(archive_path, { output = 'out.bsa' })")
             .eval::<mlua::Value>()
             .unwrap_err();
-        assert!(err.to_string().contains("opts.inputs"));
+        assert!(err.to_string().contains("add requires opts.inputs"));
+
+        let err = lua
+            .load("return dream_archivetool.plan_add(archive_path, { inputs = { 'file.txt' } })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("plan_add requires opts.output"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_reports_unknown_option_contexts() {
+        let dir = unique_dir("unknown-options");
+        let archive = create_test_archive(&dir);
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
 
         let err = lua
             .load(
@@ -1304,7 +1356,25 @@ mod tests {
             )
             .eval::<mlua::Value>()
             .unwrap_err();
-        assert!(err.to_string().contains("dense 1-based array"));
+        assert!(
+            err.to_string()
+                .contains("add.inputs must be a dense 1-based array")
+        );
+
+        let err = lua
+            .load(
+                r"
+                return dream_archivetool.plan_extract_all(archive_path, {
+                    overwirte = 'skip',
+                })
+            ",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("plan_extract_all: unknown option key: overwirte")
+        );
 
         let err = lua
             .load(
@@ -1323,12 +1393,28 @@ mod tests {
         );
 
         let err = lua
+            .load(
+                r"
+                return dream_archivetool.plan_create('out.bsa', 'input', {
+                    format = 'bsa-tes3',
+                    follow_symlink = true,
+                })
+            ",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("plan_create: unknown option key: follow_symlink")
+        );
+
+        let err = lua
             .load("return dream_archivetool.create('out.bsa', 'input', { format = 'bsa-tes4', ba2_kind = 'gnrl' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("ba2_kind is not valid with format tes4")
+                .contains("ba2_kind is not valid with format bsa-tes4")
         );
 
         fs::remove_dir_all(dir).unwrap();

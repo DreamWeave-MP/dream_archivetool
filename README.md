@@ -169,6 +169,10 @@ use mlua::Lua;
 
 # fn main() -> mlua::Result<()> {
 let lua = Lua::new();
+lua.globals().set(
+    "dream_path",
+    dream_archive::dream_path::lua::create_module(&lua)?,
+)?;
 lua.globals().set("dream_archive", dream_archive::lua::create_module(&lua)?)?;
 dream_archivetool::lua::register(&lua)?;
 # Ok(())
@@ -224,7 +228,7 @@ local create_plan = tool.plan_create("out.ba2", "input", {
   ba2_kind = "gnrl",
 })
 local created = tool.create("out.ba2", "input", {
-  format = "ba2", -- tes3 | tes4 | ba2
+  format = "ba2", -- bsa-tes3 | bsa-tes4 | ba2; tes3/tes4 aliases accepted
   ba2_kind = "gnrl", -- gnrl | dx10 | gnmf
   ba2_version = "fallout4", -- fallout4 | starfield | fallout4-next-gen
 })
@@ -254,7 +258,7 @@ Lua functions and return values:
 - `add(path, opts) -> file_count`
 - `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
 
-Report and plan entry tables use display `path` for humans and `path_bytes_hex` for identity. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.inputs` must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` also accepts the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is required. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Lua option tables:
 
@@ -264,6 +268,8 @@ Lua option tables:
 - `diff`: `fingerprint_payloads`
 - `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`
 - `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
+
+Defaults: `format = "bsa-tes3"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, and omitted extraction `output` writes under the current directory.
 
 ## Safety
 
