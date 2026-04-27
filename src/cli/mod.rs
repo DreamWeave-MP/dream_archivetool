@@ -378,7 +378,7 @@ fn write_diff(
         old,
         new,
         &DiffOptions {
-            hash_payloads: hash,
+            fingerprint_payloads: hash,
         },
     )?;
     if json {

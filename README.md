@@ -71,8 +71,9 @@ input_dir/textures/a.dds -> textures/a.dds
 ```
 
 The root directory name itself is not stored unless it is part of the path below the input root.
-Symbolic links are rejected by default while collecting input files; pass `--follow-symlinks` only
-when the input tree is trusted and packaging the symlink target bytes is intentional.
+Symbolic links encountered during input collection are rejected by default; pass
+`--follow-symlinks` only when the input tree is trusted, stable during the write, and packaging the
+symlink target bytes is intentional.
 
 ### JSON Shapes
 
@@ -96,7 +97,11 @@ when the input tree is trusted and packaging the symlink target bytes is intenti
 ```
 
 `verify --json` reports archive health, duplicate/unsafe path issues, rewrite blockers,
-and optional payload-read counts when `--read-payloads` is used.
+and optional payload-read counts when `--read-payloads` is used. Payload reads are skipped with a
+warning when duplicate normalized paths prevent per-entry coverage.
+
+`diff --hash` computes a fast non-cryptographic FNV-1a payload fingerprint and reports it as
+`payload_fingerprint`; it is for change detection, not integrity or adversarial collision checks.
 
 `create --json` and `add --json`:
 
@@ -234,7 +239,7 @@ Lua option tables:
 
 Extraction rejects absolute paths, `..` components, NUL bytes, and colon-containing components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted. These checks validate archive path syntax; they are not an `openat`-style filesystem jail, so extract into an output tree whose pre-existing directories and symlinks you trust.
 
-Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive. Input symlinks are rejected by default; `--follow-symlinks` opts into normal filesystem symlink-following behavior and should only be used with trusted input trees.
+Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive. Input symlinks encountered during collection are rejected by default; `--follow-symlinks` opts into normal filesystem symlink-following behavior and should only be used with trusted input trees that remain stable during the write.
 
 ## Performance
 

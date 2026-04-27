@@ -12,7 +12,10 @@ use crate::{ArchiveFormat, Result};
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Options controlling archive verification.
 pub struct VerifyOptions {
-    /// Stream every named payload to a sink to check that extraction succeeds.
+    /// Attempt to stream every named payload to a sink to check that extraction succeeds.
+    ///
+    /// Payload reads are skipped when duplicate normalized paths prevent proving per-entry
+    /// coverage; the report will include a warning in that case.
     pub read_payloads: bool,
 }
 

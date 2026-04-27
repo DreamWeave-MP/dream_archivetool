@@ -12,7 +12,7 @@ use crate::{ArchiveError, Result};
 pub struct DiffOptions {
     /// Compute a fast non-cryptographic FNV-1a payload fingerprint instead of comparing only
     /// listed metadata.
-    pub hash_payloads: bool,
+    pub fingerprint_payloads: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ pub struct DiffOptions {
 pub struct DiffReport {
     pub old: String,
     pub new: String,
-    pub hash_payloads: bool,
+    pub fingerprint_payloads: bool,
     pub added: Vec<DiffEntry>,
     pub removed: Vec<DiffEntry>,
     pub changed: Vec<DiffChange>,
@@ -39,7 +39,7 @@ pub struct DiffEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// Entry present in both archives but with differing metadata or payload hash.
+/// Entry present in both archives but with differing metadata or payload fingerprint.
 pub struct DiffChange {
     pub path: String,
     pub path_bytes_hex: String,
@@ -64,14 +64,14 @@ struct DiffEntryData {
     payload_fingerprint: Option<String>,
 }
 
-/// Compare two archives by normalized path bytes and metadata, optionally hashing payloads.
+/// Compare two archives by normalized path bytes and metadata, optionally fingerprinting payloads.
 pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<DiffReport> {
     let old_archive = crate::loaded::LoadedArchive::open(old)?;
     let new_archive = crate::loaded::LoadedArchive::open(new)?;
     reject_unnameable_entries(&old_archive, old)?;
     reject_unnameable_entries(&new_archive, new)?;
-    let old_entries = diff_entries(&old_archive, options.hash_payloads)?;
-    let new_entries = diff_entries(&new_archive, options.hash_payloads)?;
+    let old_entries = diff_entries(&old_archive, options.fingerprint_payloads)?;
+    let new_entries = diff_entries(&new_archive, options.fingerprint_payloads)?;
     let mut added = Vec::new();
     let mut removed = Vec::new();
     let mut changed = Vec::new();
@@ -102,7 +102,7 @@ pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<Di
     Ok(DiffReport {
         old: old.display().to_string(),
         new: new.display().to_string(),
-        hash_payloads: options.hash_payloads,
+        fingerprint_payloads: options.fingerprint_payloads,
         added,
         removed,
         changed,
@@ -122,7 +122,7 @@ fn reject_unnameable_entries(archive: &crate::loaded::LoadedArchive, path: &Path
 
 fn diff_entries(
     archive: &crate::loaded::LoadedArchive,
-    hash_payloads: bool,
+    fingerprint_payloads: bool,
 ) -> Result<BTreeMap<Vec<u8>, DiffEntryData>> {
     let mut entries = BTreeMap::new();
     for entry in archive.list_loaded_entries()? {
@@ -132,7 +132,7 @@ fn diff_entries(
                 archive_path_bytes_to_display(&entry.path)
             )));
         }
-        let payload_fingerprint = if hash_payloads {
+        let payload_fingerprint = if fingerprint_payloads {
             Some(payload_fingerprint(archive, &entry.path)?)
         } else {
             None

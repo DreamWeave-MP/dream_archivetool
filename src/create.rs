@@ -36,8 +36,9 @@ pub struct CreateOptions {
     pub fsync: bool,
     /// Follow symbolic links while collecting input files.
     ///
-    /// Disabled by default so archive creation does not silently package bytes outside the input
-    /// root. Enable only when the input tree is trusted and that behavior is intentional.
+    /// Disabled by default so archive creation does not silently package symlink targets. Enable
+    /// only when the input tree is trusted, stable during the write, and that behavior is
+    /// intentional.
     pub follow_symlinks: bool,
 }
 
@@ -65,8 +66,8 @@ pub struct AddOptions {
     pub fsync: bool,
     /// Follow symbolic links while collecting input files.
     ///
-    /// Disabled by default so archive updates do not silently package bytes outside an input root.
-    /// Enable only when the input trees are trusted and that behavior is intentional.
+    /// Disabled by default so archive updates do not silently package symlink targets. Enable only
+    /// when the input trees are trusted, stable during the write, and that behavior is intentional.
     pub follow_symlinks: bool,
 }
 
