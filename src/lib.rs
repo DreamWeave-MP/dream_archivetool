@@ -28,8 +28,21 @@
 //! the write. Paths are preflighted before handing file/archive-entry sources to `dream_archive`
 //! builders; BA2 DX10 preserved entries are the known buffering exception.
 //!
-//! Enable the `lua` feature to register a `dream_archivetool` table with common archive operations
-//! for embedded Lua callers.
+//! Enable the `lua` feature to compile the Lua module for embedding applications that already
+//! choose an `mlua` runtime. This crate deliberately does not select a Lua runtime for normal
+//! library consumers.
+//!
+//! Enable `standalone-lua` only for this crate's tests, examples, and documentation builds. It
+//! selects vendored `LuaJIT` 5.2 through `mlua`, which is useful here and rude everywhere else.
+//!
+#![cfg_attr(
+    feature = "standalone-lua",
+    doc = "With `standalone-lua` enabled, see the [`lua`] module for the embedded Lua table API."
+)]
+#![cfg_attr(
+    all(feature = "lua", not(feature = "standalone-lua")),
+    doc = "With `lua` enabled, see the [`lua`] module. The embedding application must provide the `mlua` runtime feature."
+)]
 
 pub mod archive;
 mod archive_plan;

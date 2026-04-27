@@ -124,7 +124,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature only enables the bindings; it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -277,11 +277,11 @@ cargo fmt --check
 cargo test --workspace
 cargo test --workspace --all-features
 cargo test --workspace --no-default-features
-cargo test --workspace --no-default-features --features lua
+cargo test --workspace --no-default-features --features standalone-lua
 cargo check --no-default-features
-cargo check --no-default-features --features lua
+cargo check --no-default-features --features standalone-lua
 cargo clippy --workspace --all-targets --all-features -- -W clippy::pedantic -D warnings
-cargo clippy --workspace --all-targets --no-default-features -- -W clippy::pedantic -D warnings
+cargo clippy --workspace --all-targets --no-default-features --features standalone-lua -- -W clippy::pedantic -D warnings
 cargo build --release
 cargo build --release --no-default-features
 cargo bench --bench archive_ops
