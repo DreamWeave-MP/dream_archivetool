@@ -3,7 +3,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use clap::ValueEnum;
 use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
 use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
 use dream_path::ByteSlice as _;
@@ -59,7 +58,7 @@ pub struct AddOptions {
 }
 
 /// Supported TES4-family BSA versions for archive creation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tes4Version {
     /// The Elder Scrolls IV: Oblivion BSA format.
@@ -73,7 +72,7 @@ pub enum Tes4Version {
 }
 
 /// Supported BA2-family BA2 archive kinds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Ba2ArchiveKind {
     /// General-purpose BA2 archive.
@@ -85,7 +84,7 @@ pub enum Ba2ArchiveKind {
 }
 
 /// Supported BA2-family BA2 versions for archive creation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Ba2Version {
     /// Fallout 4 BA2 version.

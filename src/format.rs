@@ -1,12 +1,11 @@
 use std::fs::File;
 use std::path::Path;
 
-use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 use crate::{ArchiveError, Result};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 /// Supported Bethesda archive families.
 #[serde(rename_all = "kebab-case")]
 pub enum ArchiveFormat {

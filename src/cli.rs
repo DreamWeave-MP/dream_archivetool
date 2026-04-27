@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
 
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 use dream_archivetool::{
     AddOptions, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version, CreateOptions, DiffOptions,
@@ -138,16 +138,16 @@ enum Command {
         input: PathBuf,
         /// Archive format to write
         #[arg(long, value_enum)]
-        format: ArchiveFormat,
+        format: CliArchiveFormat,
         /// TES4 BSA version; only valid with --format tes4
         #[arg(long, value_enum)]
-        tes4_version: Option<Tes4Version>,
+        tes4_version: Option<CliTes4Version>,
         /// BA2 BA2 archive kind; only valid with --format ba2. GNMF update/create is rejected.
         #[arg(long, value_enum)]
-        ba2_kind: Option<Ba2ArchiveKind>,
+        ba2_kind: Option<CliBa2ArchiveKind>,
         /// BA2 BA2 version; only valid with --format ba2
         #[arg(long, value_enum)]
-        ba2_version: Option<Ba2Version>,
+        ba2_version: Option<CliBa2Version>,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
@@ -178,6 +178,76 @@ enum Command {
         #[arg(long)]
         fsync: bool,
     },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliArchiveFormat {
+    Tes3,
+    Tes4,
+    Ba2,
+}
+
+impl From<CliArchiveFormat> for ArchiveFormat {
+    fn from(format: CliArchiveFormat) -> Self {
+        match format {
+            CliArchiveFormat::Tes3 => Self::Tes3,
+            CliArchiveFormat::Tes4 => Self::Tes4,
+            CliArchiveFormat::Ba2 => Self::Ba2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliTes4Version {
+    Oblivion,
+    Fallout3,
+    Skyrim,
+    SkyrimSe,
+}
+
+impl From<CliTes4Version> for Tes4Version {
+    fn from(version: CliTes4Version) -> Self {
+        match version {
+            CliTes4Version::Oblivion => Self::Oblivion,
+            CliTes4Version::Fallout3 => Self::Fallout3,
+            CliTes4Version::Skyrim => Self::Skyrim,
+            CliTes4Version::SkyrimSe => Self::SkyrimSe,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliBa2ArchiveKind {
+    Gnrl,
+    Dx10,
+    Gnmf,
+}
+
+impl From<CliBa2ArchiveKind> for Ba2ArchiveKind {
+    fn from(kind: CliBa2ArchiveKind) -> Self {
+        match kind {
+            CliBa2ArchiveKind::Gnrl => Self::Gnrl,
+            CliBa2ArchiveKind::Dx10 => Self::Dx10,
+            CliBa2ArchiveKind::Gnmf => Self::Gnmf,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum CliBa2Version {
+    Fallout4,
+    Starfield,
+    Fallout4NextGen,
+}
+
+impl From<CliBa2Version> for Ba2Version {
+    fn from(version: CliBa2Version) -> Self {
+        match version {
+            CliBa2Version::Fallout4 => Self::Fallout4,
+            CliBa2Version::Starfield => Self::Starfield,
+            CliBa2Version::Fallout4NextGen => Self::Fallout4NextGen,
+        }
+    }
 }
 
 pub(crate) fn run_from_env(stdout: &mut dyn Write) -> Result<()> {
@@ -291,12 +361,13 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
 }
 
 fn create_options(
-    format: ArchiveFormat,
-    tes4_version: Option<Tes4Version>,
-    ba2_kind: Option<Ba2ArchiveKind>,
-    ba2_version: Option<Ba2Version>,
+    format: CliArchiveFormat,
+    tes4_version: Option<CliTes4Version>,
+    ba2_kind: Option<CliBa2ArchiveKind>,
+    ba2_version: Option<CliBa2Version>,
     fsync: bool,
 ) -> Result<CreateOptions> {
+    let format = ArchiveFormat::from(format);
     match format {
         ArchiveFormat::Tes3 => {
             reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
@@ -313,7 +384,7 @@ fn create_options(
             reject_irrelevant_create_option("--ba2-version", ba2_version.is_some(), format)?;
             Ok(CreateOptions {
                 format,
-                tes4_version: tes4_version.unwrap_or(Tes4Version::Oblivion),
+                tes4_version: tes4_version.map_or(Tes4Version::Oblivion, Tes4Version::from),
                 fsync,
                 ..Default::default()
             })
@@ -322,8 +393,8 @@ fn create_options(
             reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
             Ok(CreateOptions {
                 format,
-                ba2_kind: ba2_kind.unwrap_or(Ba2ArchiveKind::Gnrl),
-                ba2_version: ba2_version.unwrap_or(Ba2Version::Fallout4),
+                ba2_kind: ba2_kind.map_or(Ba2ArchiveKind::Gnrl, Ba2ArchiveKind::from),
+                ba2_version: ba2_version.map_or(Ba2Version::Fallout4, Ba2Version::from),
                 fsync,
                 ..Default::default()
             })
