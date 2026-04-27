@@ -10,7 +10,7 @@ categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
 dream_archive = "0.1.1"
-dream-path = "0.1"
+dream-path = "0.1.1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.2"

@@ -4,8 +4,7 @@ use std::ffi::OsStr;
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Component, Path, PathBuf};
 
-use dream_archive::ByteSlice;
-use dream_path::NormalizedPath;
+use dream_path::{ByteSlice, NormalizedPath};
 
 use crate::{ArchiveError, Result};
 

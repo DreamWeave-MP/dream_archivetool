@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use clap::ValueEnum;
-use dream_archive::ByteSlice as _;
 use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
 use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
+use dream_path::ByteSlice as _;
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 use walkdir::WalkDir;

@@ -311,9 +311,9 @@ dependencies = [
 
 [[package]]
 name = "dream-path"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77da8fbd812784ce99f7b3f700189f06055ac6e1a9671fcf2cc15e348665ebf3"
+checksum = "301b5c1b23ec83d960055ac31804d1c3944fdf1b21a08b53f0a0d1bb1798cb60"
 dependencies = [
  "bstr",
 ]
