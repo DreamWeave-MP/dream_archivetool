@@ -23,6 +23,7 @@ dream-archivetool list --json archive.bsa
 dream-archivetool extract archive.bsa textures/example.dds --output out/
 dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
 dream-archivetool extract-all archive.bsa --output out/
+# extract/extract-all default to the current directory when --output is omitted
 dream-archivetool create out.bsa input_dir/ --format tes3
 dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
 dream-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
@@ -118,7 +119,7 @@ Lua functions and return values:
 
 - `guess_format(path) -> "tes3" | "tes4" | "fo4"`
 - `info(path) -> { path, format, file_count }`
-- `list(path) -> { { path, size, compressed_size }, ... }`
+- `list(path) -> { { path, path_bytes_hex, size, compressed_size }, ... }`
 - `read_entry(path, entry) -> string`
 - `extract(path, entry, opts?) -> { extracted, skipped }`
 - `extract_all(path, opts?) -> { extracted, skipped }`
@@ -134,22 +135,24 @@ Lua option tables:
 
 ## Safety
 
-Extraction rejects absolute paths and `..` components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy.
+Extraction rejects absolute paths and `..` components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted.
 
 Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive.
 
 ## Performance
 
-Archives are opened once per high-level operation. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs.
+Archives are opened once per high-level operation. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
 
 Archive creation and update preflight archive paths and format policy before reading payload bytes, but currently stage output archive entries in memory before writing because the `dream_archive` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory until the backend grows deferred source/reader builder APIs.
 
 ## Format Notes
 
 - `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
+- Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format fo4`.
+- `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names.
 - `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
-- `create --format fo4 --ba2-kind gnmf` is currently rejected. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
+- `create --format fo4 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
 - FO4/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 

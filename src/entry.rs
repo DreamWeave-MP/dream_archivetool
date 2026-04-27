@@ -7,8 +7,11 @@ use crate::Result;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// A single file entry listed from an archive.
 pub struct ArchiveEntry {
-    /// Normalized archive path using `/` separators.
+    /// Normalized archive path using `/` separators, converted lossily for display.
     pub path: String,
+    /// Hex-encoded normalized archive path bytes for scriptable round-tripping.
+    #[serde(default)]
+    pub path_bytes_hex: String,
     /// Decompressed size when known.
     pub size: Option<u64>,
     /// Compressed size when the entry is stored compressed and the format exposes it.
@@ -48,6 +51,10 @@ mod tests {
 
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].path, "textures/example.dds");
+        assert_eq!(
+            entries[0].path_bytes_hex,
+            "74657874757265732f6578616d706c652e646473"
+        );
         assert_eq!(entries[0].size, Some(7));
 
         fs::remove_dir_all(dir).unwrap();

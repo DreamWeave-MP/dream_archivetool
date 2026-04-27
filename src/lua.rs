@@ -42,6 +42,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
             for (index, entry) in entries.into_iter().enumerate() {
                 let entry_table = lua.create_table()?;
                 entry_table.set("path", entry.path)?;
+                entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
                 entry_table.set("size", entry.size)?;
                 entry_table.set("compressed_size", entry.compressed_size)?;
                 table.set(index + 1, entry_table)?;

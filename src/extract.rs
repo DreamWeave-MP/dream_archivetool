@@ -81,6 +81,11 @@ pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
+/// Read a single archive entry selected by raw archive path bytes into memory.
+pub fn read_entry_bytes_by_path(path: &Path, entry: &[u8]) -> Result<Vec<u8>> {
+    crate::loaded::LoadedArchive::open(path)?.read_entry_bytes_by_path(entry)
+}
+
 /// Extract a single archive entry into a writer.
 pub fn extract_entry_to_writer(
     path: &Path,
@@ -90,11 +95,29 @@ pub fn extract_entry_to_writer(
     crate::loaded::LoadedArchive::open(path)?.extract_entry_to_writer(entry, out)
 }
 
+/// Extract a single archive entry selected by raw archive path bytes into a writer.
+pub fn extract_entry_path_to_writer(
+    path: &Path,
+    entry: &[u8],
+    out: &mut dyn std::io::Write,
+) -> Result<u64> {
+    crate::loaded::LoadedArchive::open(path)?.extract_entry_path_to_writer(entry, out)
+}
+
 /// Extract a single archive entry to disk.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
+    extract_entry_by_path(path, entry.as_bytes(), options)
+}
+
+/// Extract a single archive entry selected by raw archive path bytes to disk.
+pub fn extract_entry_by_path(
+    path: &Path,
+    entry: &[u8],
+    options: &ExtractOptions,
+) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
-    let archive_path = normalize_archive_path_bytes(entry.as_bytes());
+    let archive_path = normalize_archive_path_bytes(entry);
     let target = if options.preserve_paths {
         safe_target_path_normalized(&root, &archive_path)?
     } else {
@@ -125,12 +148,18 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         ));
     }
     let targets = planned_extract_targets(&root, entries, options.overwrite)?;
+    prepare_extract_parent_dirs(&targets, options.fsync)?;
     for target in targets {
-        let result = write_target_with(&target.path, options.overwrite, options.fsync, |output| {
-            archive
-                .extract_normalized_entry_path_to_writer(&target.archive_path, output)
-                .map(|_| ())
-        })?;
+        let result = write_target_with_precreated_parent(
+            &target.path,
+            options.overwrite,
+            options.fsync,
+            |output| {
+                archive
+                    .extract_normalized_entry_path_to_writer(&target.archive_path, output)
+                    .map(|_| ())
+            },
+        )?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
     }
@@ -169,10 +198,56 @@ fn planned_extract_targets(
     Ok(targets)
 }
 
+fn prepare_extract_parent_dirs(targets: &[PlannedExtractTarget], fsync: bool) -> Result<()> {
+    let mut parents = BTreeSet::new();
+    for target in targets {
+        parents.insert(
+            target
+                .path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        );
+    }
+    for parent in parents {
+        let directory_sync_targets = if fsync {
+            directory_sync_targets_for_create(&parent)
+        } else {
+            Vec::new()
+        };
+        fs::create_dir_all(&parent)?;
+        if fsync {
+            for directory_parent in directory_sync_targets {
+                sync_parent_dir(&directory_parent)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn write_target_with(
     target: &Path,
     overwrite: OverwriteMode,
     fsync: bool,
+    write: impl FnOnce(&mut fs::File) -> Result<()>,
+) -> Result<ExtractSummary> {
+    write_target_with_parent_mode(target, overwrite, fsync, true, write)
+}
+
+fn write_target_with_precreated_parent(
+    target: &Path,
+    overwrite: OverwriteMode,
+    fsync: bool,
+    write: impl FnOnce(&mut fs::File) -> Result<()>,
+) -> Result<ExtractSummary> {
+    write_target_with_parent_mode(target, overwrite, fsync, false, write)
+}
+
+fn write_target_with_parent_mode(
+    target: &Path,
+    overwrite: OverwriteMode,
+    fsync: bool,
+    create_parent: bool,
     write: impl FnOnce(&mut fs::File) -> Result<()>,
 ) -> Result<ExtractSummary> {
     if target.exists() {
@@ -196,7 +271,9 @@ fn write_target_with(
     } else {
         Vec::new()
     };
-    fs::create_dir_all(parent)?;
+    if create_parent {
+        fs::create_dir_all(parent)?;
+    }
     let mut temp = NamedTempFile::new_in(parent)?;
     write(temp.as_file_mut())?;
     if fsync {

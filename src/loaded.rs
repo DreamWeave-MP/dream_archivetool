@@ -4,7 +4,8 @@ use std::path::Path;
 use dream_archive::{Archive, ByteSlice};
 
 use crate::paths::{
-    archive_path_bytes_to_display, normalize_archive_path, normalize_archive_path_bytes,
+    archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path,
+    normalize_archive_path_bytes,
 };
 use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
 
@@ -19,6 +20,7 @@ impl LoadedEntry {
     fn public_entry(&self) -> ArchiveEntry {
         ArchiveEntry {
             path: archive_path_bytes_to_display(&self.path),
+            path_bytes_hex: archive_path_bytes_to_hex(&self.path),
             size: self.size,
             compressed_size: self.compressed_size,
         }
@@ -152,7 +154,7 @@ impl LoadedArchive {
             })
     }
 
-    pub(crate) fn read_entry_bytes_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
+    pub fn read_entry_bytes_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
         let entry = normalize_archive_path_bytes(entry);
         self.read_entry_bytes_by_normalized_path(&entry)
     }
@@ -181,11 +183,7 @@ impl LoadedArchive {
             })
     }
 
-    pub(crate) fn extract_entry_path_to_writer(
-        &self,
-        entry: &[u8],
-        out: &mut dyn Write,
-    ) -> Result<u64> {
+    pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
         let entry = normalize_archive_path_bytes(entry);
         self.extract_normalized_entry_path_to_writer(&entry, out)
     }

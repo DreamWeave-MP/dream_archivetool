@@ -18,6 +18,16 @@ pub(crate) fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> Vec<u8> {
     NormalizedPath::new(path).into()
 }
 
+pub(crate) fn archive_path_bytes_to_hex(path: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(path.len() * 2);
+    for byte in path {
+        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    encoded
+}
+
 pub(crate) fn archive_path_bytes_to_display(path: &[u8]) -> String {
     path.as_bstr().to_str_lossy().into_owned()
 }

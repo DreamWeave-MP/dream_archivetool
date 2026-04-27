@@ -10,9 +10,7 @@ use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::ArchiveFormat;
-use crate::paths::{
-    archive_path_bytes_to_display, normalize_archive_path_bytes, path_to_archive_bytes,
-};
+use crate::paths::{archive_path_bytes_to_display, path_to_archive_bytes};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone)]
@@ -133,7 +131,7 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     let mut entries = read_input_entries(input_entries)?;
     let mut existing_keys = BTreeSet::new();
     for entry in archive.list_loaded_entries()? {
-        let key = normalize_archive_path_bytes(&entry.path);
+        let key = entry.path;
         if !existing_keys.insert(key.clone()) {
             return Err(ArchiveError::Archive(format!(
                 "archive contains duplicate normalized path: {}",
@@ -145,7 +143,8 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
         }
         match entries.entry(key) {
             Entry::Vacant(entry_slot) => {
-                entry_slot.insert(archive.read_entry_bytes_by_normalized_path(&entry.path)?);
+                let bytes = archive.read_entry_bytes_by_normalized_path(entry_slot.key())?;
+                entry_slot.insert(bytes);
             }
             Entry::Occupied(_) => unreachable!("input keys were handled before archive insertion"),
         }

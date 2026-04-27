@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -40,8 +42,8 @@ enum Command {
     List {
         /// Archive path
         archive: PathBuf,
-        /// Include entry sizes
-        #[arg(short, long)]
+        /// Include entry sizes; JSON always includes available size fields
+        #[arg(short, long, conflicts_with = "json")]
         long: bool,
         /// Write JSON to stdout
         #[arg(long)]
@@ -51,9 +53,9 @@ enum Command {
     Extract {
         /// Archive path
         archive: PathBuf,
-        /// Entry path inside the archive
-        entry: String,
-        /// Output directory
+        /// Entry path inside the archive. Non-UTF-8 Unix bytes are accepted.
+        entry: OsString,
+        /// Output directory. Defaults to the current directory.
         #[arg(short, long, conflicts_with = "stdout")]
         output: Option<PathBuf>,
         /// Write file bytes to stdout
@@ -82,7 +84,7 @@ enum Command {
     ExtractAll {
         /// Archive path
         archive: PathBuf,
-        /// Output directory
+        /// Output directory. Defaults to the current directory.
         #[arg(short, long)]
         output: Option<PathBuf>,
         /// Replace existing files
@@ -102,20 +104,20 @@ enum Command {
     Create {
         /// Output archive path
         archive: PathBuf,
-        /// Input file or directory
+        /// Input file or directory. Directory contents are stored relative to that root.
         input: PathBuf,
         /// Archive format to write
         #[arg(long, value_enum)]
         format: ArchiveFormat,
-        /// TES4 BSA version
-        #[arg(long, value_enum, default_value_t = Tes4Version::Oblivion)]
-        tes4_version: Tes4Version,
-        /// FO4 BA2 archive kind
-        #[arg(long, value_enum, default_value_t = Fo4ArchiveKind::Gnrl)]
-        ba2_kind: Fo4ArchiveKind,
-        /// FO4 BA2 version
-        #[arg(long, value_enum, default_value_t = Fo4Version::Fallout4)]
-        ba2_version: Fo4Version,
+        /// TES4 BSA version; only valid with --format tes4
+        #[arg(long, value_enum)]
+        tes4_version: Option<Tes4Version>,
+        /// FO4 BA2 archive kind; only valid with --format fo4. GNMF update/create is rejected.
+        #[arg(long, value_enum)]
+        ba2_kind: Option<Fo4ArchiveKind>,
+        /// FO4 BA2 version; only valid with --format fo4
+        #[arg(long, value_enum)]
+        ba2_version: Option<Fo4Version>,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
@@ -127,7 +129,7 @@ enum Command {
     Add {
         /// Input archive path
         archive: PathBuf,
-        /// Files or directories to add
+        /// Files or directories to add. Directory contents are stored relative to each root.
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Output archive path
@@ -228,19 +230,10 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             ba2_version,
             json,
             fsync,
-        } => write_create(
-            stdout,
-            archive,
-            input,
-            &CreateOptions {
-                format,
-                tes4_version,
-                fo4_kind: ba2_kind,
-                fo4_version: ba2_version,
-                fsync,
-            },
-            json,
-        ),
+        } => {
+            let options = create_options(format, tes4_version, ba2_kind, ba2_version, fsync)?;
+            write_create(stdout, archive, input, &options, json)
+        }
         Command::Add {
             archive,
             inputs,
@@ -249,6 +242,72 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             fsync,
         } => write_add(stdout, archive, inputs, output, json, fsync),
     }
+}
+
+fn create_options(
+    format: ArchiveFormat,
+    tes4_version: Option<Tes4Version>,
+    ba2_kind: Option<Fo4ArchiveKind>,
+    ba2_version: Option<Fo4Version>,
+    fsync: bool,
+) -> Result<CreateOptions> {
+    match format {
+        ArchiveFormat::Tes3 => {
+            reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
+            reject_irrelevant_create_option("--ba2-kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("--ba2-version", ba2_version.is_some(), format)?;
+            Ok(CreateOptions {
+                format,
+                fsync,
+                ..Default::default()
+            })
+        }
+        ArchiveFormat::Tes4 => {
+            reject_irrelevant_create_option("--ba2-kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("--ba2-version", ba2_version.is_some(), format)?;
+            Ok(CreateOptions {
+                format,
+                tes4_version: tes4_version.unwrap_or(Tes4Version::Oblivion),
+                fsync,
+                ..Default::default()
+            })
+        }
+        ArchiveFormat::Fo4 => {
+            reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
+            Ok(CreateOptions {
+                format,
+                fo4_kind: ba2_kind.unwrap_or(Fo4ArchiveKind::Gnrl),
+                fo4_version: ba2_version.unwrap_or(Fo4Version::Fallout4),
+                fsync,
+                ..Default::default()
+            })
+        }
+    }
+}
+
+fn reject_irrelevant_create_option(
+    option: &str,
+    supplied: bool,
+    format: ArchiveFormat,
+) -> Result<()> {
+    if supplied {
+        return Err(dream_archivetool::ArchiveError::Archive(format!(
+            "{option} is not valid with --format {}",
+            format_name(format)
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn archive_entry_bytes(entry: &std::ffi::OsStr) -> Cow<'_, [u8]> {
+    use std::os::unix::ffi::OsStrExt;
+    Cow::Borrowed(entry.as_bytes())
+}
+
+#[cfg(not(unix))]
+fn archive_entry_bytes(entry: &std::ffi::OsStr) -> Cow<'_, [u8]> {
+    Cow::Owned(entry.to_string_lossy().into_owned().into_bytes())
 }
 
 fn write_info(stdout: &mut dyn Write, archive: PathBuf, json: bool) -> Result<()> {
@@ -287,7 +346,7 @@ fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) 
 
 struct ExtractCommandOptions {
     archive: PathBuf,
-    entry: String,
+    entry: OsString,
     destination: ExtractDestination,
     fsync: bool,
     preserve_paths: bool,
@@ -302,7 +361,8 @@ enum ExtractDestination {
 
 fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Result<()> {
     let ExtractDestination::Disk(output) = options.destination else {
-        ArchiveTool::extract_entry_to_writer(&options.archive, &options.entry, stdout)?;
+        let entry = archive_entry_bytes(&options.entry);
+        ArchiveTool::extract_entry_path_to_writer(&options.archive, entry.as_ref(), stdout)?;
         return Ok(());
     };
     let extract_options = ExtractOptions {
@@ -311,7 +371,8 @@ fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Resu
         preserve_paths: options.preserve_paths,
         fsync: options.fsync,
     };
-    let summary = ArchiveTool::extract(options.archive, &options.entry, &extract_options)?;
+    let entry = archive_entry_bytes(&options.entry);
+    let summary = ArchiveTool::extract_by_path(options.archive, entry.as_ref(), &extract_options)?;
     if options.json {
         write_summary_json(stdout, &summary)
     } else {
@@ -520,13 +581,12 @@ mod tests {
 
         let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
         assert_eq!(value.as_array().unwrap().len(), 2);
-        assert!(
-            value
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|entry| entry["path"] == "icons/example.dds")
-        );
+        let entries = value.as_array().unwrap();
+        let icon = entries
+            .iter()
+            .find(|entry| entry["path"] == "icons/example.dds")
+            .unwrap();
+        assert_eq!(icon["path_bytes_hex"], "69636f6e732f6578616d706c652e646473");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -772,5 +832,83 @@ mod tests {
                 .unwrap()
                 .contains("dream-archivetool")
         );
+    }
+
+    #[test]
+    fn create_command_rejects_irrelevant_format_options() {
+        let err = run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "create",
+                "out.bsa",
+                "input",
+                "--format",
+                "tes3",
+                "--ba2-kind",
+                "dx10",
+            ]),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("--ba2-kind is not valid with --format tes3")
+        );
+    }
+
+    #[test]
+    fn list_json_conflicts_with_long() {
+        let err =
+            Cli::try_parse_from(["dream-archivetool", "list", "test.bsa", "--json", "--long"])
+                .unwrap_err();
+
+        assert!(err.to_string().contains("cannot be used with"));
+    }
+
+    #[test]
+    fn extract_stdout_conflicts_with_disk_options() {
+        let err = Cli::try_parse_from([
+            "dream-archivetool",
+            "extract",
+            "test.bsa",
+            "textures/a.dds",
+            "--stdout",
+            "--fsync",
+        ])
+        .unwrap_err();
+
+        assert!(err.to_string().contains("cannot be used with"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_command_accepts_non_utf8_entry_bytes_on_unix() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = unique_dir("extract-non-utf8-entry");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder
+            .add_bytes(b"textures/invalid-\xff.dds", b"bytes")
+            .unwrap();
+        builder.write_path(&archive_path).unwrap();
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                OsString::from("dream-archivetool"),
+                OsString::from("extract"),
+                archive_path.into_os_string(),
+                OsString::from_vec(b"textures/invalid-\xff.dds".to_vec()),
+                OsString::from("--stdout"),
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert_eq!(stdout, b"bytes");
+        fs::remove_dir_all(dir).unwrap();
     }
 }
