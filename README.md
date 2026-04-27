@@ -63,7 +63,7 @@ Archive paths are normalized as virtual paths using `/` separators. Matching tre
 ]
 ```
 
-`path` is a lossy display string for humans. `path_bytes_hex` is the stable round-trip value for scripts, including non-UTF-8 Unix archive names. Feed it back with `extract --entry-hex HEX`; otherwise pass a positional entry path. Positional non-UTF-8 entry bytes are accepted on Unix through raw argv bytes.
+`path` is a lossy display string for humans. `path_bytes_hex` is the hex-encoded normalized archive-path lookup key emitted by this tool. Feed it back with `extract --entry-hex HEX`; otherwise pass a positional entry path. It is not raw archive-name identity: distinct raw names may normalize to the same lookup key. Use `verify` to detect duplicate normalized paths, and use lower-level raw/index archive APIs when raw identity matters. Positional non-UTF-8 entry bytes are accepted on Unix through raw argv bytes.
 
 Directory inputs for `create` and `add` are stored relative to each directory root:
 
@@ -189,6 +189,13 @@ Lua string boundaries are deliberately split. Filesystem paths (`archive`, `outp
 
 The `lua` feature enables compatible Lua support in `dream_archive`, including its re-exported `dream_path` helpers. Embedding applications should register `dream_path`, `dream_archive`, and `dream_archivetool` into the same Lua state when they need the whole stack. `dream_archivetool` does not install those dependency globals behind your back; hidden globals are how APIs become haunted furniture.
 
+There are two Lua calling styles:
+
+- `dream_archivetool.extract(path, ...)` is path-based. It opens the archive path for that operation.
+- `archive:extract(...)` is handle-based. It runs policy against the already-opened `dream_archive` userdata.
+
+That distinction matters. If you list entries from `dream_archive.open_path(path)` and then call a top-level `dream_archivetool` function with the same path, the file can change between those two operations. Use userdata methods when the operation should stay attached to the archive handle you already opened.
+
 ```lua
 local tool = dream_archivetool
 
@@ -196,7 +203,9 @@ local info = tool.info("Morrowind.bsa")
 local verify = tool.verify("Morrowind.bsa", { read_payloads = true })
 local diff = tool.diff("old.bsa", "new.bsa", { fingerprint_payloads = true })
 
--- Natural bridge from dream_archive once both modules are registered.
+-- Byte-string bridge from dream_archive entry listings.
+-- This top-level call reopens "Morrowind.bsa"; use archive:extract(...) below
+-- when you want to operate on the already-opened handle.
 -- Works for entries with non-nil entry.path.
 local archive = dream_archive.open_path("Morrowind.bsa")
 local entry = archive:entries()[1]
@@ -311,6 +320,10 @@ Lua archive userdata methods added by `create_dream_archive_module` / `register_
 - `archive:extract_all(opts?) -> { extracted, skipped }`
 - `archive:plan_extract_all(opts?) -> extract-all plan`
 
+`tool_info` is deliberately named to avoid colliding with lower-level `dream_archive` userdata methods such as format/list/read operations. It returns archivetool policy metadata, including rewrite eligibility, not just archive-format metadata.
+
+There are intentionally no `archive:create`, `archive:plan_create`, `archive:add`, or `archive:plan_add` methods. Creation and rewrite policy requires host filesystem paths, output selection, symlink policy, and temp-file replacement semantics, so those remain top-level `dream_archivetool` APIs.
+
 Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for normalized lookup. Never feed display `path` back as identity when non-UTF-8 archive names matter; use the `*_by_path_hex` functions or raw byte strings from `dream_archive`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Nested entry table shapes:
@@ -358,7 +371,7 @@ Archive creation and update preflight archive paths and format policy before add
 
 - `add` writes a new archive and preserves source archive settings only where `dream_archive` currently exposes them; BA2 version variants such as Starfield v2 and Fallout 4 next-gen v8 are preserved. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
 - Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format ba2`.
-- `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names. Use `extract --entry-hex HEX` to feed those bytes back into the CLI.
+- `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive-path lookup bytes for scripts. Use `extract --entry-hex HEX` to feed that lookup key back into the CLI; do not treat it as raw unique archive-name identity.
 - `create --format ba2 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format ba2 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
 - `create --format ba2 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.

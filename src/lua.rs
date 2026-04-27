@@ -10,8 +10,8 @@
 //! Archive entry paths are byte strings, so `dream_archive` entry paths can be passed straight to
 //! [`dream_archivetool.extract`](create_module) without pretending arbitrary archive bytes are text.
 //! Report display `path` fields are for humans; `path_bytes_hex` is the stable normalized lookup
-//! key. Wide archive sizes are exposed as decimal strings because `LuaJIT` numbers are not a u64
-//! transport.
+//! key, not raw archive-name identity. Wide archive sizes are exposed as decimal strings because
+//! `LuaJIT` numbers are not a u64 transport.
 
 use std::path::PathBuf;
 
@@ -33,6 +33,12 @@ use crate::{
 /// Call this before any `dream_archive::lua::LuaArchive` userdata is created in the same Lua
 /// state. The returned table is the lower-level `dream_archive` module; register
 /// [`create_module`] separately when scripts also need path-based create/add helpers.
+///
+/// Userdata methods operate on the supplied `dream_archive` handle instead of reopening the
+/// archive path in this policy layer. For `dream_archive.open_bytes(...)`, that handle is an
+/// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
+/// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
+/// bytes are pinned after the handle is created.
 pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
     dream_archive::lua::create_module_with_archive_methods(lua, add_archive_tool_methods)
 }
@@ -42,6 +48,12 @@ pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
 /// This must run before any archive userdata is created in the Lua state. Use
 /// [`create_dream_archive_module`] when possible; it also makes `dream_archive.open_*` create
 /// userdata through `mlua`'s type registry so the added methods are visible.
+///
+/// Userdata methods operate on the supplied `dream_archive` handle instead of reopening the
+/// archive path in this policy layer. For `dream_archive.open_bytes(...)`, that handle is an
+/// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
+/// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
+/// bytes are pinned after the handle is created.
 pub fn register_dream_archive_methods(lua: &Lua) -> LuaResult<()> {
     dream_archive::lua::register_archive_methods(lua, add_archive_tool_methods)
 }
