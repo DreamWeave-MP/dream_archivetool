@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use rome_archivetool::{
+use dream_archivetool::{
     AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
     Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version,
 };
@@ -135,7 +135,7 @@ fn main() -> ExitCode {
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
     if let Some(shell) = cli.generate_completion {
-        clap_complete::generate(shell, &mut Cli::command(), "rome-archivetool", stdout);
+        clap_complete::generate(shell, &mut Cli::command(), "dream-archivetool", stdout);
         return Ok(());
     }
     if cli.generate_manpage {
@@ -148,41 +148,17 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
         return Ok(());
     };
 
+    handle_command(command, stdout)
+}
+
+fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
     match command {
-        Command::Info { archive, json } => {
-            let info = ArchiveTool::info(archive)?;
-            if json {
-                serde_json::to_writer_pretty(&mut *stdout, &info)
-                    .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
-                writeln!(stdout)?;
-            } else {
-                writeln!(stdout, "format: {:?}", info.format)?;
-                writeln!(stdout, "files: {}", info.file_count)?;
-            }
-        }
+        Command::Info { archive, json } => write_info(stdout, archive, json),
         Command::List {
             archive,
             long,
             json,
-        } => {
-            let entries = ArchiveTool::list(archive)?;
-            if json {
-                serde_json::to_writer_pretty(&mut *stdout, &entries)
-                    .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
-                writeln!(stdout)?;
-            } else {
-                for entry in entries {
-                    if long {
-                        let size = entry
-                            .size
-                            .map_or_else(|| "-".to_string(), |size| size.to_string());
-                        writeln!(stdout, "{size:>10} {}", entry.path)?;
-                    } else {
-                        writeln!(stdout, "{}", entry.path)?;
-                    }
-                }
-            }
-        }
+        } => write_list(stdout, archive, long, json),
         Command::Extract {
             archive,
             entry,
@@ -191,46 +167,24 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
             flat,
             overwrite,
             skip_existing,
-        } => {
-            if stdout_mode {
-                let bytes = ArchiveTool::read_entry(&archive, &entry)?;
-                stdout.write_all(&bytes)?;
-                return Ok(());
-            }
-            let options = ExtractOptions {
+        } => write_extract(
+            stdout,
+            ExtractCommandOptions {
+                archive,
+                entry,
                 output,
-                overwrite: overwrite_mode(overwrite, skip_existing),
+                stdout_mode,
                 preserve_paths: !flat,
-            };
-            let summary = ArchiveTool::extract(archive, &entry, &options)?;
-            writeln!(stdout, "extracted: {}", summary.extracted)?;
-            if summary.skipped > 0 {
-                writeln!(stdout, "skipped: {}", summary.skipped)?;
-            }
-        }
+                overwrite: overwrite_mode(overwrite, skip_existing),
+            },
+        ),
         Command::ExtractAll {
             archive,
             output,
             overwrite,
             skip_existing,
             json,
-        } => {
-            let options = ExtractAllOptions {
-                output,
-                overwrite: overwrite_mode(overwrite, skip_existing),
-            };
-            let summary = ArchiveTool::extract_all(archive, &options)?;
-            if json {
-                serde_json::to_writer_pretty(&mut *stdout, &summary)
-                    .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
-                writeln!(stdout)?;
-            } else {
-                writeln!(stdout, "extracted: {}", summary.extracted)?;
-                if summary.skipped > 0 {
-                    writeln!(stdout, "skipped: {}", summary.skipped)?;
-                }
-            }
-        }
+        } => write_extract_all(stdout, archive, output, overwrite, skip_existing, json),
         Command::Create {
             archive,
             input,
@@ -239,33 +193,142 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
             ba2_kind,
             ba2_version,
             json,
-        } => {
-            let count = ArchiveTool::create(
-                archive,
-                input,
-                &CreateOptions {
-                    format,
-                    tes4_version,
-                    fo4_kind: ba2_kind,
-                    fo4_version: ba2_version,
-                },
-            )?;
-            write_count(stdout, count, json)?;
-        }
+        } => write_create(
+            stdout,
+            archive,
+            input,
+            &CreateOptions {
+                format,
+                tes4_version,
+                fo4_kind: ba2_kind,
+                fo4_version: ba2_version,
+            },
+            json,
+        ),
         Command::Add {
             archive,
             inputs,
             output,
             json,
-        } => {
-            if inputs.is_empty() {
-                return Err(rome_archivetool::ArchiveError::Archive(
-                    "no input files supplied".to_string(),
-                ));
-            }
-            let count = ArchiveTool::add(archive, &AddOptions { inputs, output })?;
-            write_count(stdout, count, json)?;
+        } => write_add(stdout, archive, inputs, output, json),
+    }
+}
+
+fn write_info(stdout: &mut dyn Write, archive: PathBuf, json: bool) -> Result<()> {
+    let info = ArchiveTool::info(archive)?;
+    if json {
+        serde_json::to_writer_pretty(&mut *stdout, &info)
+            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+        writeln!(stdout)?;
+    } else {
+        writeln!(stdout, "format: {:?}", info.format)?;
+        writeln!(stdout, "files: {}", info.file_count)?;
+    }
+    Ok(())
+}
+
+fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) -> Result<()> {
+    let entries = ArchiveTool::list(archive)?;
+    if json {
+        serde_json::to_writer_pretty(&mut *stdout, &entries)
+            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    for entry in entries {
+        if long {
+            let size = entry
+                .size
+                .map_or_else(|| "-".to_string(), |size| size.to_string());
+            writeln!(stdout, "{size:>10} {}", entry.path)?;
+        } else {
+            writeln!(stdout, "{}", entry.path)?;
         }
+    }
+    Ok(())
+}
+
+struct ExtractCommandOptions {
+    archive: PathBuf,
+    entry: String,
+    output: Option<PathBuf>,
+    stdout_mode: bool,
+    preserve_paths: bool,
+    overwrite: OverwriteMode,
+}
+
+fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Result<()> {
+    if options.stdout_mode {
+        let bytes = ArchiveTool::read_entry(&options.archive, &options.entry)?;
+        stdout.write_all(&bytes)?;
+        return Ok(());
+    }
+    let extract_options = ExtractOptions {
+        output: options.output,
+        overwrite: options.overwrite,
+        preserve_paths: options.preserve_paths,
+    };
+    let summary = ArchiveTool::extract(options.archive, &options.entry, &extract_options)?;
+    write_summary(stdout, &summary)
+}
+
+fn write_extract_all(
+    stdout: &mut dyn Write,
+    archive: PathBuf,
+    output: Option<PathBuf>,
+    overwrite: bool,
+    skip_existing: bool,
+    json: bool,
+) -> Result<()> {
+    let options = ExtractAllOptions {
+        output,
+        overwrite: overwrite_mode(overwrite, skip_existing),
+    };
+    let summary = ArchiveTool::extract_all(archive, &options)?;
+    if json {
+        serde_json::to_writer_pretty(&mut *stdout, &summary)
+            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+        writeln!(stdout)?;
+    } else {
+        write_summary(stdout, &summary)?;
+    }
+    Ok(())
+}
+
+fn write_create(
+    stdout: &mut dyn Write,
+    archive: PathBuf,
+    input: PathBuf,
+    options: &CreateOptions,
+    json: bool,
+) -> Result<()> {
+    let count = ArchiveTool::create(archive, input, options)?;
+    write_count(stdout, count, json)
+}
+
+fn write_add(
+    stdout: &mut dyn Write,
+    archive: PathBuf,
+    inputs: Vec<PathBuf>,
+    output: PathBuf,
+    json: bool,
+) -> Result<()> {
+    if inputs.is_empty() {
+        return Err(dream_archivetool::ArchiveError::Archive(
+            "no input files supplied".to_string(),
+        ));
+    }
+    let count = ArchiveTool::add(archive, &AddOptions { inputs, output })?;
+    write_count(stdout, count, json)
+}
+
+fn write_summary(
+    stdout: &mut dyn Write,
+    summary: &dream_archivetool::ExtractSummary,
+) -> Result<()> {
+    writeln!(stdout, "extracted: {}", summary.extracted)?;
+    if summary.skipped > 0 {
+        writeln!(stdout, "skipped: {}", summary.skipped)?;
     }
     Ok(())
 }
@@ -273,7 +336,7 @@ fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
 fn write_count(stdout: &mut dyn Write, count: usize, json: bool) -> Result<()> {
     if json {
         serde_json::to_writer_pretty(&mut *stdout, &serde_json::json!({ "files": count }))
-            .map_err(|err| rome_archivetool::ArchiveError::Archive(err.to_string()))?;
+            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
         writeln!(stdout)?;
     } else {
         writeln!(stdout, "files: {count}")?;
@@ -303,7 +366,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "rome-archivetool-cli-{name}-{}",
+            "dream-archivetool-cli-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -312,20 +375,10 @@ mod tests {
     }
 
     fn write_tes3_archive(path: &Path) {
-        let archive: ba2::tes3::Archive = [
-            (
-                ba2::tes3::ArchiveKey::from(b"icons/example.dds".as_slice()),
-                ba2::tes3::File::from(b"payload".as_slice()),
-            ),
-            (
-                ba2::tes3::ArchiveKey::from(b"meshes/example.nif".as_slice()),
-                ba2::tes3::File::from(b"mesh".as_slice()),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(path).unwrap();
-        archive.write(&mut output).unwrap();
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes("icons/example.dds", b"payload").unwrap();
+        builder.add_bytes("meshes/example.nif", b"mesh").unwrap();
+        builder.write_path(path).unwrap();
     }
 
     #[test]
@@ -337,7 +390,7 @@ mod tests {
         let mut stdout = Vec::new();
 
         run(
-            Cli::parse_from(["rome-archivetool", "list", archive_path.to_str().unwrap()]),
+            Cli::parse_from(["dream-archivetool", "list", archive_path.to_str().unwrap()]),
             &mut stdout,
         )
         .unwrap();
@@ -359,7 +412,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "info",
                 archive_path.to_str().unwrap(),
                 "--json",
@@ -384,7 +437,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "list",
                 archive_path.to_str().unwrap(),
                 "--json",
@@ -415,7 +468,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "icons/example.dds",
@@ -440,7 +493,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "icons/example.dds",
@@ -469,7 +522,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "extract-all",
                 archive_path.to_str().unwrap(),
                 "--output",
@@ -502,7 +555,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "create",
                 archive.to_str().unwrap(),
                 input.to_str().unwrap(),
@@ -536,7 +589,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "add",
                 archive.to_str().unwrap(),
                 added.to_str().unwrap(),
@@ -568,7 +621,7 @@ mod tests {
 
         let err = run(
             Cli::parse_from([
-                "rome-archivetool",
+                "dream-archivetool",
                 "add",
                 archive.to_str().unwrap(),
                 "--output",
@@ -586,26 +639,26 @@ mod tests {
     fn generation_options_do_not_require_subcommand() {
         let mut stdout = Vec::new();
         run(
-            Cli::parse_from(["rome-archivetool", "--generate-completion", "bash"]),
+            Cli::parse_from(["dream-archivetool", "--generate-completion", "bash"]),
             &mut stdout,
         )
         .unwrap();
         assert!(
             String::from_utf8(stdout)
                 .unwrap()
-                .contains("rome-archivetool")
+                .contains("dream-archivetool")
         );
 
         let mut stdout = Vec::new();
         run(
-            Cli::parse_from(["rome-archivetool", "--generate-manpage"]),
+            Cli::parse_from(["dream-archivetool", "--generate-manpage"]),
             &mut stdout,
         )
         .unwrap();
         assert!(
             String::from_utf8(stdout)
                 .unwrap()
-                .contains("rome-archivetool")
+                .contains("dream-archivetool")
         );
     }
 }

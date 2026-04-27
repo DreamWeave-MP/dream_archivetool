@@ -21,10 +21,10 @@ pub enum ArchiveFormat {
 /// Detect an archive format from its file header.
 pub fn guess_format(path: &Path) -> Result<ArchiveFormat> {
     let mut file = File::open(path)?;
-    let format = ba2::guess_format(&mut file).ok_or(ArchiveError::UnknownFormat)?;
+    let format = dream_archive::guess_format(&mut file)?.ok_or(ArchiveError::UnknownFormat)?;
     match format {
-        ba2::FileFormat::TES3 => Ok(ArchiveFormat::Tes3),
-        ba2::FileFormat::TES4 => Ok(ArchiveFormat::Tes4),
-        ba2::FileFormat::FO4 => Ok(ArchiveFormat::Fo4),
+        dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES3) => Ok(ArchiveFormat::Tes3),
+        dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES4) => Ok(ArchiveFormat::Tes4),
+        dream_archive::FileFormat::BA2 => Ok(ArchiveFormat::Fo4),
     }
 }

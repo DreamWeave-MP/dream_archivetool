@@ -105,7 +105,7 @@ mod tests {
     #[test]
     fn reports_tes3_info() {
         let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-info-{}",
+            "dream-archivetool-info-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -113,14 +113,9 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         let archive_path = dir.join("test.bsa");
-        let archive: ba2::tes3::Archive = [(
-            ba2::tes3::ArchiveKey::from(b"meshes/example.nif".as_slice()),
-            ba2::tes3::File::from(b"payload".as_slice()),
-        )]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(&archive_path).unwrap();
-        archive.write(&mut output).unwrap();
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes("meshes/example.nif", b"payload").unwrap();
+        builder.write_path(&archive_path).unwrap();
 
         let info = ArchiveTool::info(&archive_path).unwrap();
 

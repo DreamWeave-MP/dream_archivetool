@@ -87,7 +87,7 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     module.set(
         "add",
         lua.create_function(|_, (archive, opts): (String, Table)| {
-            let options = add_options(opts)?;
+            let options = add_options(&opts)?;
             ArchiveTool::add(archive, &options).map_err(LuaError::external)
         })?,
     )?;
@@ -95,10 +95,10 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     Ok(module)
 }
 
-/// Register the Lua API table as the global `rome_archivetool` value.
+/// Register the Lua API table as the global `dream_archivetool` value.
 pub fn register(lua: &Lua) -> LuaResult<()> {
     let module = create_module(lua)?;
-    lua.globals().set("rome_archivetool", module)
+    lua.globals().set("dream_archivetool", module)
 }
 
 fn format_name(format: ArchiveFormat) -> &'static str {
@@ -121,7 +121,7 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
     })
 }
 
-fn add_options(opts: Table) -> LuaResult<AddOptions> {
+fn add_options(opts: &Table) -> LuaResult<AddOptions> {
     let inputs: Table = opts.get("inputs")?;
     let mut paths = Vec::new();
     for value in inputs.sequence_values::<String>() {
@@ -217,13 +217,11 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use ba2::prelude::*;
-
     use super::*;
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "rome-archivetool-lua-{name}-{}",
+            "dream-archivetool-lua-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -263,11 +261,11 @@ mod tests {
             .unwrap();
 
         let path: String = lua
-            .load("return rome_archivetool.list(archive_path)[1].path")
+            .load("return dream_archivetool.list(archive_path)[1].path")
             .eval()
             .unwrap();
         let bytes: String = lua
-            .load("return rome_archivetool.read_entry(archive_path, 'textures/example.dds')")
+            .load("return dream_archivetool.read_entry(archive_path, 'textures/example.dds')")
             .eval()
             .unwrap();
 
@@ -292,13 +290,13 @@ mod tests {
 
         let extracted: usize = lua
             .load(
-                r#"
-                local summary = rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                r"
+                local summary = dream_archivetool.extract(archive_path, 'textures/example.dds', {
                     output = output_path,
                     preserve_paths = false,
                 })
                 return summary.extracted
-            "#,
+            ",
             )
             .eval()
             .unwrap();
@@ -326,13 +324,13 @@ mod tests {
 
         let extracted: usize = lua
             .load(
-                r#"
-                local summary = rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                r"
+                local summary = dream_archivetool.extract(archive_path, 'textures/example.dds', {
                     output = output_path,
                     overwrite = 'overwrite',
                 })
                 return summary.extracted
-            "#,
+            ",
             )
             .eval()
             .unwrap();
@@ -363,13 +361,13 @@ mod tests {
 
         let skipped: usize = lua
             .load(
-                r#"
-                local summary = rome_archivetool.extract_all(archive_path, {
+                r"
+                local summary = dream_archivetool.extract_all(archive_path, {
                     output = output_path,
                     overwrite = 'skip',
                 })
                 return summary.skipped
-            "#,
+            ",
             )
             .eval()
             .unwrap();
@@ -410,14 +408,14 @@ mod tests {
 
         let files: usize = lua
             .load(
-                r#"
-                local created = rome_archivetool.create(archive_path, input_path, { format = 'tes3' })
-                local updated = rome_archivetool.add(archive_path, {
+                r"
+                local created = dream_archivetool.create(archive_path, input_path, { format = 'tes3' })
+                local updated = dream_archivetool.add(archive_path, {
                     output = updated_path,
                     inputs = { added_path },
                 })
                 return created + updated
-            "#,
+            ",
             )
             .eval()
             .unwrap();
@@ -447,20 +445,23 @@ mod tests {
 
         let files: usize = lua
             .load(
-                r#"
-                return rome_archivetool.create(archive_path, input_path, {
+                r"
+                return dream_archivetool.create(archive_path, input_path, {
                     format = 'fo4',
                     ba2_kind = 'gnrl',
                     ba2_version = 'starfield',
                 })
-            "#,
+            ",
             )
             .eval()
             .unwrap();
 
         assert_eq!(files, 1);
-        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
-        assert_eq!(options.version(), ba2::fo4::Version::v2);
+        let archive = dream_archive::ba2::Archive::open_path(&archive).unwrap();
+        assert_eq!(
+            archive.info().version,
+            dream_archive::ba2::ArchiveVersion::v2
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -476,30 +477,30 @@ mod tests {
 
         let err = lua
             .load(
-                r#"
-                return rome_archivetool.extract(archive_path, 'textures/example.dds', {
+                r"
+                return dream_archivetool.extract(archive_path, 'textures/example.dds', {
                     overwrite = 'explode',
                 })
-            "#,
+            ",
             )
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("unknown overwrite mode"));
 
         let err = lua
-            .load("return rome_archivetool.create('out.bsa', 'input', { format = 'unknown' })")
+            .load("return dream_archivetool.create('out.bsa', 'input', { format = 'unknown' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("unknown archive format"));
 
         let err = lua
-            .load("return rome_archivetool.add(archive_path, { inputs = {} })")
+            .load("return dream_archivetool.add(archive_path, { inputs = {} })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(!err.to_string().is_empty());
 
         let err = lua
-            .load("return rome_archivetool.add(archive_path, { output = 'out.bsa' })")
+            .load("return dream_archivetool.add(archive_path, { output = 'out.bsa' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(!err.to_string().is_empty());

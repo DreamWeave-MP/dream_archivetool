@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ba2::prelude::*;
 use clap::ValueEnum;
+use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
+use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 use walkdir::WalkDir;
@@ -101,10 +102,8 @@ pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
     for input in &options.inputs {
         entries.extend(collect_input_entries(input)?);
     }
-    archive.for_each_entry_writer(|path, writer| {
+    archive.for_each_entry_bytes(|path, bytes| {
         if !entries.contains_key(path) {
-            let mut bytes = Vec::new();
-            writer.write_to(&mut bytes)?;
             entries.insert(path.to_string(), bytes);
         }
         Ok(())
@@ -154,12 +153,8 @@ fn write_entries_like(
     let count = entries.len();
     with_temp_output(output, |file| match archive {
         crate::loaded::LoadedArchive::Tes3(_) => write_tes3(file, entries),
-        crate::loaded::LoadedArchive::Tes4(_, options) => {
-            write_tes4_with_options(file, entries, options)
-        }
-        crate::loaded::LoadedArchive::Fo4(_, options) => {
-            write_fo4_with_options(file, entries, options)
-        }
+        crate::loaded::LoadedArchive::Tes4(archive) => write_tes4_like(file, entries, archive),
+        crate::loaded::LoadedArchive::Fo4(archive) => write_fo4_like(file, entries, archive),
     })?;
     Ok(count)
 }
@@ -220,17 +215,14 @@ fn has_extension(path: &str, expected: &str) -> bool {
 }
 
 fn write_tes3(output: &mut fs::File, entries: BTreeMap<String, Vec<u8>>) -> Result<()> {
-    let archive: ba2::tes3::Archive = entries
-        .into_iter()
-        .map(|(path, bytes)| {
-            (
-                ba2::tes3::ArchiveKey::from(path.into_bytes()),
-                ba2::tes3::File::from(bytes.into_boxed_slice()),
-            )
-        })
-        .collect();
-    archive
-        .write(output)
+    let mut builder = dream_archive::Tes3BsaBuilder::new();
+    for (path, bytes) in entries {
+        builder
+            .add_bytes(path.as_bytes(), bytes)
+            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    }
+    builder
+        .write_to(output)
         .map_err(|err| ArchiveError::Archive(err.to_string()))
 }
 
@@ -239,58 +231,64 @@ fn write_tes4(
     entries: BTreeMap<String, Vec<u8>>,
     version: Tes4Version,
 ) -> Result<()> {
-    let archive = make_tes4_archive(entries)?;
-    let options = ba2::tes4::ArchiveOptions::builder()
-        .version(match version {
-            Tes4Version::Oblivion => ba2::tes4::Version::TES4,
-            Tes4Version::Fallout3 => ba2::tes4::Version::FO3,
-            Tes4Version::Skyrim => ba2::tes4::Version::TES5,
-            Tes4Version::SkyrimSe => ba2::tes4::Version::SSE,
-        })
-        .types(ba2::tes4::ArchiveTypes::MISC)
-        .build();
-    archive
-        .write(output, &options)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    let mut builder = dream_archive::Tes4BsaBuilder::new();
+    builder.set_version(match version {
+        Tes4Version::Oblivion => Tes4ArchiveVersion::v103,
+        Tes4Version::Fallout3 | Tes4Version::Skyrim => Tes4ArchiveVersion::v104,
+        Tes4Version::SkyrimSe => Tes4ArchiveVersion::v105,
+    });
+    write_tes4_builder(output, entries, builder)
 }
 
-fn write_tes4_with_options(
+fn write_tes4_like(
     output: &mut fs::File,
     entries: BTreeMap<String, Vec<u8>>,
-    options: &ba2::tes4::ArchiveOptions,
+    archive: &dream_archive::bsa::tes4::Archive,
 ) -> Result<()> {
-    make_tes4_archive(entries)?
-        .write(output, options)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    let info = archive.info();
+    let mut builder = dream_archive::Tes4BsaBuilder::new();
+    builder.set_version(info.version);
+    builder.set_archive_types(info.archive_types);
+    builder.set_compressed(
+        info.archive_flags
+            .contains(dream_archive::bsa::tes4::ArchiveFlags::COMPRESSED),
+    );
+    let has_directory_strings = info
+        .archive_flags
+        .contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
+    let has_file_strings = info
+        .archive_flags
+        .contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
+    let has_embedded_names = info
+        .archive_flags
+        .contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
+    builder.set_name_mode(
+        match (
+            has_directory_strings && has_file_strings,
+            has_embedded_names,
+        ) {
+            (true, true) => NameMode::StringsAndEmbedded,
+            (true, false) => NameMode::Strings,
+            (false, true) => NameMode::Embedded,
+            (false, false) => NameMode::HashOnly,
+        },
+    );
+    write_tes4_builder(output, entries, builder)
 }
 
-fn make_tes4_archive(entries: BTreeMap<String, Vec<u8>>) -> Result<ba2::tes4::Archive<'static>> {
-    let mut directories: BTreeMap<String, Vec<(String, Vec<u8>)>> = BTreeMap::new();
+fn write_tes4_builder(
+    output: &mut fs::File,
+    entries: BTreeMap<String, Vec<u8>>,
+    mut builder: dream_archive::Tes4BsaBuilder,
+) -> Result<()> {
     for (path, bytes) in entries {
-        let (directory, file_name) = split_archive_path(&path)?;
-        directories
-            .entry(directory)
-            .or_default()
-            .push((file_name, bytes));
+        builder
+            .add_bytes(path.as_bytes(), bytes)
+            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
     }
-    Ok(directories
-        .into_iter()
-        .map(|(directory_path, files)| {
-            let directory: ba2::tes4::Directory = files
-                .into_iter()
-                .map(|(path, bytes)| {
-                    (
-                        ba2::tes4::DirectoryKey::from(path.into_bytes()),
-                        ba2::tes4::File::from_decompressed(bytes.into_boxed_slice()),
-                    )
-                })
-                .collect();
-            (
-                ba2::tes4::ArchiveKey::from(directory_path.into_bytes()),
-                directory,
-            )
-        })
-        .collect())
+    builder
+        .write_to(output)
+        .map_err(|err| ArchiveError::Archive(err.to_string()))
 }
 
 fn write_fo4(
@@ -300,47 +298,77 @@ fn write_fo4(
     version: Fo4Version,
 ) -> Result<()> {
     let format = match kind {
-        Fo4ArchiveKind::Gnrl => ba2::fo4::Format::GNRL,
-        Fo4ArchiveKind::Dx10 => ba2::fo4::Format::DX10,
-        Fo4ArchiveKind::Gnmf => ba2::fo4::Format::GNMF,
+        Fo4ArchiveKind::Gnrl => PayloadFormat::GNRL,
+        Fo4ArchiveKind::Dx10 => PayloadFormat::DX10,
+        Fo4ArchiveKind::Gnmf => PayloadFormat::GNMF,
     };
     let version = match version {
-        Fo4Version::Fallout4 => ba2::fo4::Version::v1,
-        Fo4Version::Starfield => ba2::fo4::Version::v2,
-        Fo4Version::Fallout4NextGen => ba2::fo4::Version::v7,
+        Fo4Version::Fallout4 => Ba2ArchiveVersion::v1,
+        Fo4Version::Starfield => Ba2ArchiveVersion::v2,
+        Fo4Version::Fallout4NextGen => Ba2ArchiveVersion::v7,
     };
-    let options = ba2::fo4::ArchiveOptions::builder()
-        .format(format)
-        .version(version)
-        .strings(true)
-        .build();
-    write_fo4_with_options(output, entries, &options)
+    write_fo4_with_format(output, entries, format, version)
 }
 
-fn write_fo4_with_options(
+fn write_fo4_like(
     output: &mut fs::File,
     entries: BTreeMap<String, Vec<u8>>,
-    options: &ba2::fo4::ArchiveOptions,
+    archive: &dream_archive::ba2::Archive,
 ) -> Result<()> {
-    validate_fo4_entries(
-        &entries,
-        match options.format() {
-            ba2::fo4::Format::GNRL => Fo4ArchiveKind::Gnrl,
-            ba2::fo4::Format::DX10 => Fo4ArchiveKind::Dx10,
-            ba2::fo4::Format::GNMF => Fo4ArchiveKind::Gnmf,
-        },
-    )?;
-    let archive: ba2::fo4::Archive = entries
-        .into_iter()
-        .map(|(path, bytes)| {
-            let chunk = ba2::fo4::Chunk::from_decompressed(bytes.into_boxed_slice());
-            let file: ba2::fo4::File = [chunk].into_iter().collect();
-            (ba2::fo4::ArchiveKey::from(path.into_bytes()), file)
-        })
-        .collect();
-    archive
-        .write(output, options)
+    let info = archive.info();
+    write_fo4_with_format(output, entries, info.format, info.version)
+}
+
+fn write_fo4_with_format(
+    output: &mut fs::File,
+    entries: BTreeMap<String, Vec<u8>>,
+    format: PayloadFormat,
+    version: Ba2ArchiveVersion,
+) -> Result<()> {
+    validate_fo4_entries(&entries, fo4_kind_from_payload_format(format))?;
+    if format == PayloadFormat::DX10 {
+        return write_dx10_fo4(output, entries, version);
+    }
+    if format == PayloadFormat::GNMF {
+        return Err(ArchiveError::Archive(
+            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+        ));
+    }
+    let mut builder = dream_archive::Ba2Builder::new();
+    builder.set_version(version);
+    for (path, bytes) in entries {
+        builder
+            .add_bytes(path.as_bytes(), bytes)
+            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    }
+    builder
+        .write_to(output)
         .map_err(|err| ArchiveError::Archive(err.to_string()))
+}
+
+fn write_dx10_fo4(
+    output: &mut fs::File,
+    entries: BTreeMap<String, Vec<u8>>,
+    version: Ba2ArchiveVersion,
+) -> Result<()> {
+    let mut builder = dream_archive::Ba2Dx10Builder::new();
+    builder.set_version(version);
+    for (path, bytes) in entries {
+        builder
+            .add_dds_bytes(path.as_bytes(), bytes)
+            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    }
+    builder
+        .write_to(output)
+        .map_err(|err| ArchiveError::Archive(err.to_string()))
+}
+
+fn fo4_kind_from_payload_format(format: PayloadFormat) -> Fo4ArchiveKind {
+    match format {
+        PayloadFormat::GNRL => Fo4ArchiveKind::Gnrl,
+        PayloadFormat::DX10 => Fo4ArchiveKind::Dx10,
+        PayloadFormat::GNMF => Fo4ArchiveKind::Gnmf,
+    }
 }
 
 fn path_to_archive_string(path: &Path) -> Result<String> {
@@ -349,16 +377,6 @@ fn path_to_archive_string(path: &Path) -> Result<String> {
         return Err(ArchiveError::UnsafePath(value));
     }
     Ok(value)
-}
-
-fn split_archive_path(path: &str) -> Result<(String, String)> {
-    let Some((directory, file_name)) = path.rsplit_once('/') else {
-        return Ok((String::new(), path.to_string()));
-    };
-    if file_name.is_empty() {
-        return Err(ArchiveError::UnsafePath(path.to_string()));
-    }
-    Ok((directory.to_string(), file_name.to_string()))
 }
 
 #[cfg(test)]
@@ -370,7 +388,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "rome-archivetool-{name}-{}",
+            "dream-archivetool-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -574,8 +592,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
-        assert_eq!(options.version(), ba2::fo4::Version::v2);
+        let archive = dream_archive::ba2::Archive::open_path(&archive).unwrap();
+        assert_eq!(archive.info().version, Ba2ArchiveVersion::v2);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -598,8 +616,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, options) = ba2::fo4::Archive::read(archive.as_path()).unwrap();
-        assert_eq!(options.version(), ba2::fo4::Version::v7);
+        let archive = dream_archive::ba2::Archive::open_path(&archive).unwrap();
+        assert_eq!(archive.info().version, Ba2ArchiveVersion::v7);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -609,13 +627,8 @@ mod tests {
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
         let entries = BTreeMap::from([("base.txt".to_string(), b"base".to_vec())]);
-        let options = ba2::fo4::ArchiveOptions::builder()
-            .format(ba2::fo4::Format::GNRL)
-            .version(ba2::fo4::Version::v3)
-            .strings(true)
-            .build();
         with_temp_output(&archive, |file| {
-            write_fo4_with_options(file, entries, &options)
+            write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v3)
         })
         .unwrap();
         let added = dir.join("added.txt");
@@ -631,8 +644,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, updated_options) = ba2::fo4::Archive::read(output.as_path()).unwrap();
-        assert_eq!(updated_options.version(), ba2::fo4::Version::v3);
+        let updated = dream_archive::ba2::Archive::open_path(&output).unwrap();
+        assert_eq!(updated.info().version, Ba2ArchiveVersion::v3);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -642,13 +655,8 @@ mod tests {
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
         let entries = BTreeMap::from([("base.txt".to_string(), b"base".to_vec())]);
-        let options = ba2::fo4::ArchiveOptions::builder()
-            .format(ba2::fo4::Format::GNRL)
-            .version(ba2::fo4::Version::v8)
-            .strings(true)
-            .build();
         with_temp_output(&archive, |file| {
-            write_fo4_with_options(file, entries, &options)
+            write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v8)
         })
         .unwrap();
         let added = dir.join("added.txt");
@@ -664,8 +672,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, updated_options) = ba2::fo4::Archive::read(output.as_path()).unwrap();
-        assert_eq!(updated_options.version(), ba2::fo4::Version::v8);
+        let updated = dream_archive::ba2::Archive::open_path(&output).unwrap();
+        assert_eq!(updated.info().version, Ba2ArchiveVersion::v8);
         fs::remove_dir_all(dir).unwrap();
     }
 

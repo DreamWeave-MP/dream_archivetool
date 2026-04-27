@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -95,10 +96,11 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    archive.for_each_entry_writer(|path, writer| {
+    archive.for_each_entry_bytes(|path, bytes| {
         let target = safe_target_path(&root, path)?;
-        let result =
-            write_target_with(&target, options.overwrite, |output| writer.write_to(output))?;
+        let result = write_target_with(&target, options.overwrite, |output| {
+            output.write_all(&bytes).map_err(ArchiveError::Io)
+        })?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
         Ok(())
@@ -176,7 +178,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "rome-archivetool-{name}-{}",
+            "dream-archivetool-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -185,31 +187,18 @@ mod tests {
     }
 
     fn write_tes3_archive(path: &Path) {
-        let archive: ba2::tes3::Archive = [(
-            ba2::tes3::ArchiveKey::from(b"textures/example.dds".as_slice()),
-            ba2::tes3::File::from(b"payload".as_slice()),
-        )]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(path).unwrap();
-        archive.write(&mut output).unwrap();
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder
+            .add_bytes("textures/example.dds", b"payload")
+            .unwrap();
+        builder.write_path(path).unwrap();
     }
 
     fn write_multi_tes3_archive(path: &Path) {
-        let archive: ba2::tes3::Archive = [
-            (
-                ba2::tes3::ArchiveKey::from(b"textures/a.dds".as_slice()),
-                ba2::tes3::File::from(b"a".as_slice()),
-            ),
-            (
-                ba2::tes3::ArchiveKey::from(b"meshes/b.nif".as_slice()),
-                ba2::tes3::File::from(b"b".as_slice()),
-            ),
-        ]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(path).unwrap();
-        archive.write(&mut output).unwrap();
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes("textures/a.dds", b"a").unwrap();
+        builder.add_bytes("meshes/b.nif", b"b").unwrap();
+        builder.write_path(path).unwrap();
     }
 
     #[test]

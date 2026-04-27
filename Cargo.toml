@@ -1,5 +1,5 @@
 [package]
-name = "rome-archivetool"
+name = "dream-archivetool"
 version = "0.1.0"
 edition = "2024"
 description = "Inspect, extract, create, and update Bethesda BSA and BA2 archives"
@@ -9,7 +9,7 @@ keywords = ["bethesda", "bsa", "ba2", "archive", "cli"]
 categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
-ba2 = "3"
+dream_archive = "0.1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.2"

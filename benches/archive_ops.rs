@@ -3,13 +3,13 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use rome_archivetool::{
+use dream_archivetool::{
     AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, OverwriteMode,
 };
 
 fn unique_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "rome-archivetool-bench-{name}-{}",
+        "dream-archivetool-bench-{name}-{}",
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -19,23 +19,19 @@ fn unique_dir(name: &str) -> PathBuf {
 
 fn make_payload(index: usize, size: usize) -> Vec<u8> {
     (0..size)
-        .map(|offset| (index.wrapping_add(offset) % 251) as u8)
+        .map(|offset| u8::try_from(index.wrapping_add(offset) % 251).unwrap())
         .collect()
 }
 
 fn write_tes3_archive(path: &Path, entries: usize, payload_size: usize) {
-    let archive: ba2::tes3::Archive = (0..entries)
-        .map(|index| {
-            let name = format!("textures/file-{index:05}.dds");
-            let payload = make_payload(index, payload_size);
-            (
-                ba2::tes3::ArchiveKey::from(name.into_bytes()),
-                ba2::tes3::File::from(payload.into_boxed_slice()),
-            )
-        })
-        .collect();
-    let mut output = fs::File::create(path).unwrap();
-    archive.write(&mut output).unwrap();
+    let mut builder = dream_archive::Tes3BsaBuilder::new();
+    for index in 0..entries {
+        let name = format!("textures/file-{index:05}.dds");
+        builder
+            .add_bytes(name.as_bytes(), make_payload(index, payload_size))
+            .unwrap();
+    }
+    builder.write_path(path).unwrap();
 }
 
 fn write_input_tree(root: &Path, entries: usize, payload_size: usize) {
@@ -96,15 +92,15 @@ fn bench_list_and_lookup(c: &mut Criterion) {
     let (_dir, archive) = prepare_fixture("list-lookup", 1_000, 256);
 
     c.bench_function("list_tes3_1000_entries", |b| {
-        b.iter(|| ArchiveTool::list(&archive).unwrap())
+        b.iter(|| ArchiveTool::list(&archive).unwrap());
     });
 
     c.bench_function("read_entry_tes3_last_of_1000", |b| {
-        b.iter(|| ArchiveTool::read_entry(&archive, "textures/file-00999.dds").unwrap())
+        b.iter(|| ArchiveTool::read_entry(&archive, "textures/file-00999.dds").unwrap());
     });
 
     c.bench_function("read_entry_tes3_missing_1000", |b| {
-        b.iter(|| ArchiveTool::read_entry(&archive, "textures/missing.dds").unwrap_err())
+        b.iter(|| ArchiveTool::read_entry(&archive, "textures/missing.dds").unwrap_err());
     });
 }
 
@@ -127,7 +123,7 @@ fn bench_extract_all(c: &mut Criterion) {
                 summary
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     c.bench_function("extract_all_skip_existing_tes3_512x1k", |b| {
@@ -150,7 +146,7 @@ fn bench_extract_all(c: &mut Criterion) {
                 summary
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 }
 
@@ -159,10 +155,10 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
     let (_fo4_dir, fo4) = prepare_created_fixture("fo4", ArchiveFormat::Fo4, "txt", 256, 512);
 
     c.bench_function("list_tes4_256_entries", |b| {
-        b.iter(|| ArchiveTool::list(&tes4).unwrap())
+        b.iter(|| ArchiveTool::list(&tes4).unwrap());
     });
     c.bench_function("read_entry_tes4_last_of_256", |b| {
-        b.iter(|| ArchiveTool::read_entry(&tes4, "data/file-00255.dds").unwrap())
+        b.iter(|| ArchiveTool::read_entry(&tes4, "data/file-00255.dds").unwrap());
     });
     c.bench_function("extract_all_tes4_256x512", |b| {
         b.iter_batched(
@@ -180,14 +176,14 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
                 summary
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     c.bench_function("list_fo4_256_entries", |b| {
-        b.iter(|| ArchiveTool::list(&fo4).unwrap())
+        b.iter(|| ArchiveTool::list(&fo4).unwrap());
     });
     c.bench_function("read_entry_fo4_last_of_256", |b| {
-        b.iter(|| ArchiveTool::read_entry(&fo4, "data/file-00255.txt").unwrap())
+        b.iter(|| ArchiveTool::read_entry(&fo4, "data/file-00255.txt").unwrap());
     });
     c.bench_function("extract_all_fo4_256x512", |b| {
         b.iter_batched(
@@ -205,7 +201,7 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
                 summary
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 }
 
@@ -227,7 +223,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                 count
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 
     let (_archive_dir, archive) = prepare_fixture("add-base", 512, 1_024);
@@ -259,7 +255,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                 count
             },
             BatchSize::SmallInput,
-        )
+        );
     });
 }
 

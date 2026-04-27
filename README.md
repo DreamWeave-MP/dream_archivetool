@@ -1,8 +1,8 @@
-# rome-archivetool
+# dream-archivetool
 
-`rome-archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
+`dream-archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
 
-The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses Ryan McKenzie's `ba2` crate for archive format support.
+The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support.
 
 ## Goals
 
@@ -15,20 +15,20 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 ## Usage
 
 ```bash
-rome-archivetool info archive.bsa
-rome-archivetool info --json archive.bsa
-rome-archivetool list archive.bsa
-rome-archivetool list --long archive.bsa
-rome-archivetool list --json archive.bsa
-rome-archivetool extract archive.bsa textures/example.dds --output out/
-rome-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
-rome-archivetool extract-all archive.bsa --output out/
-rome-archivetool create out.bsa input_dir/ --format tes3
-rome-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
-rome-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
-rome-archivetool add base.bsa new_file.txt --output updated.bsa
-rome-archivetool --generate-completion bash > rome-archivetool.bash
-rome-archivetool --generate-manpage > rome-archivetool.1
+dream-archivetool info archive.bsa
+dream-archivetool info --json archive.bsa
+dream-archivetool list archive.bsa
+dream-archivetool list --long archive.bsa
+dream-archivetool list --json archive.bsa
+dream-archivetool extract archive.bsa textures/example.dds --output out/
+dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
+dream-archivetool extract-all archive.bsa --output out/
+dream-archivetool create out.bsa input_dir/ --format tes3
+dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
+dream-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
+dream-archivetool add base.bsa new_file.txt --output updated.bsa
+dream-archivetool --generate-completion bash > dream-archivetool.bash
+dream-archivetool --generate-manpage > dream-archivetool.1
 ```
 
 ## Library
@@ -36,11 +36,11 @@ rome-archivetool --generate-manpage > rome-archivetool.1
 The crate exposes `ArchiveTool` and option structs for reuse by other applications:
 
 ```rust,no_run
-use rome_archivetool::{
+use dream_archivetool::{
     AddOptions, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions, OverwriteMode,
 };
 
-# fn main() -> rome_archivetool::Result<()> {
+# fn main() -> dream_archivetool::Result<()> {
 let entries = ArchiveTool::list("Morrowind.bsa")?;
 let bytes = ArchiveTool::read_entry("Morrowind.bsa", "icons/gold.dds")?;
 let extracted = ArchiveTool::extract(
@@ -74,15 +74,15 @@ use mlua::Lua;
 
 # fn main() -> mlua::Result<()> {
 let lua = Lua::new();
-rome_archivetool::lua::register(&lua)?;
+dream_archivetool::lua::register(&lua)?;
 # Ok(())
 # }
 ```
 
-The registered `rome_archivetool` table mirrors the public `ArchiveTool` API:
+The registered `dream_archivetool` table mirrors the public `ArchiveTool` API:
 
 ```lua
-local tool = rome_archivetool
+local tool = dream_archivetool
 
 local format = tool.guess_format("Morrowind.bsa")
 local info = tool.info("Morrowind.bsa")

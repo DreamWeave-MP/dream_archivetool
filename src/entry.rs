@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn lists_tes3_entries() {
         let dir = std::env::temp_dir().join(format!(
-            "rome-archivetool-list-{}",
+            "dream-archivetool-list-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -38,14 +38,11 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         let archive_path = dir.join("test.bsa");
-        let archive: ba2::tes3::Archive = [(
-            ba2::tes3::ArchiveKey::from(b"textures/example.dds".as_slice()),
-            ba2::tes3::File::from(b"payload".as_slice()),
-        )]
-        .into_iter()
-        .collect();
-        let mut output = fs::File::create(&archive_path).unwrap();
-        archive.write(&mut output).unwrap();
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder
+            .add_bytes("textures/example.dds", b"payload")
+            .unwrap();
+        builder.write_path(&archive_path).unwrap();
 
         let entries = list_entries(&archive_path).unwrap();
 
