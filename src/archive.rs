@@ -331,6 +331,24 @@ impl ArchiveTool {
         Self::extract_by_path_bytes(path, entry, options)
     }
 
+    /// Extract selected archive entries by normalized archive path bytes.
+    pub fn extract_many_by_path_bytes(
+        path: impl AsRef<Path>,
+        entries: &[Vec<u8>],
+        options: &ExtractOptions,
+    ) -> Result<ExtractSummary> {
+        crate::extract::extract_entries_by_path(path.as_ref(), entries, options)
+    }
+
+    /// Plan selected archive entry extraction without writing files.
+    pub fn plan_extract_many_by_path_bytes(
+        path: impl AsRef<Path>,
+        entries: &[Vec<u8>],
+        options: &ExtractOptions,
+    ) -> Result<ExtractAllPlan> {
+        crate::extract::plan_extract_entries_by_path(path.as_ref(), entries, options)
+    }
+
     /// Extract every archive entry to disk according to `options`.
     pub fn extract_all(
         path: impl AsRef<Path>,

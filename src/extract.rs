@@ -87,6 +87,7 @@ pub struct ExtractAllPlan {
 #[serde(rename_all = "kebab-case")]
 /// Extraction dry-run operation represented by a plan.
 pub enum ExtractPlanOperation {
+    Extract,
     ExtractAll,
 }
 
@@ -162,6 +163,64 @@ pub fn extract_entry_by_path(
     })
 }
 
+/// Extract selected archive entries to disk without reopening the archive for each entry.
+pub fn extract_entries_by_path(
+    path: &Path,
+    entries: &[Vec<u8>],
+    options: &ExtractOptions,
+) -> Result<ExtractSummary> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
+    let archive = crate::loaded::LoadedArchive::open(path)?;
+    let mut summary = ExtractSummary {
+        extracted: 0,
+        skipped: 0,
+    };
+    let targets = planned_extract_targets_from_paths(
+        &root,
+        entries,
+        options.preserve_paths,
+        options.overwrite,
+    )?;
+    prepare_extract_parent_dirs(&targets, options.fsync)?;
+    for target in targets {
+        let result = write_target_with_precreated_parent(
+            &target.path,
+            options.overwrite,
+            options.fsync,
+            |output| {
+                archive
+                    .extract_normalized_entry_path_to_writer(&target.archive_path, output)
+                    .map(|_| ())
+            },
+        )?;
+        summary.extracted += result.extracted;
+        summary.skipped += result.skipped;
+    }
+    Ok(summary)
+}
+
+/// Plan selected archive entry extraction without writing files.
+pub fn plan_extract_entries_by_path(
+    path: &Path,
+    entries: &[Vec<u8>],
+    options: &ExtractOptions,
+) -> Result<ExtractAllPlan> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
+    let targets = planned_extract_targets_from_paths(
+        &root,
+        entries,
+        options.preserve_paths,
+        options.overwrite,
+    )?;
+    let entries = plan_entries_from_targets(targets, options.overwrite);
+    Ok(ExtractAllPlan {
+        operation: ExtractPlanOperation::Extract,
+        archive: path.display().to_string(),
+        output: root.display().to_string(),
+        entries,
+    })
+}
+
 /// Extract every archive entry to disk.
 ///
 /// In skip-existing mode, target existence is checked before entry bytes are decoded.
@@ -210,12 +269,25 @@ pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<Extr
         ));
     }
     let targets = planned_extract_targets(&root, entries, options.overwrite)?;
-    let entries = targets
+    let entries = plan_entries_from_targets(targets, options.overwrite);
+    Ok(ExtractAllPlan {
+        operation: ExtractPlanOperation::ExtractAll,
+        archive: path.display().to_string(),
+        output: root.display().to_string(),
+        entries,
+    })
+}
+
+fn plan_entries_from_targets(
+    targets: Vec<PlannedExtractTarget>,
+    overwrite: OverwriteMode,
+) -> Vec<ExtractPlanEntry> {
+    targets
         .into_iter()
         .map(|target| {
-            let action = if options.overwrite == OverwriteMode::Skip && target.path.exists() {
+            let action = if overwrite == OverwriteMode::Skip && target.path.exists() {
                 ExtractPlanAction::Skip
-            } else if options.overwrite == OverwriteMode::Overwrite && target.path.exists() {
+            } else if overwrite == OverwriteMode::Overwrite && target.path.exists() {
                 ExtractPlanAction::Overwrite
             } else {
                 ExtractPlanAction::Extract
@@ -227,13 +299,7 @@ pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<Extr
                 target: target.path.display().to_string(),
             }
         })
-        .collect();
-    Ok(ExtractAllPlan {
-        operation: ExtractPlanOperation::ExtractAll,
-        archive: path.display().to_string(),
-        output: root.display().to_string(),
-        entries,
-    })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -265,6 +331,35 @@ fn planned_extract_targets(
             archive_path: entry.path,
             path,
         });
+    }
+    Ok(targets)
+}
+
+fn planned_extract_targets_from_paths(
+    root: &Path,
+    entries: &[Vec<u8>],
+    preserve_paths: bool,
+    overwrite: OverwriteMode,
+) -> Result<Vec<PlannedExtractTarget>> {
+    let mut targets = Vec::with_capacity(entries.len());
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        let archive_path = crate::paths::normalize_safe_archive_path_bytes(entry)?;
+        let path = if preserve_paths {
+            safe_target_path_normalized(root, &archive_path)?
+        } else {
+            flat_target_path_normalized(root, &archive_path)?
+        };
+        if !seen.insert(path.clone()) {
+            return Err(ArchiveError::Archive(format!(
+                "duplicate extraction target after normalization: {}",
+                path.display()
+            )));
+        }
+        if overwrite == OverwriteMode::Fail && path.exists() {
+            return Err(ArchiveError::TargetExists(path.display().to_string()));
+        }
+        targets.push(PlannedExtractTarget { archive_path, path });
     }
     Ok(targets)
 }

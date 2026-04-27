@@ -29,18 +29,21 @@ use crate::{
 /// Create a Lua table for common [`ArchiveTool`] operations.
 ///
 /// The returned table contains tool-policy operations: `info`, `verify`, `diff`, `extract`,
-/// `extract_by_path_hex`, `extract_hex`, `extract_all`, `plan_extract_all`, `create`,
-/// `plan_create`, `add`, and `plan_add`. Archive-format primitives such as listing and payload
-/// reads belong to `dream_archive`'s Lua API instead. Archive entry arguments are Lua byte strings,
-/// so `dream_archive` entry paths can be passed to `extract` without a UTF-8 boundary. The table is
-/// not registered globally unless [`register`] is called.
+/// `extract_by_path_hex`, `extract_hex`, `extract_many`, `plan_extract`, `extract_all`,
+/// `plan_extract_all`, `create`, `plan_create`, `add`, and `plan_add`. Archive-format primitives
+/// such as listing and payload reads belong to `dream_archive`'s Lua API instead. Archive entry
+/// arguments are Lua byte strings, so `dream_archive` entry paths can be passed to extraction
+/// functions without a UTF-8 boundary. The table is not registered globally unless [`register`] is
+/// called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
-    let module = lua.create_table_with_capacity(0, 12)?;
+    let module = lua.create_table_with_capacity(0, 14)?;
 
     module.set(
         "info",
         lua.create_function(|lua, path: LuaString| {
-            let path = path.to_str()?;
+            let path = path
+                .to_str()
+                .map_err(|_| LuaError::external("info.path must be a UTF-8 host path string"))?;
             let info = ArchiveTool::info(path.as_ref()).map_err(LuaError::external)?;
             archive_info_table(lua, info)
         })?,
@@ -57,13 +60,47 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "extract",
         lua.create_function(
             |lua, (path, entry, opts): (LuaString, LuaString, Option<Table>)| {
-                let path = path.to_str()?;
+                let path = path.to_str().map_err(|_| {
+                    LuaError::external("extract.path must be a UTF-8 host path string")
+                })?;
                 let options = extract_options(opts, "extract")?;
                 let entry = entry.as_bytes();
                 let summary =
                     ArchiveTool::extract_by_path_bytes(path.as_ref(), entry.as_ref(), &options)
                         .map_err(LuaError::external)?;
                 summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
+    )?;
+    module.set(
+        "extract_many",
+        lua.create_function(
+            |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
+                let path = path.to_str().map_err(|_| {
+                    LuaError::external("extract_many.path must be a UTF-8 host path string")
+                })?;
+                let entries = lua_byte_string_array(&entries, "extract_many", "entries")?;
+                let options = extract_options(opts, "extract_many")?;
+                let summary =
+                    ArchiveTool::extract_many_by_path_bytes(path.as_ref(), &entries, &options)
+                        .map_err(LuaError::external)?;
+                summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
+    )?;
+    module.set(
+        "plan_extract",
+        lua.create_function(
+            |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
+                let path = path.to_str().map_err(|_| {
+                    LuaError::external("plan_extract.path must be a UTF-8 host path string")
+                })?;
+                let entries = lua_byte_string_array(&entries, "plan_extract", "entries")?;
+                let options = extract_options(opts, "plan_extract")?;
+                let plan =
+                    ArchiveTool::plan_extract_many_by_path_bytes(path.as_ref(), &entries, &options)
+                        .map_err(LuaError::external)?;
+                extract_all_plan_table(lua, plan)
             },
         )?,
     )?;
@@ -80,11 +117,17 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
 
 fn extract_by_path_hex_function(lua: &Lua, context: &'static str) -> LuaResult<Function> {
     lua.create_function(
-        |lua, (path, entry_hex, opts): (LuaString, LuaString, Option<Table>)| {
-            let path = path.to_str()?;
-            let entry_hex = entry_hex.to_str()?;
-            let entry = crate::path::decode_archive_path_hex(entry_hex.as_ref())
-                .map_err(LuaError::external)?;
+        move |lua, (path, entry_hex, opts): (LuaString, LuaString, Option<Table>)| {
+            let path = path.to_str().map_err(|_| {
+                LuaError::external(format!("{context}.path must be a UTF-8 host path string"))
+            })?;
+            let entry_hex = entry_hex.to_str().map_err(|_| {
+                LuaError::external(format!("{context}.path_bytes_hex must be a UTF-8 string"))
+            })?;
+            let entry =
+                crate::path::decode_archive_path_hex(entry_hex.as_ref()).map_err(|err| {
+                    LuaError::external(format!("{context}: invalid path_bytes_hex: {err}"))
+                })?;
             let options = extract_options(opts, context)?;
             let summary = ArchiveTool::extract_by_path_bytes(path.as_ref(), &entry, &options)
                 .map_err(LuaError::external)?;
@@ -97,7 +140,9 @@ fn register_report_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "verify",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
-            let path = path.to_str()?;
+            let path = path
+                .to_str()
+                .map_err(|_| LuaError::external("verify.path must be a UTF-8 host path string"))?;
             let options = verify_options(opts)?;
             let report =
                 ArchiveTool::verify(path.as_ref(), &options).map_err(LuaError::external)?;
@@ -108,8 +153,12 @@ fn register_report_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "diff",
         lua.create_function(
             |lua, (old, new, opts): (LuaString, LuaString, Option<Table>)| {
-                let old = old.to_str()?;
-                let new = new.to_str()?;
+                let old = old
+                    .to_str()
+                    .map_err(|_| LuaError::external("diff.old must be a UTF-8 host path string"))?;
+                let new = new
+                    .to_str()
+                    .map_err(|_| LuaError::external("diff.new must be a UTF-8 host path string"))?;
                 let options = diff_options(opts)?;
                 let report = ArchiveTool::diff(old.as_ref(), new.as_ref(), &options)
                     .map_err(LuaError::external)?;
@@ -124,7 +173,9 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "extract_all",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
-            let path = path.to_str()?;
+            let path = path.to_str().map_err(|_| {
+                LuaError::external("extract_all.path must be a UTF-8 host path string")
+            })?;
             let options = extract_all_options(opts, "extract_all")?;
             let summary =
                 ArchiveTool::extract_all(path.as_ref(), &options).map_err(LuaError::external)?;
@@ -134,7 +185,9 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "plan_extract_all",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
-            let path = path.to_str()?;
+            let path = path.to_str().map_err(|_| {
+                LuaError::external("plan_extract_all.path must be a UTF-8 host path string")
+            })?;
             let options = extract_all_options(opts, "plan_extract_all")?;
             let plan = ArchiveTool::plan_extract_all(path.as_ref(), &options)
                 .map_err(LuaError::external)?;
@@ -145,8 +198,12 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "create",
         lua.create_function(
             |lua, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
-                let output = output.to_str()?;
-                let input = input.to_str()?;
+                let output = output.to_str().map_err(|_| {
+                    LuaError::external("create.output must be a UTF-8 host path string")
+                })?;
+                let input = input.to_str().map_err(|_| {
+                    LuaError::external("create.input must be a UTF-8 host path string")
+                })?;
                 let options = create_options(opts, "create")?;
                 let files = ArchiveTool::create(output.as_ref(), input.as_ref(), &options)
                     .map_err(LuaError::external)?;
@@ -158,8 +215,12 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         "plan_create",
         lua.create_function(
             |lua, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
-                let output = output.to_str()?;
-                let input = input.to_str()?;
+                let output = output.to_str().map_err(|_| {
+                    LuaError::external("plan_create.output must be a UTF-8 host path string")
+                })?;
+                let input = input.to_str().map_err(|_| {
+                    LuaError::external("plan_create.input must be a UTF-8 host path string")
+                })?;
                 let options = create_options(opts, "plan_create")?;
                 let plan = ArchiveTool::plan_create(output.as_ref(), input.as_ref(), &options)
                     .map_err(LuaError::external)?;
@@ -170,7 +231,9 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "add",
         lua.create_function(|lua, (archive, opts): (LuaString, Table)| {
-            let archive = archive.to_str()?;
+            let archive = archive
+                .to_str()
+                .map_err(|_| LuaError::external("add.path must be a UTF-8 host path string"))?;
             let options = add_options(&opts, "add")?;
             let files = ArchiveTool::add(archive.as_ref(), &options).map_err(LuaError::external)?;
             files_table(lua, files)
@@ -179,7 +242,9 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "plan_add",
         lua.create_function(|lua, (archive, opts): (LuaString, Table)| {
-            let archive = archive.to_str()?;
+            let archive = archive.to_str().map_err(|_| {
+                LuaError::external("plan_add.path must be a UTF-8 host path string")
+            })?;
             let options = add_options(&opts, "plan_add")?;
             let plan =
                 ArchiveTool::plan_add(archive.as_ref(), &options).map_err(LuaError::external)?;
@@ -220,10 +285,10 @@ fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions
             "follow_symlinks",
         ],
     )?;
-    let format = parse_optional_format(opts.get::<Option<LuaString>>("format")?)?;
-    let tes4_version = opts.get::<Option<LuaString>>("tes4_version")?;
-    let ba2_kind = opts.get::<Option<LuaString>>("ba2_kind")?;
-    let ba2_version = opts.get::<Option<LuaString>>("ba2_version")?;
+    let format = parse_optional_format(optional_string_field(&opts, context, "format")?)?;
+    let tes4_version = optional_string_field(&opts, context, "tes4_version")?;
+    let ba2_kind = optional_string_field(&opts, context, "ba2_kind")?;
+    let ba2_version = optional_string_field(&opts, context, "ba2_version")?;
     match format {
         ArchiveFormat::Tes3 => {
             reject_irrelevant_create_option("tes4_version", tes4_version.is_some(), format)?;
@@ -270,9 +335,7 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
         context,
         &["output", "inputs", "fsync", "follow_symlinks"],
     )?;
-    let inputs: Table = opts
-        .get("inputs")
-        .map_err(|_| LuaError::external(format!("{context} requires opts.inputs")))?;
+    let inputs = required_table_field(opts, context, "inputs")?;
     let len = validate_dense_string_array(&inputs, context, "inputs")?;
     if len == 0 {
         return Err(LuaError::external(format!(
@@ -282,17 +345,16 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
     let mut paths = Vec::with_capacity(len);
     for index in 1..=len {
         let value: LuaString = inputs.raw_get(index)?;
-        let value = value.to_str()?;
+        let value = value.to_str().map_err(|_| {
+            LuaError::external(format!(
+                "{context}.inputs[{index}] must be a UTF-8 host path string"
+            ))
+        })?;
         paths.push(PathBuf::from(value.as_ref()));
     }
     Ok(AddOptions {
         inputs: paths,
-        output: PathBuf::from(
-            opts.get::<LuaString>("output")
-                .map_err(|_| LuaError::external(format!("{context} requires opts.output")))?
-                .to_str()?
-                .as_ref(),
-        ),
+        output: required_path_field(opts, context, "output")?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
         follow_symlinks: opts
             .get::<Option<bool>>("follow_symlinks")?
@@ -332,8 +394,8 @@ fn extract_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractOptio
         &["output", "overwrite", "preserve_paths", "fsync"],
     )?;
     Ok(ExtractOptions {
-        output: optional_path(opts.get::<Option<LuaString>>("output")?)?,
-        overwrite: parse_optional_overwrite(opts.get::<Option<LuaString>>("overwrite")?)?,
+        output: optional_path(optional_string_field(&opts, context, "output")?)?,
+        overwrite: parse_optional_overwrite(optional_string_field(&opts, context, "overwrite")?)?,
         preserve_paths: opts.get::<Option<bool>>("preserve_paths")?.unwrap_or(true),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
@@ -345,8 +407,8 @@ fn extract_all_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractA
     };
     reject_unknown_options(&opts, context, &["output", "overwrite", "fsync"])?;
     Ok(ExtractAllOptions {
-        output: optional_path(opts.get::<Option<LuaString>>("output")?)?,
-        overwrite: parse_optional_overwrite(opts.get::<Option<LuaString>>("overwrite")?)?,
+        output: optional_path(optional_string_field(&opts, context, "output")?)?,
+        overwrite: parse_optional_overwrite(optional_string_field(&opts, context, "overwrite")?)?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
@@ -406,6 +468,57 @@ fn validate_dense_string_array(inputs: &Table, context: &str, field: &str) -> Lu
         )));
     }
     Ok(len)
+}
+
+fn required_table_field(opts: &Table, context: &str, field: &str) -> LuaResult<Table> {
+    match opts.get::<Value>(field)? {
+        Value::Nil => Err(LuaError::external(format!(
+            "{context} requires opts.{field}"
+        ))),
+        Value::Table(table) => Ok(table),
+        _ => Err(LuaError::external(format!(
+            "{context}.{field} must be a table"
+        ))),
+    }
+}
+
+fn required_path_field(opts: &Table, context: &str, field: &str) -> LuaResult<PathBuf> {
+    match opts.get::<Value>(field)? {
+        Value::Nil => Err(LuaError::external(format!(
+            "{context} requires opts.{field}"
+        ))),
+        Value::String(value) => value
+            .to_str()
+            .map(|value| PathBuf::from(value.as_ref()))
+            .map_err(|_| {
+                LuaError::external(format!(
+                    "{context}.{field} must be a UTF-8 host path string"
+                ))
+            }),
+        _ => Err(LuaError::external(format!(
+            "{context}.{field} must be a UTF-8 host path string"
+        ))),
+    }
+}
+
+fn optional_string_field(opts: &Table, context: &str, field: &str) -> LuaResult<Option<LuaString>> {
+    match opts.get::<Value>(field)? {
+        Value::Nil => Ok(None),
+        Value::String(value) => Ok(Some(value)),
+        _ => Err(LuaError::external(format!(
+            "{context}.{field} must be a string"
+        ))),
+    }
+}
+
+fn lua_byte_string_array(entries: &Table, context: &str, field: &str) -> LuaResult<Vec<Vec<u8>>> {
+    let len = validate_dense_string_array(entries, context, field)?;
+    let mut paths = Vec::with_capacity(len);
+    for index in 1..=len {
+        let value: LuaString = entries.raw_get(index)?;
+        paths.push(value.as_bytes().to_vec());
+    }
+    Ok(paths)
 }
 
 fn optional_path(value: Option<LuaString>) -> LuaResult<Option<PathBuf>> {
@@ -748,6 +861,7 @@ fn archive_plan_action_name(action: ArchivePlanAction) -> &'static str {
 
 fn extract_plan_operation_name(operation: ExtractPlanOperation) -> &'static str {
     match operation {
+        ExtractPlanOperation::Extract => "extract",
         ExtractPlanOperation::ExtractAll => "extract-all",
     }
 }
@@ -902,7 +1016,7 @@ mod tests {
         lua.globals()
             .set(
                 "dream_archive",
-                dream_archive::lua::create_module(&lua).unwrap(),
+                crate::dream_archive::lua::create_module(&lua).unwrap(),
             )
             .unwrap();
         register(&lua).unwrap();
@@ -929,6 +1043,52 @@ mod tests {
 
         assert_eq!(raw_extracted, 1);
         assert_eq!(fs::read(raw_output.join("example.dds")).unwrap(), b"hello");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_extract_many_uses_dream_archive_entry_paths() {
+        let dir = unique_dir("extract-many");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        let lua = Lua::new();
+        lua.globals()
+            .set(
+                "dream_archive",
+                crate::dream_archive::lua::create_module(&lua).unwrap(),
+            )
+            .unwrap();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let (operation, action, extracted): (String, String, usize) = lua
+            .load(
+                r"
+                local archive = dream_archive.open_path(archive_path)
+                local entry = archive:entries()[1]
+                local plan = dream_archivetool.plan_extract(archive_path, { entry.path }, {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                local summary = dream_archivetool.extract_many(archive_path, { entry.path }, {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                return plan.operation, plan.entries[1].action, summary.extracted
+            ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(operation, "extract");
+        assert_eq!(action, "extract");
+        assert_eq!(extracted, 1);
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -963,7 +1123,7 @@ mod tests {
         lua.globals()
             .set(
                 "dream_archive",
-                dream_archive::lua::create_module(&lua).unwrap(),
+                crate::dream_archive::lua::create_module(&lua).unwrap(),
             )
             .unwrap();
         register(&lua).unwrap();
@@ -1395,6 +1555,24 @@ mod tests {
         );
 
         let err = lua
+            .load("return dream_archivetool.extract_hex(archive_path, 'not-hex')")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract_hex: invalid path_bytes_hex")
+        );
+
+        let err = lua
+            .load("return dream_archivetool.extract_by_path_hex(archive_path, 'not-hex')")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract_by_path_hex: invalid path_bytes_hex")
+        );
+
+        let err = lua
             .load(
                 r"
                 return dream_archivetool.add(archive_path, {
@@ -1408,6 +1586,21 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("add.inputs must be a dense 1-based array")
+        );
+
+        let err = lua
+            .load("return dream_archivetool.add(archive_path, { output = 'out.bsa', inputs = 'file.txt' })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("add.inputs must be a table"));
+
+        let err = lua
+            .load("return dream_archivetool.add(archive_path, { output = 12, inputs = { 'file.txt' } })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("add.output must be a UTF-8 host path string")
         );
 
         fs::remove_dir_all(dir).unwrap();
