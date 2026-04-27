@@ -12,6 +12,9 @@ use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::ArchiveFormat;
+pub use crate::archive_plan::{
+    AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreatePlan,
+};
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, path_to_archive_bytes,
 };
@@ -53,51 +56,6 @@ pub struct AddOptions {
     pub output: PathBuf,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// Plan for creating an archive without writing it.
-pub struct CreatePlan {
-    pub operation: String,
-    pub format: ArchiveFormat,
-    pub output: String,
-    pub files: usize,
-    pub entries: Vec<ArchivePlanEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// Plan for adding to an archive without writing it.
-pub struct AddPlan {
-    pub operation: String,
-    pub archive: String,
-    pub output: String,
-    pub format: ArchiveFormat,
-    pub files: usize,
-    pub added: usize,
-    pub replaced: usize,
-    pub preserved: usize,
-    pub entries: Vec<ArchivePlanEntry>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-/// A single archive mutation planned action.
-pub struct ArchivePlanEntry {
-    pub action: ArchivePlanAction,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<String>,
-    pub path: String,
-    pub path_bytes_hex: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub size: Option<u64>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-/// Planned archive mutation action.
-pub enum ArchivePlanAction {
-    Add,
-    Replace,
-    Preserve,
 }
 
 /// Supported TES4-family BSA versions for archive creation.
@@ -163,7 +121,7 @@ pub fn plan_create_archive(
         .map(|(path, source)| plan_entry(ArchivePlanAction::Add, path, Some(source)))
         .collect::<Result<Vec<_>>>()?;
     Ok(CreatePlan {
-        operation: "create".to_string(),
+        operation: ArchivePlanOperation::Create,
         format: options.format,
         output: output.display().to_string(),
         files: entries.len(),
@@ -240,7 +198,7 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
         entries.push(plan_entry(action, path, Some(source))?);
     }
     Ok(AddPlan {
-        operation: "add".to_string(),
+        operation: ArchivePlanOperation::Add,
         archive: archive_path.display().to_string(),
         output: options.output.display().to_string(),
         format: archive.format(),

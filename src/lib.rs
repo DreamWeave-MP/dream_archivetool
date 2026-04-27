@@ -28,6 +28,7 @@
 //! [`ArchiveTool`] API for embedded Lua callers.
 
 pub mod archive;
+mod archive_plan;
 pub mod create;
 pub mod diff;
 pub mod entry;
@@ -44,8 +45,8 @@ pub mod lua;
 
 pub use archive::{ArchiveInfo, ArchiveTool, Fo4Info, OpenArchive, Tes4Info};
 pub use create::{
-    AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, CreateOptions, CreatePlan,
-    Fo4ArchiveKind, Fo4Version, Tes4Version,
+    AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreateOptions,
+    CreatePlan, Fo4ArchiveKind, Fo4Version, Tes4Version,
 };
 pub use diff::{DiffChange, DiffEntry, DiffEntryState, DiffOptions, DiffReport, diff_archives};
 pub use entry::ArchiveEntry;
