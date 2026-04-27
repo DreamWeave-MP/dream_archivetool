@@ -266,25 +266,22 @@ fn write_entries_like(
     archive: &crate::loaded::LoadedArchive,
     fsync: bool,
 ) -> Result<usize> {
-    let count = count_rewritten_entries(&entries, archive)?;
+    let mut count = 0;
     with_temp_output(output, fsync, |file| match archive.as_dream_archive() {
-        dream_archive::Archive::Tes3Bsa(archive) => write_tes3_like(file, entries, archive),
-        dream_archive::Archive::Tes4Bsa(archive) => write_tes4_like(file, entries, archive),
-        dream_archive::Archive::BA2(archive) => write_ba2_like(file, entries, archive),
+        dream_archive::Archive::Tes3Bsa(archive) => {
+            count = write_tes3_like(file, entries, archive)?;
+            Ok(())
+        }
+        dream_archive::Archive::Tes4Bsa(archive) => {
+            count = write_tes4_like(file, entries, archive)?;
+            Ok(())
+        }
+        dream_archive::Archive::BA2(archive) => {
+            count = write_ba2_like(file, entries, archive)?;
+            Ok(())
+        }
     })?;
     Ok(count)
-}
-
-fn count_rewritten_entries(
-    inputs: &BTreeMap<Vec<u8>, PathBuf>,
-    archive: &crate::loaded::LoadedArchive,
-) -> Result<usize> {
-    let existing = existing_archive_paths(archive)?;
-    Ok(existing
-        .iter()
-        .filter(|path| !inputs.contains_key(*path))
-        .count()
-        + inputs.len())
 }
 
 fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTreeSet<Vec<u8>>> {
@@ -442,7 +439,9 @@ fn write_tes3_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::bsa::tes3::Archive,
-) -> Result<()> {
+) -> Result<usize> {
+    let input_count = entries.len();
+    let mut preserved = 0;
     let mut builder = dream_archive::Tes3BsaBuilder::new();
     let source_archive = Arc::new(archive.clone());
     let mut existing_keys = BTreeMap::new();
@@ -451,6 +450,7 @@ fn write_tes3_like(
         let key = normalize_archive_path_bytes(raw_path);
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
+            preserved += 1;
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
                 .map_err(archive_error)?;
@@ -459,7 +459,8 @@ fn write_tes3_like(
     for (path, source) in entries {
         builder.add_file(&path, source).map_err(archive_error)?;
     }
-    builder.write_seek(output).map_err(archive_error)
+    builder.write_seek(output).map_err(archive_error)?;
+    Ok(preserved + input_count)
 }
 
 fn write_tes4(
@@ -480,7 +481,9 @@ fn write_tes4_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::bsa::tes4::Archive,
-) -> Result<()> {
+) -> Result<usize> {
+    let input_count = entries.len();
+    let mut preserved = 0;
     let info = archive.info();
     let mut builder = dream_archive::Tes4BsaBuilder::new();
     builder.set_version(info.version);
@@ -521,6 +524,7 @@ fn write_tes4_like(
         let key = normalize_archive_path_bytes(raw_path);
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
+            preserved += 1;
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
                 .map_err(archive_error)?;
@@ -529,7 +533,8 @@ fn write_tes4_like(
     for (path, source) in entries {
         builder.add_file(&path, source).map_err(archive_error)?;
     }
-    builder.write_seek(output).map_err(archive_error)
+    builder.write_seek(output).map_err(archive_error)?;
+    Ok(preserved + input_count)
 }
 
 fn write_tes4_builder(
@@ -566,7 +571,8 @@ fn write_ba2_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
-) -> Result<()> {
+) -> Result<usize> {
+    let input_count = entries.len();
     let info = archive.info();
     if info.format == PayloadFormat::DX10 {
         return write_dx10_ba2_like_buffering_preserved_entries(
@@ -576,6 +582,7 @@ fn write_ba2_like(
             info.version,
         );
     }
+    let mut preserved = 0;
     crate::rewrite_policy::ensure_ba2_payload_format_writable(info.format)?;
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(info.version);
@@ -589,6 +596,7 @@ fn write_ba2_like(
         let key = normalize_archive_path_bytes(raw_path);
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
+            preserved += 1;
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
                 .map_err(archive_error)?;
@@ -597,7 +605,8 @@ fn write_ba2_like(
     for (path, source) in entries {
         builder.add_file(&path, source).map_err(archive_error)?;
     }
-    builder.write_seek(output).map_err(archive_error)
+    builder.write_seek(output).map_err(archive_error)?;
+    Ok(preserved + input_count)
 }
 
 fn write_ba2_with_format(
@@ -637,7 +646,9 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
     version: Ba2ArchiveVersion,
-) -> Result<()> {
+) -> Result<usize> {
+    let input_count = entries.len();
+    let mut preserved = 0;
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
     let mut existing_keys = BTreeMap::new();
@@ -649,6 +660,7 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
         let key = normalize_archive_path_bytes(raw_path);
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
+            preserved += 1;
             let mut bytes = Vec::new();
             archive
                 .extract_entry_by_id(id, &mut bytes)
@@ -659,7 +671,8 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
     for (path, source) in entries {
         builder.add_dds_file(&path, source).map_err(archive_error)?;
     }
-    builder.write_seek(output).map_err(archive_error)
+    builder.write_seek(output).map_err(archive_error)?;
+    Ok(preserved + input_count)
 }
 
 fn archive_error(err: impl std::fmt::Display) -> ArchiveError {
