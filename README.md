@@ -71,7 +71,14 @@ The root directory name itself is not stored unless it is part of the path below
 `info --json`:
 
 ```json
-{ "path": "archive.bsa", "format": "tes3", "file_count": 2 }
+{
+  "path": "archive.bsa",
+  "format": "tes3",
+  "file_count": 2,
+  "named_entry_count": 2,
+  "has_unnameable_entries": false,
+  "rewritable": true
+}
 ```
 
 `extract --json` and `extract-all --json`:

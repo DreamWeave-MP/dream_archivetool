@@ -17,6 +17,39 @@ pub struct ArchiveInfo {
     pub format: ArchiveFormat,
     /// Number of file entries in the archive.
     pub file_count: usize,
+    /// Number of entries with recoverable path names.
+    pub named_entry_count: usize,
+    /// Whether any entries do not have recoverable path names.
+    pub has_unnameable_entries: bool,
+    /// Whether this tool can rewrite the archive without known lossy behavior.
+    pub rewritable: bool,
+    /// Explanation when `rewritable` is false.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rewrite_blocker: Option<String>,
+    /// TES4-family metadata when `format` is [`ArchiveFormat::Tes4`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tes4: Option<Tes4Info>,
+    /// BA2 metadata when `format` is [`ArchiveFormat::Fo4`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fo4: Option<Fo4Info>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// TES4-family archive metadata that affects rewrite behavior.
+pub struct Tes4Info {
+    pub version: String,
+    pub archive_types: String,
+    pub archive_flags: Vec<String>,
+    pub name_mode: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// BA2 archive metadata that affects rewrite behavior.
+pub struct Fo4Info {
+    pub version: String,
+    pub payload_format: String,
+    pub compression_format: String,
+    pub strings: bool,
 }
 
 /// Opened archive handle for batch inspection and extraction without reopening the file.
@@ -39,11 +72,7 @@ impl OpenArchive {
     /// Return archive format plus file-count metadata.
     #[must_use]
     pub fn info(&self) -> ArchiveInfo {
-        ArchiveInfo {
-            path: self.path.clone(),
-            format: self.format(),
-            file_count: self.file_count(),
-        }
+        archive_info(&self.path, &self.archive)
     }
 
     /// Return the detected archive family.
@@ -84,6 +113,120 @@ impl OpenArchive {
     }
 }
 
+fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveInfo {
+    let rewrite_blocker = rewrite_blocker(archive);
+    ArchiveInfo {
+        path: path.to_string(),
+        format: archive.format(),
+        file_count: archive.file_count(),
+        named_entry_count: archive.named_entry_count(),
+        has_unnameable_entries: archive.has_unnameable_entries(),
+        rewritable: rewrite_blocker.is_none(),
+        rewrite_blocker,
+        tes4: tes4_info(archive),
+        fo4: fo4_info(archive),
+    }
+}
+
+fn rewrite_blocker(archive: &crate::loaded::LoadedArchive) -> Option<String> {
+    if archive.has_unnameable_entries() {
+        return Some(
+            "archive contains entries without recoverable paths; refusing to rewrite it lossy"
+                .to_string(),
+        );
+    }
+    match archive {
+        crate::loaded::LoadedArchive::Tes4(archive)
+            if !tes4_has_recoverable_path_storage(archive.info().archive_flags) =>
+        {
+            Some(
+                "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy"
+                    .to_string(),
+            )
+        }
+        crate::loaded::LoadedArchive::Fo4(archive)
+            if archive.info().format == dream_archive::ba2::PayloadFormat::GNMF =>
+        {
+            Some(
+                "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive"
+                    .to_string(),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn tes4_info(archive: &crate::loaded::LoadedArchive) -> Option<Tes4Info> {
+    let crate::loaded::LoadedArchive::Tes4(archive) = archive else {
+        return None;
+    };
+    let info = archive.info();
+    let flags = info.archive_flags;
+    let directory_strings =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
+    let file_strings = flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
+    let embedded_file_names =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
+    Some(Tes4Info {
+        version: format!("{:?}", info.version),
+        archive_types: format!("{:?}", info.archive_types),
+        archive_flags: tes4_archive_flags(flags),
+        name_mode: tes4_name_mode(directory_strings, file_strings, embedded_file_names).to_string(),
+    })
+}
+
+fn tes4_archive_flags(flags: dream_archive::bsa::tes4::ArchiveFlags) -> Vec<String> {
+    let mut names = Vec::new();
+    if flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS) {
+        names.push("directory-strings".to_string());
+    }
+    if flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS) {
+        names.push("file-strings".to_string());
+    }
+    if flags.contains(dream_archive::bsa::tes4::ArchiveFlags::COMPRESSED) {
+        names.push("compressed".to_string());
+    }
+    if flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES) {
+        names.push("embedded-file-names".to_string());
+    }
+    names
+}
+
+fn tes4_name_mode(
+    directory_strings: bool,
+    file_strings: bool,
+    embedded_file_names: bool,
+) -> &'static str {
+    match (directory_strings && file_strings, embedded_file_names) {
+        (true, true) => "strings-and-embedded",
+        (true, false) => "strings",
+        (false, true) => "embedded",
+        (false, false) => "hash-only",
+    }
+}
+
+fn tes4_has_recoverable_path_storage(flags: dream_archive::bsa::tes4::ArchiveFlags) -> bool {
+    let has_directory_strings =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
+    let has_file_strings = flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
+    let has_embedded_names =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
+    (has_directory_strings && has_file_strings) || has_embedded_names
+}
+
+fn fo4_info(archive: &crate::loaded::LoadedArchive) -> Option<Fo4Info> {
+    let crate::loaded::LoadedArchive::Fo4(archive) = archive else {
+        return None;
+    };
+    let info = archive.info();
+    Some(Fo4Info {
+        version: format!("{:?}", info.version),
+        payload_format: format!("{:?}", info.format).to_ascii_lowercase(),
+        compression_format: format!("{:?}", info.compression_format).to_ascii_lowercase(),
+        strings: info.strings,
+    })
+}
+
 /// Stateless facade for archive inspection, extraction, creation, and update operations.
 ///
 /// This type exists to provide a compact public API shared by the CLI and Lua bindings. Each method
@@ -106,13 +249,7 @@ impl ArchiveTool {
     pub fn info(path: impl AsRef<Path>) -> Result<ArchiveInfo> {
         let path = path.as_ref();
         let archive = crate::loaded::LoadedArchive::open(path)?;
-        let format = archive.format();
-        let file_count = archive.file_count();
-        Ok(ArchiveInfo {
-            path: path.display().to_string(),
-            format,
-            file_count,
-        })
+        Ok(archive_info(&path.display().to_string(), &archive))
     }
 
     /// List all entries in an archive.

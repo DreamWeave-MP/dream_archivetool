@@ -599,6 +599,9 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
         assert_eq!(value["format"], "tes3");
         assert_eq!(value["file_count"], 2);
+        assert_eq!(value["named_entry_count"], 2);
+        assert_eq!(value["has_unnameable_entries"], false);
+        assert_eq!(value["rewritable"], true);
         fs::remove_dir_all(dir).unwrap();
     }
 

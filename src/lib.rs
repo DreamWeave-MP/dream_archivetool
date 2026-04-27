@@ -39,7 +39,7 @@ mod paths;
 #[cfg(feature = "lua")]
 pub mod lua;
 
-pub use archive::{ArchiveInfo, ArchiveTool, OpenArchive};
+pub use archive::{ArchiveInfo, ArchiveTool, Fo4Info, OpenArchive, Tes4Info};
 pub use create::{AddOptions, CreateOptions, Fo4ArchiveKind, Fo4Version, Tes4Version};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
