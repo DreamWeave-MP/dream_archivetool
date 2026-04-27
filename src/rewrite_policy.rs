@@ -23,7 +23,7 @@ pub(crate) fn rewrite_blocker(archive: &LoadedArchive) -> Option<&'static str> {
         {
             Some(TES4_HASH_ONLY_BLOCKER)
         }
-        LoadedArchive::Fo4(archive)
+        LoadedArchive::Ba2(archive)
             if archive.info().format == dream_archive::ba2::PayloadFormat::GNMF =>
         {
             Some(GNMF_BLOCKER)

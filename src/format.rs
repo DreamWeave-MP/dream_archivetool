@@ -15,7 +15,7 @@ pub enum ArchiveFormat {
     /// Oblivion/Fallout 3/Skyrim-era BSA archives.
     Tes4,
     /// Fallout 4/Starfield BA2 archives.
-    Fo4,
+    Ba2,
 }
 
 /// Detect an archive format from its file header.
@@ -37,6 +37,6 @@ pub fn guess_format(path: &Path) -> Result<ArchiveFormat> {
     match format {
         dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES3) => Ok(ArchiveFormat::Tes3),
         dream_archive::FileFormat::BSA(dream_archive::BsaFormat::TES4) => Ok(ArchiveFormat::Tes4),
-        dream_archive::FileFormat::BA2 => Ok(ArchiveFormat::Fo4),
+        dream_archive::FileFormat::BA2 => Ok(ArchiveFormat::Ba2),
     }
 }

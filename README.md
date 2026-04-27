@@ -8,7 +8,7 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 
 - List archive contents in human-readable or JSON form.
 - Extract single files or whole archives safely.
-- Create TES3 BSA, TES4 BSA, and FO4/Starfield BA2 archives.
+- Create TES3 BSA, TES4 BSA, and BA2/Starfield BA2 archives.
 - Add or update archive entries by writing a new archive output.
 - Expose an optional Lua embedding API behind the `lua` feature.
 
@@ -30,7 +30,7 @@ dream-archivetool extract-all archive.bsa --output out/
 # extract/extract-all default to the current directory when --output is omitted
 dream-archivetool create out.bsa input_dir/ --format tes3
 dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
-dream-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
+dream-archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
 dream-archivetool add base.bsa new_file.txt --output updated.bsa
 dream-archivetool add base.bsa new_dir/ --output updated.bsa --dry-run --json
 dream-archivetool --generate-completion bash > dream-archivetool.bash
@@ -177,7 +177,7 @@ local all = tool.extract_all("Morrowind.bsa", {
 })
 
 local created = tool.create("out.ba2", "input", {
-  format = "fo4", -- tes3 | tes4 | fo4
+  format = "ba2", -- tes3 | tes4 | ba2
   ba2_kind = "gnrl", -- gnrl | dx10 | gnmf
   ba2_version = "fallout4", -- fallout4 | starfield | fallout4-next-gen
 })
@@ -190,7 +190,7 @@ local updated = tool.add("out.ba2", {
 
 Lua functions and return values:
 
-- `guess_format(path) -> "tes3" | "tes4" | "fo4"`
+- `guess_format(path) -> "tes3" | "tes4" | "ba2"`
 - `info(path) -> { path, format, file_count }`
 - `list(path) -> { { path, path_bytes_hex, size, compressed_size }, ... }`
 - `read_entry(path, entry) -> string`
@@ -220,13 +220,13 @@ Archive creation and update preflight archive paths and format policy before add
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
-- Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format fo4`.
+- `add` writes a new archive and preserves the source archive's TES4/BA2 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
+- Format-specific `create` options are rejected with other formats: `--tes4-version` only applies to `--format tes4`, while `--ba2-kind` and `--ba2-version` only apply to `--format ba2`.
 - `list --json` includes `path` as a lossy display string and `path_bytes_hex` as the normalized archive path bytes for scripts that must round-trip non-UTF-8 Unix names. Use `extract --entry-hex HEX` to feed those bytes back into the CLI.
-- `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
-- `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
-- `create --format fo4 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
-- FO4/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
+- `create --format ba2 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
+- `create --format ba2 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
+- `create --format ba2 --ba2-kind gnmf` is accepted by argument parsing but rejected before writing. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.
+- BA2/BA2 archives are written with string tables enabled so entries can be listed and extracted by path later.
 - TES4 BSA creation defaults to miscellaneous archive type flags.
 
 ## Development

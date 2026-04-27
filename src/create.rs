@@ -27,10 +27,10 @@ pub struct CreateOptions {
     pub format: ArchiveFormat,
     /// TES4 BSA version used when `format` is [`ArchiveFormat::Tes4`].
     pub tes4_version: Tes4Version,
-    /// FO4/Starfield BA2 kind used when `format` is [`ArchiveFormat::Fo4`].
-    pub fo4_kind: Fo4ArchiveKind,
-    /// FO4/Starfield BA2 version used when `format` is [`ArchiveFormat::Fo4`].
-    pub fo4_version: Fo4Version,
+    /// BA2/Starfield BA2 kind used when `format` is [`ArchiveFormat::Ba2`].
+    pub ba2_kind: Ba2ArchiveKind,
+    /// BA2/Starfield BA2 version used when `format` is [`ArchiveFormat::Ba2`].
+    pub ba2_version: Ba2Version,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
 }
@@ -40,8 +40,8 @@ impl Default for CreateOptions {
         Self {
             format: ArchiveFormat::Tes3,
             tes4_version: Tes4Version::Oblivion,
-            fo4_kind: Fo4ArchiveKind::Gnrl,
-            fo4_version: Fo4Version::Fallout4,
+            ba2_kind: Ba2ArchiveKind::Gnrl,
+            ba2_version: Ba2Version::Fallout4,
             fsync: false,
         }
     }
@@ -72,10 +72,10 @@ pub enum Tes4Version {
     SkyrimSe,
 }
 
-/// Supported FO4-family BA2 archive kinds.
+/// Supported BA2-family BA2 archive kinds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
-pub enum Fo4ArchiveKind {
+pub enum Ba2ArchiveKind {
     /// General-purpose BA2 archive.
     Gnrl,
     /// DirectX texture BA2 archive. Entries must use `.dds` paths.
@@ -84,10 +84,10 @@ pub enum Fo4ArchiveKind {
     Gnmf,
 }
 
-/// Supported FO4-family BA2 versions for archive creation.
+/// Supported BA2-family BA2 versions for archive creation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "kebab-case")]
-pub enum Fo4Version {
+pub enum Ba2Version {
     /// Fallout 4 BA2 version.
     Fallout4,
     /// Starfield BA2 version.
@@ -130,7 +130,7 @@ pub fn plan_create_archive(
 }
 
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
-    if options.format == ArchiveFormat::Fo4 && options.fo4_kind == Fo4ArchiveKind::Gnmf {
+    if options.format == ArchiveFormat::Ba2 && options.ba2_kind == Ba2ArchiveKind::Gnmf {
         return Err(ArchiveError::Archive(
             "creating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
         ));
@@ -300,7 +300,7 @@ fn write_entries_like(
     with_temp_output(output, fsync, |file| match archive {
         crate::loaded::LoadedArchive::Tes3(archive) => write_tes3_like(file, entries, archive),
         crate::loaded::LoadedArchive::Tes4(archive) => write_tes4_like(file, entries, archive),
-        crate::loaded::LoadedArchive::Fo4(archive) => write_fo4_like(file, entries, archive),
+        crate::loaded::LoadedArchive::Ba2(archive) => write_ba2_like(file, entries, archive),
     })?;
     Ok(count)
 }
@@ -337,7 +337,7 @@ fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTre
                 )?;
             }
         }
-        crate::loaded::LoadedArchive::Fo4(archive) => {
+        crate::loaded::LoadedArchive::Ba2(archive) => {
             for entry in archive.entries() {
                 if entry.name().is_empty() {
                     continue;
@@ -378,7 +378,7 @@ fn write_entries_to_file(
     match options.format {
         ArchiveFormat::Tes3 => write_tes3(file, entries),
         ArchiveFormat::Tes4 => write_tes4(file, entries, options.tes4_version),
-        ArchiveFormat::Fo4 => write_fo4(file, entries, options.fo4_kind, options.fo4_version),
+        ArchiveFormat::Ba2 => write_ba2(file, entries, options.ba2_kind, options.ba2_version),
     }
 }
 
@@ -413,8 +413,8 @@ fn preflight_create_paths<'a>(
     paths: impl IntoIterator<Item = &'a Vec<u8>>,
     options: &CreateOptions,
 ) -> Result<()> {
-    if options.format == ArchiveFormat::Fo4 {
-        validate_fo4_paths(paths, options.fo4_kind)?;
+    if options.format == ArchiveFormat::Ba2 {
+        validate_ba2_paths(paths, options.ba2_kind)?;
     }
     Ok(())
 }
@@ -423,29 +423,29 @@ fn preflight_add_paths<'a>(
     paths: impl IntoIterator<Item = &'a Vec<u8>>,
     archive: &crate::loaded::LoadedArchive,
 ) -> Result<()> {
-    if let crate::loaded::LoadedArchive::Fo4(archive) = archive {
-        let kind = fo4_kind_from_payload_format(archive.info().format);
-        if kind == Fo4ArchiveKind::Gnmf {
+    if let crate::loaded::LoadedArchive::Ba2(archive) = archive {
+        let kind = ba2_kind_from_payload_format(archive.info().format);
+        if kind == Ba2ArchiveKind::Gnmf {
             return Err(ArchiveError::Archive(
                 "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
             ));
         }
-        validate_fo4_paths(paths, kind)?;
+        validate_ba2_paths(paths, kind)?;
     }
     Ok(())
 }
 
-fn validate_fo4_paths<'a>(
+fn validate_ba2_paths<'a>(
     paths: impl IntoIterator<Item = &'a Vec<u8>>,
-    kind: Fo4ArchiveKind,
+    kind: Ba2ArchiveKind,
 ) -> Result<()> {
     let (extension, label) = match kind {
-        Fo4ArchiveKind::Gnrl => return Ok(()),
-        Fo4ArchiveKind::Dx10 => (
+        Ba2ArchiveKind::Gnrl => return Ok(()),
+        Ba2ArchiveKind::Dx10 => (
             b"dds".as_slice(),
             "DX10 BA2 archives can only contain .dds files",
         ),
-        Fo4ArchiveKind::Gnmf => (
+        Ba2ArchiveKind::Gnmf => (
             b"gnf".as_slice(),
             "GNMF BA2 archives can only contain .gnf files",
         ),
@@ -589,33 +589,33 @@ fn write_tes4_builder(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_fo4(
+fn write_ba2(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
-    kind: Fo4ArchiveKind,
-    version: Fo4Version,
+    kind: Ba2ArchiveKind,
+    version: Ba2Version,
 ) -> Result<()> {
     let format = match kind {
-        Fo4ArchiveKind::Gnrl => PayloadFormat::GNRL,
-        Fo4ArchiveKind::Dx10 => PayloadFormat::DX10,
-        Fo4ArchiveKind::Gnmf => PayloadFormat::GNMF,
+        Ba2ArchiveKind::Gnrl => PayloadFormat::GNRL,
+        Ba2ArchiveKind::Dx10 => PayloadFormat::DX10,
+        Ba2ArchiveKind::Gnmf => PayloadFormat::GNMF,
     };
     let version = match version {
-        Fo4Version::Fallout4 => Ba2ArchiveVersion::v1,
-        Fo4Version::Starfield => Ba2ArchiveVersion::v2,
-        Fo4Version::Fallout4NextGen => Ba2ArchiveVersion::v8,
+        Ba2Version::Fallout4 => Ba2ArchiveVersion::v1,
+        Ba2Version::Starfield => Ba2ArchiveVersion::v2,
+        Ba2Version::Fallout4NextGen => Ba2ArchiveVersion::v8,
     };
-    write_fo4_with_format(output, entries, format, version)
+    write_ba2_with_format(output, entries, format, version)
 }
 
-fn write_fo4_like(
+fn write_ba2_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
 ) -> Result<()> {
     let info = archive.info();
     if info.format == PayloadFormat::DX10 {
-        return write_dx10_fo4_like(output, entries, archive, info.version);
+        return write_dx10_ba2_like(output, entries, archive, info.version);
     }
     if info.format == PayloadFormat::GNMF {
         return Err(ArchiveError::Archive(
@@ -644,15 +644,15 @@ fn write_fo4_like(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_fo4_with_format(
+fn write_ba2_with_format(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     format: PayloadFormat,
     version: Ba2ArchiveVersion,
 ) -> Result<()> {
-    validate_fo4_paths(entries.keys(), fo4_kind_from_payload_format(format))?;
+    validate_ba2_paths(entries.keys(), ba2_kind_from_payload_format(format))?;
     if format == PayloadFormat::DX10 {
-        return write_dx10_fo4(output, entries, version);
+        return write_dx10_ba2(output, entries, version);
     }
     if format == PayloadFormat::GNMF {
         return Err(ArchiveError::Archive(
@@ -667,7 +667,7 @@ fn write_fo4_with_format(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_dx10_fo4(
+fn write_dx10_ba2(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     version: Ba2ArchiveVersion,
@@ -680,7 +680,7 @@ fn write_dx10_fo4(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_dx10_fo4_like(
+fn write_dx10_ba2_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
@@ -713,11 +713,11 @@ fn archive_error(err: impl std::fmt::Display) -> ArchiveError {
     ArchiveError::Archive(err.to_string())
 }
 
-fn fo4_kind_from_payload_format(format: PayloadFormat) -> Fo4ArchiveKind {
+fn ba2_kind_from_payload_format(format: PayloadFormat) -> Ba2ArchiveKind {
     match format {
-        PayloadFormat::GNRL => Fo4ArchiveKind::Gnrl,
-        PayloadFormat::DX10 => Fo4ArchiveKind::Dx10,
-        PayloadFormat::GNMF => Fo4ArchiveKind::Gnmf,
+        PayloadFormat::GNRL => Ba2ArchiveKind::Gnrl,
+        PayloadFormat::DX10 => Ba2ArchiveKind::Dx10,
+        PayloadFormat::GNMF => Ba2ArchiveKind::Gnmf,
     }
 }
 
@@ -795,8 +795,8 @@ mod tests {
     }
 
     #[test]
-    fn creates_fo4_gnrl_archive() {
-        let dir = unique_dir("create-fo4");
+    fn creates_ba2_gnrl_archive() {
+        let dir = unique_dir("create-ba2");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
         write_input_tree(&input);
@@ -806,7 +806,7 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
+                format: ArchiveFormat::Ba2,
                 ..Default::default()
             },
         )
@@ -832,8 +832,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_kind: Fo4ArchiveKind::Dx10,
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Dx10,
                 ..Default::default()
             },
         )
@@ -856,8 +856,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_kind: Fo4ArchiveKind::Dx10,
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Dx10,
                 ..Default::default()
             },
         )
@@ -880,8 +880,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_kind: Fo4ArchiveKind::Gnmf,
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Gnmf,
                 ..Default::default()
             },
         )
@@ -904,8 +904,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_kind: Fo4ArchiveKind::Gnmf,
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Gnmf,
                 ..Default::default()
             },
         )
@@ -916,8 +916,8 @@ mod tests {
     }
 
     #[test]
-    fn create_fo4_can_write_starfield_version() {
-        let dir = unique_dir("create-fo4-starfield");
+    fn create_ba2_can_write_starfield_version() {
+        let dir = unique_dir("create-ba2-starfield");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
         fs::write(input.join("base.txt"), b"base").unwrap();
@@ -927,8 +927,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_version: Fo4Version::Starfield,
+                format: ArchiveFormat::Ba2,
+                ba2_version: Ba2Version::Starfield,
                 ..Default::default()
             },
         )
@@ -940,8 +940,8 @@ mod tests {
     }
 
     #[test]
-    fn create_fo4_can_write_next_gen_version() {
-        let dir = unique_dir("create-fo4-next-gen");
+    fn create_ba2_can_write_next_gen_version() {
+        let dir = unique_dir("create-ba2-next-gen");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
         fs::write(input.join("base.txt"), b"base").unwrap();
@@ -951,8 +951,8 @@ mod tests {
             &archive,
             &input,
             &CreateOptions {
-                format: ArchiveFormat::Fo4,
-                fo4_version: Fo4Version::Fallout4NextGen,
+                format: ArchiveFormat::Ba2,
+                ba2_version: Ba2Version::Fallout4NextGen,
                 ..Default::default()
             },
         )

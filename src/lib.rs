@@ -43,10 +43,10 @@ pub mod verify;
 #[cfg(feature = "lua")]
 pub mod lua;
 
-pub use archive::{ArchiveInfo, ArchiveTool, Fo4Info, OpenArchive, Tes4Info};
+pub use archive::{ArchiveInfo, ArchiveTool, Ba2Info, OpenArchive, Tes4Info};
 pub use create::{
-    AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreateOptions,
-    CreatePlan, Fo4ArchiveKind, Fo4Version, Tes4Version,
+    AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, Ba2ArchiveKind,
+    Ba2Version, CreateOptions, CreatePlan, Tes4Version,
 };
 pub use diff::{DiffChange, DiffEntry, DiffEntryState, DiffOptions, DiffReport, diff_archives};
 pub use entry::ArchiveEntry;

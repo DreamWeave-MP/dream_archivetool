@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use mlua::{Error as LuaError, Lua, Result as LuaResult, Table};
 
 use crate::{
-    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
-    Fo4ArchiveKind, Fo4Version, OverwriteMode, Tes4Version,
+    AddOptions, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version, CreateOptions,
+    ExtractAllOptions, ExtractOptions, OverwriteMode, Tes4Version,
 };
 
 /// Create a Lua table that mirrors the public [`ArchiveTool`] API.
@@ -106,7 +106,7 @@ fn format_name(format: ArchiveFormat) -> &'static str {
     match format {
         ArchiveFormat::Tes3 => "tes3",
         ArchiveFormat::Tes4 => "tes4",
-        ArchiveFormat::Fo4 => "fo4",
+        ArchiveFormat::Ba2 => "ba2",
     }
 }
 
@@ -117,8 +117,8 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
     Ok(CreateOptions {
         format: parse_format(opts.get::<Option<String>>("format")?.as_deref())?,
         tes4_version: parse_tes4_version(opts.get::<Option<String>>("tes4_version")?.as_deref())?,
-        fo4_kind: parse_fo4_kind(opts.get::<Option<String>>("ba2_kind")?.as_deref())?,
-        fo4_version: parse_fo4_version(opts.get::<Option<String>>("ba2_version")?.as_deref())?,
+        ba2_kind: parse_ba2_kind(opts.get::<Option<String>>("ba2_kind")?.as_deref())?,
+        ba2_version: parse_ba2_version(opts.get::<Option<String>>("ba2_version")?.as_deref())?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
@@ -163,7 +163,7 @@ fn parse_format(value: Option<&str>) -> LuaResult<ArchiveFormat> {
     match value.unwrap_or("tes3") {
         "tes3" => Ok(ArchiveFormat::Tes3),
         "tes4" => Ok(ArchiveFormat::Tes4),
-        "fo4" => Ok(ArchiveFormat::Fo4),
+        "ba2" => Ok(ArchiveFormat::Ba2),
         value => Err(LuaError::external(format!(
             "unknown archive format: {value}"
         ))),
@@ -180,20 +180,20 @@ fn parse_tes4_version(value: Option<&str>) -> LuaResult<Tes4Version> {
     }
 }
 
-fn parse_fo4_kind(value: Option<&str>) -> LuaResult<Fo4ArchiveKind> {
+fn parse_ba2_kind(value: Option<&str>) -> LuaResult<Ba2ArchiveKind> {
     match value.unwrap_or("gnrl") {
-        "gnrl" => Ok(Fo4ArchiveKind::Gnrl),
-        "dx10" => Ok(Fo4ArchiveKind::Dx10),
-        "gnmf" => Ok(Fo4ArchiveKind::Gnmf),
+        "gnrl" => Ok(Ba2ArchiveKind::Gnrl),
+        "dx10" => Ok(Ba2ArchiveKind::Dx10),
+        "gnmf" => Ok(Ba2ArchiveKind::Gnmf),
         value => Err(LuaError::external(format!("unknown BA2 kind: {value}"))),
     }
 }
 
-fn parse_fo4_version(value: Option<&str>) -> LuaResult<Fo4Version> {
+fn parse_ba2_version(value: Option<&str>) -> LuaResult<Ba2Version> {
     match value.unwrap_or("fallout4") {
-        "fallout4" | "fallout-4" => Ok(Fo4Version::Fallout4),
-        "starfield" => Ok(Fo4Version::Starfield),
-        "fallout4-next-gen" | "fallout-4-next-gen" => Ok(Fo4Version::Fallout4NextGen),
+        "fallout4" | "fallout-4" => Ok(Ba2Version::Fallout4),
+        "starfield" => Ok(Ba2Version::Starfield),
+        "fallout4-next-gen" | "fallout-4-next-gen" => Ok(Ba2Version::Fallout4NextGen),
         value => Err(LuaError::external(format!("unknown BA2 version: {value}"))),
     }
 }
@@ -433,8 +433,8 @@ mod tests {
     }
 
     #[test]
-    fn lua_create_supports_fo4_options() {
-        let dir = unique_dir("create-fo4");
+    fn lua_create_supports_ba2_options() {
+        let dir = unique_dir("create-ba2");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
         fs::write(input.join("base.txt"), b"base").unwrap();
@@ -452,7 +452,7 @@ mod tests {
             .load(
                 r"
                 return dream_archivetool.create(archive_path, input_path, {
-                    format = 'fo4',
+                    format = 'ba2',
                     ba2_kind = 'gnrl',
                     ba2_version = 'starfield',
                 })

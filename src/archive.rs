@@ -30,9 +30,9 @@ pub struct ArchiveInfo {
     /// TES4-family metadata when `format` is [`ArchiveFormat::Tes4`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tes4: Option<Tes4Info>,
-    /// BA2 metadata when `format` is [`ArchiveFormat::Fo4`].
+    /// BA2 metadata when `format` is [`ArchiveFormat::Ba2`].
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fo4: Option<Fo4Info>,
+    pub ba2: Option<Ba2Info>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ pub struct Tes4Info {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// BA2 archive metadata that affects rewrite behavior.
-pub struct Fo4Info {
+pub struct Ba2Info {
     pub version: String,
     pub payload_format: String,
     pub compression_format: String,
@@ -145,7 +145,7 @@ fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveIn
         rewritable: rewrite_blocker.is_none(),
         rewrite_blocker,
         tes4: tes4_info(archive),
-        fo4: fo4_info(archive),
+        ba2: ba2_info(archive),
     }
 }
 
@@ -198,12 +198,12 @@ fn tes4_name_mode(
     }
 }
 
-fn fo4_info(archive: &crate::loaded::LoadedArchive) -> Option<Fo4Info> {
-    let crate::loaded::LoadedArchive::Fo4(archive) = archive else {
+fn ba2_info(archive: &crate::loaded::LoadedArchive) -> Option<Ba2Info> {
+    let crate::loaded::LoadedArchive::Ba2(archive) = archive else {
         return None;
     };
     let info = archive.info();
-    Some(Fo4Info {
+    Some(Ba2Info {
         version: format!("{:?}", info.version),
         payload_format: format!("{:?}", info.format).to_ascii_lowercase(),
         compression_format: format!("{:?}", info.compression_format).to_ascii_lowercase(),

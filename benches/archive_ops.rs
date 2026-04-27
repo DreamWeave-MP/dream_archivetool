@@ -74,7 +74,7 @@ fn prepare_created_fixture(
         .unwrap();
     }
     let archive = dir.join(match format {
-        ArchiveFormat::Fo4 => "fixture.ba2",
+        ArchiveFormat::Ba2 => "fixture.ba2",
         ArchiveFormat::Tes3 | ArchiveFormat::Tes4 => "fixture.bsa",
     });
     ArchiveTool::create(
@@ -185,9 +185,9 @@ fn bench_extract_all(c: &mut Criterion) {
     });
 }
 
-fn bench_tes4_and_fo4(c: &mut Criterion) {
+fn bench_tes4_and_ba2(c: &mut Criterion) {
     let (_tes4_dir, tes4) = prepare_created_fixture("tes4", ArchiveFormat::Tes4, "dds", 256, 512);
-    let (_fo4_dir, fo4) = prepare_created_fixture("fo4", ArchiveFormat::Fo4, "txt", 256, 512);
+    let (_ba2_dir, ba2) = prepare_created_fixture("ba2", ArchiveFormat::Ba2, "txt", 256, 512);
 
     c.bench_function("list_tes4_256_entries", |b| {
         b.iter(|| ArchiveTool::list(&tes4).unwrap());
@@ -215,18 +215,18 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
         );
     });
 
-    c.bench_function("list_fo4_256_entries", |b| {
-        b.iter(|| ArchiveTool::list(&fo4).unwrap());
+    c.bench_function("list_ba2_256_entries", |b| {
+        b.iter(|| ArchiveTool::list(&ba2).unwrap());
     });
-    c.bench_function("read_entry_fo4_last_of_256", |b| {
-        b.iter(|| ArchiveTool::read_entry(&fo4, "data/file-00255.txt").unwrap());
+    c.bench_function("read_entry_ba2_last_of_256", |b| {
+        b.iter(|| ArchiveTool::read_entry(&ba2, "data/file-00255.txt").unwrap());
     });
-    c.bench_function("extract_all_fo4_256x512", |b| {
+    c.bench_function("extract_all_ba2_256x512", |b| {
         b.iter_batched(
-            || unique_dir("extract-fo4-output"),
+            || unique_dir("extract-ba2-output"),
             |output| {
                 let summary = ArchiveTool::extract_all(
-                    &fo4,
+                    &ba2,
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Fail,
@@ -334,7 +334,7 @@ criterion_group!(
     benches,
     bench_list_and_lookup,
     bench_extract_all,
-    bench_tes4_and_fo4,
+    bench_tes4_and_ba2,
     bench_create_and_add
 );
 criterion_main!(benches);

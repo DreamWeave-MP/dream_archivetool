@@ -31,7 +31,7 @@ impl LoadedEntry {
 pub enum LoadedArchive {
     Tes3(dream_archive::bsa::tes3::Archive),
     Tes4(dream_archive::bsa::tes4::Archive),
-    Fo4(dream_archive::ba2::Archive),
+    Ba2(dream_archive::ba2::Archive),
 }
 
 impl LoadedArchive {
@@ -44,7 +44,7 @@ impl LoadedArchive {
         })? {
             Archive::Tes3Bsa(archive) => Ok(Self::Tes3(archive)),
             Archive::Tes4Bsa(archive) => Ok(Self::Tes4(archive)),
-            Archive::BA2(archive) => Ok(Self::Fo4(archive)),
+            Archive::BA2(archive) => Ok(Self::Ba2(archive)),
         }
     }
 
@@ -52,7 +52,7 @@ impl LoadedArchive {
         match self {
             Self::Tes3(archive) => archive.len(),
             Self::Tes4(archive) => archive.len(),
-            Self::Fo4(archive) => archive.len(),
+            Self::Ba2(archive) => archive.len(),
         }
     }
 
@@ -60,7 +60,7 @@ impl LoadedArchive {
         match self {
             Self::Tes3(_) => ArchiveFormat::Tes3,
             Self::Tes4(_) => ArchiveFormat::Tes4,
-            Self::Fo4(_) => ArchiveFormat::Fo4,
+            Self::Ba2(_) => ArchiveFormat::Ba2,
         }
     }
 
@@ -102,7 +102,7 @@ impl LoadedArchive {
                     }))
                 })
                 .collect::<Result<Vec<_>>>()?,
-            Self::Fo4(archive) => archive
+            Self::Ba2(archive) => archive
                 .entries()
                 .iter()
                 .filter(|entry| !entry.name().is_empty())
@@ -139,7 +139,7 @@ impl LoadedArchive {
                 .iter()
                 .filter(|entry| entry.path().is_some())
                 .count(),
-            Self::Fo4(archive) => archive
+            Self::Ba2(archive) => archive
                 .entries()
                 .iter()
                 .filter(|entry| !entry.name().is_empty())
@@ -173,7 +173,7 @@ impl LoadedArchive {
             Self::Tes4(archive) => archive
                 .read_file(entry)
                 .map_err(|err| ArchiveError::Archive(err.to_string()))?,
-            Self::Fo4(archive) => archive
+            Self::Ba2(archive) => archive
                 .read_file(entry)
                 .map_err(|err| ArchiveError::Archive(err.to_string()))?,
         };
@@ -206,7 +206,7 @@ impl LoadedArchive {
             Self::Tes4(archive) => archive
                 .extract_file_required(entry, out)
                 .map_err(|err| map_bsa_error(err, entry))?,
-            Self::Fo4(archive) => archive
+            Self::Ba2(archive) => archive
                 .extract_file_required(entry, out)
                 .map_err(|err| map_ba2_error(err, entry))?,
         };

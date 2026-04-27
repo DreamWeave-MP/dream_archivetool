@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use dream_archivetool::{
-    AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, DiffOptions, ExtractAllOptions,
-    ExtractOptions, Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version, VerifyOptions,
+    AddOptions, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version, CreateOptions, DiffOptions,
+    ExtractAllOptions, ExtractOptions, OverwriteMode, Result, Tes4Version, VerifyOptions,
 };
 
 #[derive(Debug, Parser)]
@@ -142,12 +142,12 @@ enum Command {
         /// TES4 BSA version; only valid with --format tes4
         #[arg(long, value_enum)]
         tes4_version: Option<Tes4Version>,
-        /// FO4 BA2 archive kind; only valid with --format fo4. GNMF update/create is rejected.
+        /// BA2 BA2 archive kind; only valid with --format ba2. GNMF update/create is rejected.
         #[arg(long, value_enum)]
-        ba2_kind: Option<Fo4ArchiveKind>,
-        /// FO4 BA2 version; only valid with --format fo4
+        ba2_kind: Option<Ba2ArchiveKind>,
+        /// BA2 BA2 version; only valid with --format ba2
         #[arg(long, value_enum)]
-        ba2_version: Option<Fo4Version>,
+        ba2_version: Option<Ba2Version>,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
@@ -293,8 +293,8 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
 fn create_options(
     format: ArchiveFormat,
     tes4_version: Option<Tes4Version>,
-    ba2_kind: Option<Fo4ArchiveKind>,
-    ba2_version: Option<Fo4Version>,
+    ba2_kind: Option<Ba2ArchiveKind>,
+    ba2_version: Option<Ba2Version>,
     fsync: bool,
 ) -> Result<CreateOptions> {
     match format {
@@ -318,12 +318,12 @@ fn create_options(
                 ..Default::default()
             })
         }
-        ArchiveFormat::Fo4 => {
+        ArchiveFormat::Ba2 => {
             reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
             Ok(CreateOptions {
                 format,
-                fo4_kind: ba2_kind.unwrap_or(Fo4ArchiveKind::Gnrl),
-                fo4_version: ba2_version.unwrap_or(Fo4Version::Fallout4),
+                ba2_kind: ba2_kind.unwrap_or(Ba2ArchiveKind::Gnrl),
+                ba2_version: ba2_version.unwrap_or(Ba2Version::Fallout4),
                 fsync,
                 ..Default::default()
             })
@@ -602,7 +602,7 @@ fn format_name(format: ArchiveFormat) -> &'static str {
     match format {
         ArchiveFormat::Tes3 => "tes3",
         ArchiveFormat::Tes4 => "tes4",
-        ArchiveFormat::Fo4 => "fo4",
+        ArchiveFormat::Ba2 => "ba2",
     }
 }
 
