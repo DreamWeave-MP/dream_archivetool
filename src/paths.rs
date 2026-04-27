@@ -50,12 +50,19 @@ pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
         );
     }
     let normalized = normalize_archive_path_bytes(bytes);
-    validate_virtual_path_bytes(&normalized)?;
+    validate_archive_path_bytes_for_extraction(&normalized)?;
+    Ok(normalized)
+}
+
+pub(crate) fn normalize_safe_archive_path_bytes(path: impl AsRef<[u8]>) -> Result<Vec<u8>> {
+    validate_archive_path_bytes_for_extraction(path.as_ref())?;
+    let normalized = normalize_archive_path_bytes(path);
+    validate_archive_path_bytes_for_extraction(&normalized)?;
     Ok(normalized)
 }
 
 pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
-    validate_virtual_path_bytes(normalized)?;
+    validate_archive_path_bytes_for_extraction(normalized)?;
     #[cfg(not(unix))]
     ensure_platform_target_path_bytes(normalized)?;
     let mut target = PathBuf::from(root);
@@ -69,7 +76,7 @@ pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
 }
 
 pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
-    validate_virtual_path_bytes(normalized)?;
+    validate_archive_path_bytes_for_extraction(normalized)?;
     #[cfg(not(unix))]
     ensure_platform_target_path_bytes(normalized)?;
     let normalized_path = NormalizedPath::new(normalized);
@@ -107,12 +114,13 @@ fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
     target.push(std::str::from_utf8(component).expect("validated UTF-8 archive path component"));
 }
 
-fn validate_virtual_path_bytes(path: &[u8]) -> Result<()> {
+pub(crate) fn validate_archive_path_bytes_for_extraction(path: &[u8]) -> Result<()> {
     if path.is_empty()
         || path.starts_with(b"/")
+        || path.starts_with(b"\\")
         || path.contains(&b'\0')
         || path
-            .split(|byte| *byte == b'/')
+            .split(|byte| *byte == b'/' || *byte == b'\\')
             .any(|part| part == b".." || part.contains(&b':'))
     {
         return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
@@ -136,7 +144,7 @@ mod tests {
             b"C:/evil.txt",
             b"C:evil.txt",
         ] {
-            assert!(validate_virtual_path_bytes(path).is_err());
+            assert!(validate_archive_path_bytes_for_extraction(path).is_err());
         }
     }
 }

@@ -113,17 +113,17 @@ fn diff_entries(
 ) -> Result<BTreeMap<Vec<u8>, DiffEntryData>> {
     let mut entries = BTreeMap::new();
     for entry in archive.list_loaded_entries()? {
-        let payload_hash = if hash_payloads {
-            Some(payload_hash(archive, &entry.path)?)
-        } else {
-            None
-        };
         if entries.contains_key(&entry.path) {
             return Err(ArchiveError::Archive(format!(
                 "archive contains duplicate normalized path: {}",
                 archive_path_bytes_to_display(&entry.path)
             )));
         }
+        let payload_hash = if hash_payloads {
+            Some(payload_hash(archive, &entry.path)?)
+        } else {
+            None
+        };
         entries.insert(
             entry.path.clone(),
             DiffEntryData {

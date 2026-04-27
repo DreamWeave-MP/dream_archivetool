@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, safe_target_path_normalized,
 };
-use crate::{ArchiveFormat, ArchiveTool, Result};
+use crate::{ArchiveFormat, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 /// Options controlling archive verification.
@@ -42,8 +42,8 @@ pub struct VerifyPathIssue {
 
 /// Verify archive index health and, optionally, payload readability.
 pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyReport> {
-    let info = ArchiveTool::info(path)?;
     let archive = crate::loaded::LoadedArchive::open(path)?;
+    let info = crate::archive::archive_info(&path.display().to_string(), &archive);
     let entries = archive.list_loaded_entries()?;
     let mut seen = BTreeSet::new();
     let mut duplicate_normalized_paths = Vec::new();

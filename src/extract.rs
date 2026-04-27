@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::paths::{
-    flat_target_path_normalized, normalize_archive_path_bytes, safe_target_path_normalized,
-};
+use crate::paths::{flat_target_path_normalized, safe_target_path_normalized};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -151,7 +149,7 @@ pub fn extract_entry_by_path(
 ) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
-    let archive_path = normalize_archive_path_bytes(entry);
+    let archive_path = crate::paths::normalize_safe_archive_path_bytes(entry)?;
     let target = if options.preserve_paths {
         safe_target_path_normalized(&root, &archive_path)?
     } else {

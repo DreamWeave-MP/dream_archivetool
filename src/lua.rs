@@ -148,13 +148,45 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
     let Some(opts) = opts else {
         return Ok(CreateOptions::default());
     };
+    let format = parse_format(opts.get::<Option<String>>("format")?.as_deref())?;
+    let tes4_version = opts.get::<Option<String>>("tes4_version")?;
+    let ba2_kind = opts.get::<Option<String>>("ba2_kind")?;
+    let ba2_version = opts.get::<Option<String>>("ba2_version")?;
+    match format {
+        ArchiveFormat::Tes3 => {
+            reject_irrelevant_create_option("tes4_version", tes4_version.is_some(), format)?;
+            reject_irrelevant_create_option("ba2_kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("ba2_version", ba2_version.is_some(), format)?;
+        }
+        ArchiveFormat::Tes4 => {
+            reject_irrelevant_create_option("ba2_kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("ba2_version", ba2_version.is_some(), format)?;
+        }
+        ArchiveFormat::Ba2 => {
+            reject_irrelevant_create_option("tes4_version", tes4_version.is_some(), format)?;
+        }
+    }
     Ok(CreateOptions {
-        format: parse_format(opts.get::<Option<String>>("format")?.as_deref())?,
-        tes4_version: parse_tes4_version(opts.get::<Option<String>>("tes4_version")?.as_deref())?,
-        ba2_kind: parse_ba2_kind(opts.get::<Option<String>>("ba2_kind")?.as_deref())?,
-        ba2_version: parse_ba2_version(opts.get::<Option<String>>("ba2_version")?.as_deref())?,
+        format,
+        tes4_version: parse_tes4_version(tes4_version.as_deref())?,
+        ba2_kind: parse_ba2_kind(ba2_kind.as_deref())?,
+        ba2_version: parse_ba2_version(ba2_version.as_deref())?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
+}
+
+fn reject_irrelevant_create_option(
+    option: &str,
+    supplied: bool,
+    format: ArchiveFormat,
+) -> LuaResult<()> {
+    if supplied {
+        return Err(LuaError::external(format!(
+            "{option} is not valid with format {}",
+            format_name(format)
+        )));
+    }
+    Ok(())
 }
 
 fn add_options(opts: &Table) -> LuaResult<AddOptions> {
@@ -574,6 +606,14 @@ mod tests {
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("unknown archive format"));
+
+        let err = lua
+            .load(
+                "return dream_archivetool.create('out.bsa', 'input', { format = 'tes3', ba2_kind = 'gnrl' })",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("ba2_kind is not valid"));
 
         let err = lua
             .load("return dream_archivetool.add(archive_path, { inputs = {} })")

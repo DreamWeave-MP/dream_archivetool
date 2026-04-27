@@ -134,7 +134,7 @@ impl OpenArchive {
     }
 }
 
-fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveInfo {
+pub(crate) fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveInfo {
     let rewrite_blocker = crate::rewrite_policy::rewrite_blocker(archive).map(str::to_string);
     ArchiveInfo {
         path: path.to_string(),

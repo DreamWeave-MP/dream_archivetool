@@ -20,12 +20,14 @@
 //! # }
 //! ```
 //!
-//! Extraction rejects absolute paths and parent-directory traversal. Disk extraction streams payloads
-//! into temporary files before replacing the destination. Archive creation and update preflight
-//! paths before handing deferred file/archive-entry sources to `dream_archive` builders.
+//! Extraction rejects absolute paths, parent-directory traversal, NUL bytes, and colon-containing
+//! components. Disk extraction streams payloads into temporary files before replacing the
+//! destination, but it is not an `openat`-style jail against pre-existing symlinks in the output
+//! tree. Archive creation and update preflight paths before handing file/archive-entry sources to
+//! `dream_archive` builders; BA2 DX10 preserved entries are the known buffering exception.
 //!
-//! Enable the `lua` feature to register a `dream_archivetool` table that mirrors the public
-//! [`ArchiveTool`] API for embedded Lua callers.
+//! Enable the `lua` feature to register a `dream_archivetool` table with common archive operations
+//! for embedded Lua callers.
 
 pub mod archive;
 mod archive_plan;

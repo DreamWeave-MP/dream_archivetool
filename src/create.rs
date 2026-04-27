@@ -81,7 +81,8 @@ pub enum Ba2ArchiveKind {
     Gnrl,
     /// DirectX texture BA2 archive. Entries must use `.dds` paths.
     Dx10,
-    /// GNMF model BA2 archive. Entries must use `.gnf` paths.
+    /// Recognized GNMF model BA2 archive kind. Writing is rejected until console texture swizzle
+    /// semantics are supported.
     Gnmf,
 }
 
