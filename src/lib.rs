@@ -36,6 +36,7 @@ pub mod extract;
 pub mod format;
 mod loaded;
 mod paths;
+mod rewrite_policy;
 pub mod verify;
 
 #[cfg(feature = "lua")]

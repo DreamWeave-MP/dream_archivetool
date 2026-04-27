@@ -190,7 +190,7 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     }
     reject_same_archive_output(archive_path, &options.output)?;
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
-    reject_unrewritable_archive(&archive)?;
+    crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
         for (path, source) in collect_input_entry_paths(input)? {
@@ -208,7 +208,7 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     }
     reject_same_archive_output(archive_path, &options.output)?;
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
-    reject_unrewritable_archive(&archive)?;
+    crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
     for input in &options.inputs {
         for (path, source) in collect_input_entry_paths(input)? {
@@ -272,39 +272,6 @@ fn comparable_path(path: &Path) -> Result<PathBuf> {
     Ok(path
         .file_name()
         .map_or(parent.clone(), |name| parent.join(name)))
-}
-
-fn reject_unrewritable_archive(archive: &crate::loaded::LoadedArchive) -> Result<()> {
-    if archive.has_unnameable_entries() {
-        return Err(ArchiveError::Archive(
-            "archive contains entries without recoverable paths; refusing to rewrite it lossy"
-                .to_string(),
-        ));
-    }
-    if let crate::loaded::LoadedArchive::Tes4(archive) = archive
-        && !tes4_has_recoverable_path_storage(archive.info().archive_flags)
-    {
-        return Err(ArchiveError::Archive(
-            "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy".to_string(),
-        ));
-    }
-    if let crate::loaded::LoadedArchive::Fo4(archive) = archive
-        && archive.info().format == PayloadFormat::GNMF
-    {
-        return Err(ArchiveError::Archive(
-            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
-        ));
-    }
-    Ok(())
-}
-
-fn tes4_has_recoverable_path_storage(flags: dream_archive::bsa::tes4::ArchiveFlags) -> bool {
-    let has_directory_strings =
-        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
-    let has_file_strings = flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
-    let has_embedded_names =
-        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
-    (has_directory_strings && has_file_strings) || has_embedded_names
 }
 
 fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>, PathBuf>> {

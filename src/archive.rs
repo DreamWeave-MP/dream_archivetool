@@ -115,7 +115,7 @@ impl OpenArchive {
 }
 
 fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveInfo {
-    let rewrite_blocker = rewrite_blocker(archive);
+    let rewrite_blocker = crate::rewrite_policy::rewrite_blocker(archive).map(str::to_string);
     ArchiveInfo {
         path: path.to_string(),
         format: archive.format(),
@@ -126,34 +126,6 @@ fn archive_info(path: &str, archive: &crate::loaded::LoadedArchive) -> ArchiveIn
         rewrite_blocker,
         tes4: tes4_info(archive),
         fo4: fo4_info(archive),
-    }
-}
-
-fn rewrite_blocker(archive: &crate::loaded::LoadedArchive) -> Option<String> {
-    if archive.has_unnameable_entries() {
-        return Some(
-            "archive contains entries without recoverable paths; refusing to rewrite it lossy"
-                .to_string(),
-        );
-    }
-    match archive {
-        crate::loaded::LoadedArchive::Tes4(archive)
-            if !tes4_has_recoverable_path_storage(archive.info().archive_flags) =>
-        {
-            Some(
-                "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy"
-                    .to_string(),
-            )
-        }
-        crate::loaded::LoadedArchive::Fo4(archive)
-            if archive.info().format == dream_archive::ba2::PayloadFormat::GNMF =>
-        {
-            Some(
-                "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive"
-                    .to_string(),
-            )
-        }
-        _ => None,
     }
 }
 
@@ -204,15 +176,6 @@ fn tes4_name_mode(
         (false, true) => "embedded",
         (false, false) => "hash-only",
     }
-}
-
-fn tes4_has_recoverable_path_storage(flags: dream_archive::bsa::tes4::ArchiveFlags) -> bool {
-    let has_directory_strings =
-        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
-    let has_file_strings = flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
-    let has_embedded_names =
-        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
-    (has_directory_strings && has_file_strings) || has_embedded_names
 }
 
 fn fo4_info(archive: &crate::loaded::LoadedArchive) -> Option<Fo4Info> {
