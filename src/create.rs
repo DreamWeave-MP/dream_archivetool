@@ -7,17 +7,19 @@ use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
 use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
 use dream_path::ByteSlice as _;
 use serde::{Deserialize, Serialize};
-use tempfile::NamedTempFile;
-use walkdir::WalkDir;
+
+mod input;
+mod temp_output;
 
 use crate::ArchiveFormat;
 pub use crate::archive_plan::{
     AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreatePlan,
 };
-use crate::paths::{
-    archive_path_bytes_to_display, archive_path_bytes_to_hex, path_to_archive_bytes,
-};
+use crate::paths::{archive_path_bytes_to_display, archive_path_bytes_to_hex};
 use crate::{ArchiveError, Result};
+
+use input::{collect_input_entry_paths, insert_input_path};
+use temp_output::with_temp_output;
 
 #[derive(Debug, Clone)]
 /// Options controlling archive creation.
@@ -231,52 +233,6 @@ fn comparable_path(path: &Path) -> Result<PathBuf> {
         .map_or(parent.clone(), |name| parent.join(name)))
 }
 
-fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>, PathBuf>> {
-    let mut entries = BTreeMap::new();
-    if input.is_file() {
-        let name = input
-            .file_name()
-            .ok_or_else(|| ArchiveError::UnsafePath(input.display().to_string()))?;
-        insert_input_path(
-            &mut entries,
-            &path_to_archive_bytes(Path::new(name))?,
-            input.to_path_buf(),
-        )?;
-        return Ok(entries);
-    }
-
-    for item in WalkDir::new(input) {
-        let item = item.map_err(|err| ArchiveError::Archive(err.to_string()))?;
-        let path = item.path();
-        if !path.is_file() {
-            continue;
-        }
-        let relative = path
-            .strip_prefix(input)
-            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-        insert_input_path(
-            &mut entries,
-            &path_to_archive_bytes(relative)?,
-            path.to_path_buf(),
-        )?;
-    }
-    Ok(entries)
-}
-
-fn insert_input_path(
-    entries: &mut BTreeMap<Vec<u8>, PathBuf>,
-    path: &[u8],
-    source: PathBuf,
-) -> Result<()> {
-    if entries.insert(path.to_vec(), source).is_some() {
-        return Err(ArchiveError::Archive(format!(
-            "duplicate archive path after normalization: {}",
-            archive_path_bytes_to_display(path)
-        )));
-    }
-    Ok(())
-}
-
 fn write_entries(
     output: &Path,
     entries: BTreeMap<Vec<u8>, PathBuf>,
@@ -379,33 +335,6 @@ fn write_entries_to_file(
         ArchiveFormat::Tes4 => write_tes4(file, entries, options.tes4_version),
         ArchiveFormat::Ba2 => write_ba2(file, entries, options.ba2_kind, options.ba2_version),
     }
-}
-
-fn with_temp_output(
-    output: &Path,
-    fsync: bool,
-    write: impl FnOnce(&mut fs::File) -> Result<()>,
-) -> Result<()> {
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
-    let mut temp = NamedTempFile::new_in(parent)?;
-    write(temp.as_file_mut())?;
-    if fsync {
-        temp.as_file_mut().sync_all()?;
-    }
-    temp.persist(output)
-        .map_err(|err| ArchiveError::Io(err.error))?;
-    if fsync {
-        sync_parent_dir(parent)?;
-    }
-    Ok(())
-}
-
-fn sync_parent_dir(parent: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        fs::File::open(parent)?.sync_all()?;
-    }
-    Ok(())
 }
 
 fn preflight_create_paths<'a>(
