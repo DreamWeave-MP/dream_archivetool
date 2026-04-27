@@ -36,6 +36,7 @@ pub mod error;
 pub mod extract;
 pub mod format;
 mod loaded;
+pub mod path;
 mod paths;
 mod rewrite_policy;
 pub mod verify;
@@ -56,4 +57,5 @@ pub use extract::{
     ExtractPlanOperation, ExtractSummary, OverwriteMode,
 };
 pub use format::ArchiveFormat;
+pub use path::{decode_archive_path_hex, encode_archive_path_hex, normalize_archive_path_bytes};
 pub use verify::{VerifyOptions, VerifyPathIssue, VerifyReport, verify_archive};

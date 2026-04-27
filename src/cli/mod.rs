@@ -192,30 +192,16 @@ fn entry_selector(entry: Option<OsString>, entry_hex: Option<String>) -> Result<
 }
 
 fn decode_hex_entry(hex: &str) -> Result<Vec<u8>> {
-    let bytes = hex.as_bytes();
-    if !bytes.len().is_multiple_of(2) {
+    if !hex.len().is_multiple_of(2) {
         return Err(dream_archivetool::ArchiveError::Archive(
             "--entry-hex must contain an even number of hexadecimal digits".to_string(),
         ));
     }
-    let mut decoded = Vec::with_capacity(bytes.len() / 2);
-    for chunk in bytes.chunks_exact(2) {
-        let high = hex_nibble(chunk[0])?;
-        let low = hex_nibble(chunk[1])?;
-        decoded.push((high << 4) | low);
-    }
-    Ok(decoded)
-}
-
-fn hex_nibble(byte: u8) -> Result<u8> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        _ => Err(dream_archivetool::ArchiveError::Archive(
+    dream_archivetool::decode_archive_path_hex(hex).map_err(|_| {
+        dream_archivetool::ArchiveError::Archive(
             "--entry-hex contains a non-hexadecimal digit".to_string(),
-        )),
-    }
+        )
+    })
 }
 
 #[cfg(unix)]
