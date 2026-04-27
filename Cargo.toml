@@ -10,7 +10,7 @@ keywords = ["bethesda", "bsa", "ba2", "archive", "cli"]
 categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
-dream_archive = "0.1.3"
+dream_archive = "0.1.4"
 clap = { version = "4", features = ["derive"], optional = true }
 clap_complete = { version = "4", optional = true }
 clap_mangen = { version = "0.2", optional = true }
