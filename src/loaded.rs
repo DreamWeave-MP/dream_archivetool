@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::Path;
 
 use dream_archive::Archive;
-use dream_path::ByteSlice;
+use dream_archive::ByteSlice;
 
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path,

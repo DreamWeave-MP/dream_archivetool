@@ -305,7 +305,6 @@ dependencies = [
  "clap_complete",
  "clap_mangen",
  "criterion",
- "dream-path",
  "dream_archive",
  "mlua",
  "serde",
@@ -327,9 +326,9 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5213b694d2b11b6325208dba49f0ae94a37de11331e4ff71149ee933a30c7bce"
+checksum = "2a92a79eb58028ad30921937e59b419b6026773c4e8c228559bf73dfcf345987"
 dependencies = [
  "bstr",
  "dream-path",
@@ -337,6 +336,7 @@ dependencies = [
  "flate2",
  "lz4_flex",
  "memmap2",
+ "mlua",
 ]
 
 [[package]]

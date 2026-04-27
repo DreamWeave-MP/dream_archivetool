@@ -10,8 +10,7 @@ keywords = ["bethesda", "bsa", "ba2", "archive", "cli"]
 categories = ["command-line-utilities", "filesystem"]
 
 [dependencies]
-dream_archive = "0.1.1"
-dream-path = "0.1.2"
+dream_archive = "0.1.2"
 clap = { version = "4", features = ["derive"], optional = true }
 clap_complete = { version = "4", optional = true }
 clap_mangen = { version = "0.2", optional = true }
@@ -25,7 +24,7 @@ walkdir = "2"
 [features]
 default = ["cli"]
 cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:serde_json"]
-lua = ["dep:mlua", "dream-path/lua"]
+lua = ["dep:mlua", "dream_archive/lua"]
 standalone-lua = ["lua", "mlua/luajit52", "mlua/vendored"]
 
 [package.metadata.docs.rs]
