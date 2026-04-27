@@ -70,11 +70,14 @@ pub(super) fn insert_input_path(
     path: &[u8],
     source: PathBuf,
 ) -> Result<()> {
-    if entries.insert(path.to_vec(), source).is_some() {
+    if let Some(previous) = entries.get(path) {
         return Err(ArchiveError::Archive(format!(
-            "duplicate archive path after normalization: {}",
-            archive_path_bytes_to_display(path)
+            "duplicate archive path after normalization: {} (first source: {}, duplicate source: {})",
+            archive_path_bytes_to_display(path),
+            previous.display(),
+            source.display()
         )));
     }
+    entries.insert(path.to_vec(), source);
     Ok(())
 }

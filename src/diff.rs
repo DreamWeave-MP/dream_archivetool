@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::btree_map::Entry;
 use std::io::Write;
 use std::path::Path;
 
@@ -59,6 +60,7 @@ pub struct DiffEntryState {
 #[derive(Debug, Clone)]
 struct DiffEntryData {
     path: Vec<u8>,
+    raw_path: Vec<u8>,
     size: Option<u64>,
     compressed_size: Option<u64>,
     payload_fingerprint: Option<String>,
@@ -126,26 +128,32 @@ fn diff_entries(
 ) -> Result<BTreeMap<Vec<u8>, DiffEntryData>> {
     let mut entries = BTreeMap::new();
     for entry in archive.list_loaded_entries()? {
-        if entries.contains_key(&entry.path) {
-            return Err(ArchiveError::Archive(format!(
-                "archive contains duplicate normalized path: {}",
-                archive_path_bytes_to_display(&entry.path)
-            )));
-        }
+        let path = entry.path.clone();
         let payload_fingerprint = if fingerprint_payloads {
             Some(payload_fingerprint(archive, &entry.path)?)
         } else {
             None
         };
-        entries.insert(
-            entry.path.clone(),
-            DiffEntryData {
-                path: entry.path,
-                size: entry.size,
-                compressed_size: entry.compressed_size,
-                payload_fingerprint,
-            },
-        );
+        let data = DiffEntryData {
+            path: entry.path,
+            raw_path: entry.raw_path,
+            size: entry.size,
+            compressed_size: entry.compressed_size,
+            payload_fingerprint,
+        };
+        match entries.entry(path) {
+            Entry::Vacant(slot) => {
+                slot.insert(data);
+            }
+            Entry::Occupied(slot) => {
+                return Err(ArchiveError::Archive(format!(
+                    "archive contains duplicate normalized path: {} (first raw path hex: {}, duplicate raw path hex: {})",
+                    archive_path_bytes_to_display(slot.key()),
+                    archive_path_bytes_to_hex(&slot.get().raw_path),
+                    archive_path_bytes_to_hex(&data.raw_path)
+                )));
+            }
+        }
     }
     Ok(entries)
 }

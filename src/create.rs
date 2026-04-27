@@ -15,7 +15,9 @@ use crate::ArchiveFormat;
 pub use crate::archive_plan::{
     AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreatePlan,
 };
-use crate::paths::{archive_path_bytes_to_display, archive_path_bytes_to_hex};
+use crate::paths::{
+    archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path_bytes,
+};
 use crate::{ArchiveError, Result};
 
 use input::{collect_input_entry_paths, insert_input_path};
@@ -286,22 +288,26 @@ fn count_rewritten_entries(
 }
 
 fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTreeSet<Vec<u8>>> {
-    let mut existing = BTreeSet::new();
+    let mut existing = BTreeMap::new();
     match archive.as_dream_archive() {
         dream_archive::Archive::Tes3Bsa(archive) => {
             for entry in archive.entries() {
+                let raw_path = entry.path().as_bytes();
                 insert_existing_archive_path(
                     &mut existing,
-                    &crate::paths::normalize_archive_path_bytes(entry.path().as_bytes()),
+                    &normalize_archive_path_bytes(raw_path),
+                    raw_path,
                 )?;
             }
         }
         dream_archive::Archive::Tes4Bsa(archive) => {
             for entry in archive.entries() {
                 let Some(path) = entry.path() else { continue };
+                let raw_path = path.as_bytes();
                 insert_existing_archive_path(
                     &mut existing,
-                    &crate::paths::normalize_archive_path_bytes(path.as_bytes()),
+                    &normalize_archive_path_bytes(raw_path),
+                    raw_path,
                 )?;
             }
         }
@@ -310,14 +316,16 @@ fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTre
                 if entry.name().is_empty() {
                     continue;
                 }
+                let raw_path = entry.name().as_bytes();
                 insert_existing_archive_path(
                     &mut existing,
-                    &crate::paths::normalize_archive_path_bytes(entry.name().as_bytes()),
+                    &normalize_archive_path_bytes(raw_path),
+                    raw_path,
                 )?;
             }
         }
     }
-    Ok(existing)
+    Ok(existing.into_keys().collect())
 }
 
 fn plan_entry(
@@ -405,13 +413,20 @@ fn has_extension(path: &[u8], expected: &[u8]) -> bool {
         .is_some_and(|extension| extension == expected)
 }
 
-fn insert_existing_archive_path(existing: &mut BTreeSet<Vec<u8>>, path: &[u8]) -> Result<()> {
-    if !existing.insert(path.to_vec()) {
+fn insert_existing_archive_path(
+    existing: &mut BTreeMap<Vec<u8>, Vec<u8>>,
+    path: &[u8],
+    raw_path: &[u8],
+) -> Result<()> {
+    if let Some(previous_raw_path) = existing.get(path) {
         return Err(ArchiveError::Archive(format!(
-            "archive contains duplicate normalized path: {}",
-            archive_path_bytes_to_display(path)
+            "archive contains duplicate normalized path: {} (first raw path hex: {}, duplicate raw path hex: {})",
+            archive_path_bytes_to_display(path),
+            archive_path_bytes_to_hex(previous_raw_path),
+            archive_path_bytes_to_hex(raw_path)
         )));
     }
+    existing.insert(path.to_vec(), raw_path.to_vec());
     Ok(())
 }
 
@@ -430,10 +445,11 @@ fn write_tes3_like(
 ) -> Result<()> {
     let mut builder = dream_archive::Tes3BsaBuilder::new();
     let source_archive = Arc::new(archive.clone());
-    let mut existing_keys = BTreeSet::new();
+    let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
-        let key = crate::paths::normalize_archive_path_bytes(entry.path().as_bytes());
-        insert_existing_archive_path(&mut existing_keys, &key)?;
+        let raw_path = entry.path().as_bytes();
+        let key = normalize_archive_path_bytes(raw_path);
+        insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
@@ -498,11 +514,12 @@ fn write_tes4_like(
         },
     );
     let source_archive = Arc::new(archive.clone());
-    let mut existing_keys = BTreeSet::new();
+    let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
         let Some(path) = entry.path() else { continue };
-        let key = crate::paths::normalize_archive_path_bytes(path.as_bytes());
-        insert_existing_archive_path(&mut existing_keys, &key)?;
+        let raw_path = path.as_bytes();
+        let key = normalize_archive_path_bytes(raw_path);
+        insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
@@ -563,13 +580,14 @@ fn write_ba2_like(
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(info.version);
     let source_archive = Arc::new(archive.clone());
-    let mut existing_keys = BTreeSet::new();
+    let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
         if entry.name().is_empty() {
             continue;
         }
-        let key = crate::paths::normalize_archive_path_bytes(entry.name().as_bytes());
-        insert_existing_archive_path(&mut existing_keys, &key)?;
+        let raw_path = entry.name().as_bytes();
+        let key = normalize_archive_path_bytes(raw_path);
+        insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             builder
                 .add_archive_entry(&key, Arc::clone(&source_archive), id)
@@ -622,13 +640,14 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
 ) -> Result<()> {
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
-    let mut existing_keys = BTreeSet::new();
+    let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
         if entry.name().is_empty() {
             continue;
         }
-        let key = crate::paths::normalize_archive_path_bytes(entry.name().as_bytes());
-        insert_existing_archive_path(&mut existing_keys, &key)?;
+        let raw_path = entry.name().as_bytes();
+        let key = normalize_archive_path_bytes(raw_path);
+        insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             let mut bytes = Vec::new();
             archive

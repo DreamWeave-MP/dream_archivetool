@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
 
@@ -41,6 +41,10 @@ pub struct VerifyReport {
 pub struct VerifyPathIssue {
     pub path: String,
     pub path_bytes_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_path_bytes_hex: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub colliding_raw_path_bytes_hex: Option<String>,
 }
 
 /// Verify archive index health and, optionally, payload readability.
@@ -48,13 +52,19 @@ pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyRepo
     let archive = crate::loaded::LoadedArchive::open(path)?;
     let info = crate::archive::archive_info(&path.display().to_string(), &archive);
     let entries = archive.list_loaded_entries()?;
-    let mut seen = BTreeSet::new();
+    let mut seen: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
     let mut duplicate_normalized_paths = Vec::new();
     let mut unsafe_paths = Vec::new();
 
     for entry in &entries {
-        if !seen.insert(entry.path.clone()) {
-            duplicate_normalized_paths.push(path_issue(&entry.path));
+        if let Some(previous_raw_path) = seen.get(&entry.path) {
+            duplicate_normalized_paths.push(duplicate_path_issue(
+                &entry.path,
+                previous_raw_path,
+                &entry.raw_path,
+            ));
+        } else {
+            seen.insert(entry.path.clone(), entry.raw_path.clone());
         }
         if crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path).is_err()
             || safe_target_path_normalized(Path::new("."), &entry.path).is_err()
@@ -116,5 +126,20 @@ fn path_issue(path: &[u8]) -> VerifyPathIssue {
     VerifyPathIssue {
         path: archive_path_bytes_to_display(path),
         path_bytes_hex: archive_path_bytes_to_hex(path),
+        raw_path_bytes_hex: None,
+        colliding_raw_path_bytes_hex: None,
+    }
+}
+
+fn duplicate_path_issue(
+    path: &[u8],
+    first_raw_path: &[u8],
+    duplicate_raw_path: &[u8],
+) -> VerifyPathIssue {
+    VerifyPathIssue {
+        path: archive_path_bytes_to_display(path),
+        path_bytes_hex: archive_path_bytes_to_hex(path),
+        raw_path_bytes_hex: Some(archive_path_bytes_to_hex(first_raw_path)),
+        colliding_raw_path_bytes_hex: Some(archive_path_bytes_to_hex(duplicate_raw_path)),
     }
 }
