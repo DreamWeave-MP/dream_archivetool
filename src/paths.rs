@@ -45,17 +45,9 @@ pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
     Ok(normalized)
 }
 
-pub(crate) fn safe_target_path_bytes(root: &Path, archive_path: &[u8]) -> Result<PathBuf> {
-    if archive_path.starts_with(b"/") || archive_path.starts_with(b"\\") {
-        return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
-            archive_path,
-        )));
-    }
-    let normalized = normalize_archive_path_bytes(archive_path);
-    validate_virtual_path_bytes(&normalized)?;
-    #[cfg(not(unix))]
-    std::str::from_utf8(&normalized)
-        .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(&normalized)))?;
+pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
+    validate_virtual_path_bytes(normalized)?;
+    ensure_platform_target_path_bytes(normalized);
     let mut target = PathBuf::from(root);
     for component in normalized.split(|byte| *byte == b'/') {
         if component == b"." {
@@ -66,19 +58,29 @@ pub(crate) fn safe_target_path_bytes(root: &Path, archive_path: &[u8]) -> Result
     Ok(target)
 }
 
-pub(crate) fn flat_target_path_bytes(root: &Path, archive_path: &[u8]) -> Result<PathBuf> {
-    let normalized = normalize_archive_path_bytes(archive_path);
-    validate_virtual_path_bytes(&normalized)?;
-    #[cfg(not(unix))]
-    std::str::from_utf8(&normalized)
-        .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(&normalized)))?;
-    let normalized_path = NormalizedPath::new(&normalized);
+pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
+    validate_virtual_path_bytes(normalized)?;
+    ensure_platform_target_path_bytes(normalized);
+    let normalized_path = NormalizedPath::new(normalized);
     let file_name = normalized_path
         .file_name()
-        .ok_or_else(|| ArchiveError::UnsafePath(archive_path_bytes_to_display(archive_path)))?;
+        .ok_or_else(|| ArchiveError::UnsafePath(archive_path_bytes_to_display(normalized)))?;
     let mut target = PathBuf::from(root);
     push_component_bytes(&mut target, file_name.as_bytes());
     Ok(target)
+}
+
+#[cfg(not(unix))]
+fn ensure_platform_target_path_bytes(path: &[u8]) {
+    assert!(
+        std::str::from_utf8(path).is_ok(),
+        "validated UTF-8 archive path"
+    );
+}
+
+#[cfg(unix)]
+fn ensure_platform_target_path_bytes(path: &[u8]) {
+    let _ = path;
 }
 
 fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {

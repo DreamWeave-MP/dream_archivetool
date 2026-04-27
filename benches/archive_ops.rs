@@ -1,4 +1,5 @@
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -101,6 +102,38 @@ fn bench_list_and_lookup(c: &mut Criterion) {
 
     c.bench_function("read_entry_tes3_missing_1000", |b| {
         b.iter(|| ArchiveTool::read_entry(&archive, "textures/missing.dds").unwrap_err());
+    });
+
+    c.bench_function("extract_entry_stdout_tes3_last_of_1000", |b| {
+        b.iter(|| {
+            let mut sink = io::sink();
+            ArchiveTool::extract_entry_to_writer(&archive, "textures/file-00999.dds", &mut sink)
+                .unwrap()
+        });
+    });
+
+    c.bench_function("extract_entry_disk_tes3_last_of_1000", |b| {
+        b.iter_batched(
+            || {
+                let dir = unique_dir("extract-one-output");
+                fs::create_dir_all(&dir).unwrap();
+                dir
+            },
+            |output| {
+                let summary = ArchiveTool::extract(
+                    &archive,
+                    "TEXTURES//FILE-00999.DDS",
+                    &dream_archivetool::ExtractOptions {
+                        output: Some(output.clone()),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+                fs::remove_dir_all(output).unwrap();
+                summary
+            },
+            BatchSize::SmallInput,
+        );
     });
 }
 
@@ -251,6 +284,39 @@ fn bench_create_and_add(c: &mut Criterion) {
                     &archive,
                     &AddOptions {
                         inputs: vec![replacement.clone()],
+                        output: output.clone(),
+                        fsync: false,
+                    },
+                )
+                .unwrap();
+                fs::remove_dir_all(output.parent().unwrap()).unwrap();
+                count
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    let (_large_dir, large_archive) = prepare_fixture("add-base-large", 10_000, 64);
+    let large_replacement = unique_dir("add-large-replacement");
+    fs::create_dir_all(large_replacement.join("textures")).unwrap();
+    fs::write(
+        large_replacement.join("textures/file-09999.dds"),
+        make_payload(42, 64),
+    )
+    .unwrap();
+
+    c.bench_function("add_replace_one_tes3_10000x64", |b| {
+        b.iter_batched(
+            || {
+                let dir = unique_dir("add-large-output");
+                fs::create_dir_all(&dir).unwrap();
+                dir.join("out.bsa")
+            },
+            |output| {
+                let count = ArchiveTool::add(
+                    &large_archive,
+                    &AddOptions {
+                        inputs: vec![large_replacement.clone()],
                         output: output.clone(),
                         fsync: false,
                     },

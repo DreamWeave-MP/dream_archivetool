@@ -11,7 +11,6 @@ use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
 #[derive(Debug, Clone)]
 pub(crate) struct LoadedEntry {
     pub path: Vec<u8>,
-    pub display_path: String,
     pub size: Option<u64>,
     pub compressed_size: Option<u64>,
 }
@@ -19,7 +18,7 @@ pub(crate) struct LoadedEntry {
 impl LoadedEntry {
     fn public_entry(&self) -> ArchiveEntry {
         ArchiveEntry {
-            path: self.display_path.clone(),
+            path: archive_path_bytes_to_display(&self.path),
             size: self.size,
             compressed_size: self.compressed_size,
         }
@@ -73,7 +72,6 @@ impl LoadedArchive {
                 .map(|entry| {
                     let path = normalize_archive_path_bytes(entry.path().as_bytes());
                     Ok(LoadedEntry {
-                        display_path: archive_path_bytes_to_display(&path),
                         path,
                         size: Some(entry.file().size.into()),
                         compressed_size: None,
@@ -88,7 +86,6 @@ impl LoadedArchive {
                     let path = normalize_archive_path_bytes(path.as_bytes());
                     let record = entry.file();
                     Some(Ok(LoadedEntry {
-                        display_path: archive_path_bytes_to_display(&path),
                         path,
                         size: None,
                         compressed_size: record
@@ -117,7 +114,6 @@ impl LoadedArchive {
                         .sum::<u64>();
                     let path = normalize_archive_path_bytes(entry.name().as_bytes());
                     Ok(LoadedEntry {
-                        display_path: archive_path_bytes_to_display(&path),
                         path,
                         size: Some(size),
                         compressed_size: (compressed_size > 0).then_some(compressed_size),
@@ -127,12 +123,24 @@ impl LoadedArchive {
         })
     }
 
-    pub fn named_entry_count(&self) -> Result<usize> {
-        Ok(self.list_entries()?.len())
+    pub fn named_entry_count(&self) -> usize {
+        match self {
+            Self::Tes3(archive) => archive.len(),
+            Self::Tes4(archive) => archive
+                .entries()
+                .iter()
+                .filter(|entry| entry.path().is_some())
+                .count(),
+            Self::Fo4(archive) => archive
+                .entries()
+                .iter()
+                .filter(|entry| !entry.name().is_empty())
+                .count(),
+        }
     }
 
-    pub fn has_unnameable_entries(&self) -> Result<bool> {
-        Ok(self.named_entry_count()? != self.file_count())
+    pub fn has_unnameable_entries(&self) -> bool {
+        self.named_entry_count() != self.file_count()
     }
 
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
@@ -146,18 +154,22 @@ impl LoadedArchive {
 
     pub(crate) fn read_entry_bytes_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
         let entry = normalize_archive_path_bytes(entry);
+        self.read_entry_bytes_by_normalized_path(&entry)
+    }
+
+    pub(crate) fn read_entry_bytes_by_normalized_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
         let bytes = match self {
             Self::Tes3(archive) => archive
-                .read_file(&entry)
+                .read_file(entry)
                 .map_err(|err| ArchiveError::Archive(err.to_string()))?,
             Self::Tes4(archive) => archive
-                .read_file(&entry)
+                .read_file(entry)
                 .map_err(|err| ArchiveError::Archive(err.to_string()))?,
             Self::Fo4(archive) => archive
-                .read_file(&entry)
+                .read_file(entry)
                 .map_err(|err| ArchiveError::Archive(err.to_string()))?,
         };
-        bytes.ok_or_else(|| ArchiveError::EntryNotFound(archive_path_bytes_to_display(&entry)))
+        bytes.ok_or_else(|| ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry)))
     }
 
     pub fn extract_entry_to_writer(&self, entry: &str, out: &mut dyn Write) -> Result<u64> {
@@ -175,16 +187,24 @@ impl LoadedArchive {
         out: &mut dyn Write,
     ) -> Result<u64> {
         let entry = normalize_archive_path_bytes(entry);
+        self.extract_normalized_entry_path_to_writer(&entry, out)
+    }
+
+    pub(crate) fn extract_normalized_entry_path_to_writer(
+        &self,
+        entry: &[u8],
+        out: &mut dyn Write,
+    ) -> Result<u64> {
         let written = match self {
             Self::Tes3(archive) => archive
-                .extract_file_required(&entry, out)
-                .map_err(|err| map_bsa_error(err, &entry))?,
+                .extract_file_required(entry, out)
+                .map_err(|err| map_bsa_error(err, entry))?,
             Self::Tes4(archive) => archive
-                .extract_file_required(&entry, out)
-                .map_err(|err| map_bsa_error(err, &entry))?,
+                .extract_file_required(entry, out)
+                .map_err(|err| map_bsa_error(err, entry))?,
             Self::Fo4(archive) => archive
-                .extract_file_required(&entry, out)
-                .map_err(|err| map_ba2_error(err, &entry))?,
+                .extract_file_required(entry, out)
+                .map_err(|err| map_ba2_error(err, entry))?,
         };
         Ok(written)
     }

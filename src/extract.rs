@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::paths::{flat_target_path_bytes, normalize_archive_path_bytes, safe_target_path_bytes};
+use crate::paths::{
+    flat_target_path_normalized, normalize_archive_path_bytes, safe_target_path_normalized,
+};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -92,22 +94,15 @@ pub fn extract_entry_to_writer(
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive = crate::loaded::LoadedArchive::open(path)?;
-    let archive_path = archive
-        .list_loaded_entries()?
-        .into_iter()
-        .find(|candidate| candidate.path == normalize_archive_path_bytes(entry.as_bytes()))
-        .map_or_else(
-            || normalize_archive_path_bytes(entry.as_bytes()),
-            |entry| entry.path,
-        );
+    let archive_path = normalize_archive_path_bytes(entry.as_bytes());
     let target = if options.preserve_paths {
-        safe_target_path_bytes(&root, &archive_path)?
+        safe_target_path_normalized(&root, &archive_path)?
     } else {
-        flat_target_path_bytes(&root, &archive_path)?
+        flat_target_path_normalized(&root, &archive_path)?
     };
     write_target_with(&target, options.overwrite, options.fsync, |output| {
         archive
-            .extract_entry_path_to_writer(&archive_path, output)
+            .extract_normalized_entry_path_to_writer(&archive_path, output)
             .map(|_| ())
     })
 }
@@ -122,18 +117,18 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    if archive.has_unnameable_entries()? {
+    let entries = archive.list_loaded_entries()?;
+    if entries.len() != archive.file_count() {
         return Err(ArchiveError::Archive(
             "archive contains entries without recoverable paths; refusing to extract it lossy"
                 .to_string(),
         ));
     }
-    let targets =
-        planned_extract_targets(&root, archive.list_loaded_entries()?, options.overwrite)?;
+    let targets = planned_extract_targets(&root, entries, options.overwrite)?;
     for target in targets {
         let result = write_target_with(&target.path, options.overwrite, options.fsync, |output| {
             archive
-                .extract_entry_path_to_writer(&target.archive_path, output)
+                .extract_normalized_entry_path_to_writer(&target.archive_path, output)
                 .map(|_| ())
         })?;
         summary.extracted += result.extracted;
@@ -156,7 +151,7 @@ fn planned_extract_targets(
     let mut targets = Vec::with_capacity(entries.len());
     let mut seen = BTreeSet::new();
     for entry in entries {
-        let path = safe_target_path_bytes(root, &entry.path)?;
+        let path = safe_target_path_normalized(root, &entry.path)?;
         if !seen.insert(path.clone()) {
             return Err(ArchiveError::Archive(format!(
                 "duplicate extraction target after normalization: {}",
@@ -360,22 +355,25 @@ mod tests {
 
     #[test]
     fn rejects_traversal_paths() {
-        let err = safe_target_path_bytes(Path::new("out"), b"../evil.txt").unwrap_err();
+        let err = safe_target_path_normalized(Path::new("out"), b"../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path_bytes(Path::new("out"), b"/evil.txt").unwrap_err();
+        let err = safe_target_path_normalized(Path::new("out"), b"/evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path_bytes(Path::new("out"), b"textures/../../evil.txt").unwrap_err();
+        let err =
+            safe_target_path_normalized(Path::new("out"), b"textures/../../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
 
-        let err = safe_target_path_bytes(Path::new("out"), br"textures\..\evil.txt").unwrap_err();
+        let err =
+            safe_target_path_normalized(Path::new("out"), br"textures/../evil.txt").unwrap_err();
         assert!(matches!(err, ArchiveError::UnsafePath(_)));
     }
 
     #[test]
     fn accepts_current_directory_components() {
-        let path = safe_target_path_bytes(Path::new("out"), b"./textures/./example.dds").unwrap();
+        let path =
+            safe_target_path_normalized(Path::new("out"), b"./textures/./example.dds").unwrap();
         assert_eq!(path, Path::new("out").join("textures/example.dds"));
     }
 
@@ -571,13 +569,11 @@ mod tests {
         let entries = vec![
             crate::loaded::LoadedEntry {
                 path: b"textures/example.dds".to_vec(),
-                display_path: "textures/example.dds".to_string(),
                 size: None,
                 compressed_size: None,
             },
             crate::loaded::LoadedEntry {
                 path: b"textures/example.dds".to_vec(),
-                display_path: "textures/EXAMPLE.DDS".to_string(),
                 size: None,
                 compressed_size: None,
             },

@@ -131,7 +131,6 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     }
     preflight_add_paths(input_entries.keys(), &archive)?;
     let mut entries = read_input_entries(input_entries)?;
-    let input_keys = entries.keys().cloned().collect::<BTreeSet<_>>();
     let mut existing_keys = BTreeSet::new();
     for entry in archive.list_loaded_entries()? {
         let key = normalize_archive_path_bytes(&entry.path);
@@ -141,12 +140,12 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
                 archive_path_bytes_to_display(&key)
             )));
         }
-        if input_keys.contains(&key) {
+        if entries.contains_key(&key) {
             continue;
         }
         match entries.entry(key) {
             Entry::Vacant(entry_slot) => {
-                entry_slot.insert(archive.read_entry_bytes_by_path(&entry.path)?);
+                entry_slot.insert(archive.read_entry_bytes_by_normalized_path(&entry.path)?);
             }
             Entry::Occupied(_) => unreachable!("input keys were handled before archive insertion"),
         }
@@ -177,7 +176,7 @@ fn comparable_path(path: &Path) -> Result<PathBuf> {
 }
 
 fn reject_unrewritable_archive(archive: &crate::loaded::LoadedArchive) -> Result<()> {
-    if archive.has_unnameable_entries()? {
+    if archive.has_unnameable_entries() {
         return Err(ArchiveError::Archive(
             "archive contains entries without recoverable paths; refusing to rewrite it lossy"
                 .to_string(),
