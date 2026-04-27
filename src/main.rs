@@ -8,7 +8,7 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use dream_archivetool::{
     AddOptions, ArchiveFormat, ArchiveTool, CreateOptions, ExtractAllOptions, ExtractOptions,
-    Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version,
+    Fo4ArchiveKind, Fo4Version, OverwriteMode, Result, Tes4Version, VerifyOptions,
 };
 
 #[derive(Debug, Parser)]
@@ -46,6 +46,17 @@ enum Command {
         #[arg(short, long, conflicts_with = "json")]
         long: bool,
         /// Write JSON to stdout
+        #[arg(long)]
+        json: bool,
+    },
+    /// Verify archive structure and optional payload readability
+    Verify {
+        /// Archive path
+        archive: PathBuf,
+        /// Stream every named payload to a sink
+        #[arg(long)]
+        read_payloads: bool,
+        /// Write JSON report to stdout
         #[arg(long)]
         json: bool,
     },
@@ -184,6 +195,11 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             long,
             json,
         } => write_list(stdout, archive, long, json),
+        Command::Verify {
+            archive,
+            read_payloads,
+            json,
+        } => write_verify(stdout, archive, read_payloads, json),
         Command::Extract {
             archive,
             entry,
@@ -384,6 +400,36 @@ fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) 
         } else {
             writeln!(stdout, "{}", entry.path)?;
         }
+    }
+    Ok(())
+}
+
+fn write_verify(
+    stdout: &mut dyn Write,
+    archive: PathBuf,
+    read_payloads: bool,
+    json: bool,
+) -> Result<()> {
+    let report = ArchiveTool::verify(archive, &VerifyOptions { read_payloads })?;
+    if json {
+        serde_json::to_writer_pretty(&mut *stdout, &report)
+            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+        writeln!(stdout)?;
+        return Ok(());
+    }
+    writeln!(stdout, "format: {}", format_name(report.format))?;
+    writeln!(stdout, "files: {}", report.file_count)?;
+    writeln!(stdout, "named: {}", report.named_entry_count)?;
+    writeln!(stdout, "unnameable: {}", report.unnameable_entries)?;
+    writeln!(stdout, "rewritable: {}", report.rewritable)?;
+    if let Some(blocker) = report.rewrite_blocker {
+        writeln!(stdout, "rewrite blocker: {blocker}")?;
+    }
+    if let Some(payloads) = report.payloads_read {
+        writeln!(stdout, "payloads read: {payloads}")?;
+    }
+    for warning in report.warnings {
+        writeln!(stdout, "warning: {warning}")?;
     }
     Ok(())
 }
@@ -632,6 +678,40 @@ mod tests {
             .find(|entry| entry["path"] == "icons/example.dds")
             .unwrap();
         assert_eq!(icon["path_bytes_hex"], "69636f6e732f6578616d706c652e646473");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn verify_command_can_write_json() {
+        let dir = unique_dir("verify-json");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "verify",
+                archive_path.to_str().unwrap(),
+                "--read-payloads",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["format"], "tes3");
+        assert_eq!(value["file_count"], 2);
+        assert_eq!(value["payloads_read"], 2);
+        assert_eq!(
+            value["duplicate_normalized_paths"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

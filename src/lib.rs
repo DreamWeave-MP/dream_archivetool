@@ -35,6 +35,7 @@ pub mod extract;
 pub mod format;
 mod loaded;
 mod paths;
+pub mod verify;
 
 #[cfg(feature = "lua")]
 pub mod lua;
@@ -45,3 +46,4 @@ pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
 pub use extract::{ExtractAllOptions, ExtractOptions, ExtractSummary, OverwriteMode};
 pub use format::ArchiveFormat;
+pub use verify::{VerifyOptions, VerifyPathIssue, VerifyReport, verify_archive};

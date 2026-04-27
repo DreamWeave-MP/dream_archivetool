@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AddOptions, ArchiveEntry, ArchiveFormat, CreateOptions, ExtractAllOptions, ExtractOptions,
-    ExtractSummary, Result,
+    ExtractSummary, Result, VerifyOptions, VerifyReport,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -333,6 +333,11 @@ impl ArchiveTool {
     /// the same archive path.
     pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
         crate::create::add_to_archive(path.as_ref(), options)
+    }
+
+    /// Verify archive index health and, optionally, payload readability.
+    pub fn verify(path: impl AsRef<Path>, options: &VerifyOptions) -> Result<VerifyReport> {
+        crate::verify::verify_archive(path.as_ref(), options)
     }
 }
 

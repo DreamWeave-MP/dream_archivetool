@@ -20,6 +20,7 @@ dream-archivetool info --json archive.bsa
 dream-archivetool list archive.bsa
 dream-archivetool list --long archive.bsa
 dream-archivetool list --json archive.bsa
+dream-archivetool verify archive.bsa --read-payloads --json
 dream-archivetool extract archive.bsa textures/example.dds --output out/
 dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
 dream-archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds
@@ -86,6 +87,9 @@ The root directory name itself is not stored unless it is part of the path below
 ```json
 { "extracted": 1, "skipped": 0 }
 ```
+
+`verify --json` reports archive health, duplicate/unsafe path issues, rewrite blockers,
+and optional payload-read counts when `--read-payloads` is used.
 
 `create --json` and `add --json`:
 
