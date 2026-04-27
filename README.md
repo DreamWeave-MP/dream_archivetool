@@ -174,16 +174,14 @@ dream_archivetool::lua::register(&lua)?;
 # }
 ```
 
-The registered `dream_archivetool` table is a small Lua facade over common `ArchiveTool` operations:
+The registered `dream_archivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Lua API.
 
 ```lua
 local tool = dream_archivetool
 
-local format = tool.guess_format("Morrowind.bsa")
 local info = tool.info("Morrowind.bsa")
-local entries = tool.list("Morrowind.bsa")
-local bytes = tool.read_entry("Morrowind.bsa", "icons/gold.dds")
-local exact_bytes = tool.read_entry_hex("Morrowind.bsa", entries[1].path_bytes_hex)
+local verify = tool.verify("Morrowind.bsa", { read_payloads = true })
+local diff = tool.diff("old.bsa", "new.bsa", { fingerprint_payloads = true })
 
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   output = "out",
@@ -191,23 +189,35 @@ local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   preserve_paths = true,
 })
 
-local exact_extracted = tool.extract_hex("Morrowind.bsa", entries[1].path_bytes_hex, {
+local exact_extracted = tool.extract_hex("Morrowind.bsa", "69636f6e732f676f6c642e646473", {
   output = "out",
   overwrite = "fail",
   preserve_paths = true,
 })
 
+local extract_plan = tool.plan_extract_all("Morrowind.bsa", {
+  output = "out",
+  overwrite = "skip",
+})
 local all = tool.extract_all("Morrowind.bsa", {
   output = "out",
   overwrite = "skip",
 })
 
+local create_plan = tool.plan_create("out.ba2", "input", {
+  format = "ba2",
+  ba2_kind = "gnrl",
+})
 local created = tool.create("out.ba2", "input", {
   format = "ba2", -- tes3 | tes4 | ba2
   ba2_kind = "gnrl", -- gnrl | dx10 | gnmf
   ba2_version = "fallout4", -- fallout4 | starfield | fallout4-next-gen
 })
 
+local add_plan = tool.plan_add("out.ba2", {
+  output = "updated.ba2",
+  inputs = { "new_file.txt", "new_dir" },
+})
 local updated = tool.add("out.ba2", {
   output = "updated.ba2",
   inputs = { "new_file.txt", "new_dir" },
@@ -216,21 +226,24 @@ local updated = tool.add("out.ba2", {
 
 Lua functions and return values:
 
-- `guess_format(path) -> "tes3" | "tes4" | "ba2"`
-- `info(path) -> { path, format, file_count }`
-- `list(path) -> { { path, path_bytes_hex, size, compressed_size }, ... }`
-- `read_entry(path, entry) -> string`
-- `read_entry_hex(path, path_bytes_hex) -> string`
+- `info(path) -> { path, format, file_count, named_entry_count, has_unnameable_entries, rewritable, rewrite_blocker, tes4?, ba2? }`
+- `verify(path, opts?) -> verification report table`
+- `diff(old, new, opts?) -> diff report table`
 - `extract(path, entry, opts?) -> { extracted, skipped }`
 - `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
 - `extract_all(path, opts?) -> { extracted, skipped }`
+- `plan_extract_all(path, opts?) -> extract-all plan table`
 - `create(output, input, opts?) -> file_count`
+- `plan_create(output, input, opts?) -> create plan table`
 - `add(path, opts) -> file_count`
+- `plan_add(path, opts) -> add plan table`
 
 Lua option tables:
 
 - `extract`: `output`, `overwrite`, `preserve_paths`, `fsync`
 - `extract_all`: `output`, `overwrite`, `fsync`
+- `verify`: `read_payloads`
+- `diff`: `fingerprint_payloads`
 - `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`
 - `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
 

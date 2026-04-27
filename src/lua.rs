@@ -3,53 +3,30 @@ use std::path::PathBuf;
 use mlua::{Error as LuaError, Lua, Result as LuaResult, Table};
 
 use crate::{
-    AddOptions, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version, CreateOptions,
-    ExtractAllOptions, ExtractOptions, OverwriteMode, Tes4Version,
+    AddOptions, ArchiveFormat, ArchivePlanAction, ArchivePlanOperation, ArchiveTool,
+    Ba2ArchiveKind, Ba2Version, CreateOptions, DiffComparison, DiffOptions, ExtractAllOptions,
+    ExtractOptions, ExtractPlanAction, ExtractPlanOperation, OverwriteMode, Tes4Version,
+    VerifyOptions,
 };
 
 /// Create a Lua table for common [`ArchiveTool`] operations.
 ///
-/// The returned table contains `guess_format`, `info`, `list`, `read_entry`, `read_entry_hex`,
-/// `extract`, `extract_hex`, `extract_all`, `create`, and `add` functions. The table is not
-/// registered globally unless [`register`] is called.
+/// The returned table contains tool-policy operations: `info`, `verify`, `diff`, `extract`,
+/// `extract_hex`, `extract_all`, `plan_extract_all`, `create`, `plan_create`, `add`, and
+/// `plan_add`. Archive-format primitives such as listing and payload reads belong to
+/// `dream_archive`'s Lua API instead. The table is not registered globally unless [`register`] is
+/// called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let module = lua.create_table()?;
 
     module.set(
-        "guess_format",
-        lua.create_function(|_, path: String| {
-            ArchiveTool::guess_format(path)
-                .map(format_name)
-                .map_err(LuaError::external)
-        })?,
-    )?;
-    module.set(
         "info",
         lua.create_function(|lua, path: String| {
             let info = ArchiveTool::info(path).map_err(LuaError::external)?;
-            let table = lua.create_table()?;
-            table.set("path", info.path)?;
-            table.set("format", format_name(info.format))?;
-            table.set("file_count", info.file_count)?;
-            Ok(table)
+            archive_info_table(lua, info)
         })?,
     )?;
-    module.set(
-        "list",
-        lua.create_function(|lua, path: String| {
-            let entries = ArchiveTool::list(path).map_err(LuaError::external)?;
-            let table = lua.create_table()?;
-            for (index, entry) in entries.into_iter().enumerate() {
-                let entry_table = lua.create_table()?;
-                entry_table.set("path", entry.path)?;
-                entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
-                entry_table.set("size", entry.size)?;
-                entry_table.set("compressed_size", entry.compressed_size)?;
-                table.set(index + 1, entry_table)?;
-            }
-            Ok(table)
-        })?,
-    )?;
+    register_report_functions(lua, &module)?;
     register_entry_functions(lua, &module)?;
     register_write_functions(lua, &module)?;
 
@@ -57,23 +34,6 @@ pub fn create_module(lua: &Lua) -> LuaResult<Table> {
 }
 
 fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
-    module.set(
-        "read_entry",
-        lua.create_function(|lua, (path, entry): (String, String)| {
-            let bytes = ArchiveTool::read_entry(path, &entry).map_err(LuaError::external)?;
-            lua.create_string(&bytes)
-        })?,
-    )?;
-    module.set(
-        "read_entry_hex",
-        lua.create_function(|lua, (path, entry_hex): (String, String)| {
-            let entry =
-                crate::path::decode_archive_path_hex(&entry_hex).map_err(LuaError::external)?;
-            let bytes =
-                ArchiveTool::read_entry_by_path_bytes(path, &entry).map_err(LuaError::external)?;
-            lua.create_string(&bytes)
-        })?,
-    )?;
     module.set(
         "extract",
         lua.create_function(
@@ -101,6 +61,26 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     Ok(())
 }
 
+fn register_report_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
+    module.set(
+        "verify",
+        lua.create_function(|lua, (path, opts): (String, Option<Table>)| {
+            let options = verify_options(opts)?;
+            let report = ArchiveTool::verify(path, &options).map_err(LuaError::external)?;
+            verify_report_table(lua, report)
+        })?,
+    )?;
+    module.set(
+        "diff",
+        lua.create_function(|lua, (old, new, opts): (String, String, Option<Table>)| {
+            let options = diff_options(opts)?;
+            let report = ArchiveTool::diff(old, new, &options).map_err(LuaError::external)?;
+            diff_report_table(lua, report)
+        })?,
+    )?;
+    Ok(())
+}
+
 fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "extract_all",
@@ -108,6 +88,14 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
             let options = extract_all_options(opts)?;
             let summary = ArchiveTool::extract_all(path, &options).map_err(LuaError::external)?;
             summary_table(lua, summary.extracted, summary.skipped)
+        })?,
+    )?;
+    module.set(
+        "plan_extract_all",
+        lua.create_function(|lua, (path, opts): (String, Option<Table>)| {
+            let options = extract_all_options(opts)?;
+            let plan = ArchiveTool::plan_extract_all(path, &options).map_err(LuaError::external)?;
+            extract_all_plan_table(lua, plan)
         })?,
     )?;
     module.set(
@@ -120,10 +108,29 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
+        "plan_create",
+        lua.create_function(
+            |lua, (output, input, opts): (String, String, Option<Table>)| {
+                let options = create_options(opts)?;
+                let plan = ArchiveTool::plan_create(output, input, &options)
+                    .map_err(LuaError::external)?;
+                create_plan_table(lua, plan)
+            },
+        )?,
+    )?;
+    module.set(
         "add",
         lua.create_function(|_, (archive, opts): (String, Table)| {
             let options = add_options(&opts)?;
             ArchiveTool::add(archive, &options).map_err(LuaError::external)
+        })?,
+    )?;
+    module.set(
+        "plan_add",
+        lua.create_function(|lua, (archive, opts): (String, Table)| {
+            let options = add_options(&opts)?;
+            let plan = ArchiveTool::plan_add(archive, &options).map_err(LuaError::external)?;
+            add_plan_table(lua, plan)
         })?,
     )?;
 
@@ -208,6 +215,26 @@ fn add_options(opts: &Table) -> LuaResult<AddOptions> {
     })
 }
 
+fn verify_options(opts: Option<Table>) -> LuaResult<VerifyOptions> {
+    let Some(opts) = opts else {
+        return Ok(VerifyOptions::default());
+    };
+    Ok(VerifyOptions {
+        read_payloads: opts.get::<Option<bool>>("read_payloads")?.unwrap_or(false),
+    })
+}
+
+fn diff_options(opts: Option<Table>) -> LuaResult<DiffOptions> {
+    let Some(opts) = opts else {
+        return Ok(DiffOptions::default());
+    };
+    Ok(DiffOptions {
+        fingerprint_payloads: opts
+            .get::<Option<bool>>("fingerprint_payloads")?
+            .unwrap_or(false),
+    })
+}
+
 fn extract_options(opts: Option<Table>) -> LuaResult<ExtractOptions> {
     let Some(opts) = opts else {
         return Ok(ExtractOptions::default());
@@ -288,6 +315,244 @@ fn summary_table(lua: &Lua, extracted: usize, skipped: usize) -> LuaResult<Table
     Ok(table)
 }
 
+fn archive_info_table(lua: &Lua, info: crate::ArchiveInfo) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("path", info.path)?;
+    table.set("format", format_name(info.format))?;
+    table.set("file_count", info.file_count)?;
+    table.set("named_entry_count", info.named_entry_count)?;
+    table.set("has_unnameable_entries", info.has_unnameable_entries)?;
+    table.set("rewritable", info.rewritable)?;
+    table.set("rewrite_blocker", info.rewrite_blocker)?;
+    table.set("tes4", optional_tes4_info_table(lua, info.tes4)?)?;
+    table.set("ba2", optional_ba2_info_table(lua, info.ba2)?)?;
+    Ok(table)
+}
+
+fn optional_tes4_info_table(lua: &Lua, info: Option<crate::Tes4Info>) -> LuaResult<Option<Table>> {
+    info.map(|info| {
+        let table = lua.create_table()?;
+        table.set("version", info.version)?;
+        table.set("archive_types", info.archive_types)?;
+        table.set("archive_types_bits", info.archive_types_bits)?;
+        table.set("archive_flags", string_array(lua, info.archive_flags)?)?;
+        table.set("archive_flags_bits", info.archive_flags_bits)?;
+        table.set(
+            "unsupported_archive_flags_bits",
+            info.unsupported_archive_flags_bits,
+        )?;
+        table.set("name_mode", info.name_mode)?;
+        Ok(table)
+    })
+    .transpose()
+}
+
+fn optional_ba2_info_table(lua: &Lua, info: Option<crate::Ba2Info>) -> LuaResult<Option<Table>> {
+    info.map(|info| {
+        let table = lua.create_table()?;
+        table.set("version", info.version)?;
+        table.set("payload_format", info.payload_format)?;
+        table.set("compression_format", info.compression_format)?;
+        table.set("strings", info.strings)?;
+        Ok(table)
+    })
+    .transpose()
+}
+
+fn verify_report_table(lua: &Lua, report: crate::VerifyReport) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("path", report.path)?;
+    table.set("format", format_name(report.format))?;
+    table.set("file_count", report.file_count)?;
+    table.set("named_entry_count", report.named_entry_count)?;
+    table.set("unnameable_entries", report.unnameable_entries)?;
+    table.set("rewritable", report.rewritable)?;
+    table.set("rewrite_blocker", report.rewrite_blocker)?;
+    table.set(
+        "duplicate_normalized_paths",
+        verify_path_issue_array(lua, report.duplicate_normalized_paths)?,
+    )?;
+    table.set(
+        "unsafe_paths",
+        verify_path_issue_array(lua, report.unsafe_paths)?,
+    )?;
+    table.set("payloads_read", report.payloads_read)?;
+    table.set("warnings", string_array(lua, report.warnings)?)?;
+    Ok(table)
+}
+
+fn verify_path_issue_array(lua: &Lua, issues: Vec<crate::VerifyPathIssue>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, issue) in issues.into_iter().enumerate() {
+        let issue_table = lua.create_table()?;
+        issue_table.set("path", issue.path)?;
+        issue_table.set("path_bytes_hex", issue.path_bytes_hex)?;
+        issue_table.set("raw_path_bytes_hex", issue.raw_path_bytes_hex)?;
+        issue_table.set(
+            "colliding_raw_path_bytes_hex",
+            issue.colliding_raw_path_bytes_hex,
+        )?;
+        table.set(index + 1, issue_table)?;
+    }
+    Ok(table)
+}
+
+fn diff_report_table(lua: &Lua, report: crate::DiffReport) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("old", report.old)?;
+    table.set("new", report.new)?;
+    table.set("comparison", diff_comparison_name(report.comparison))?;
+    table.set("fingerprint_payloads", report.fingerprint_payloads)?;
+    table.set("added", diff_entry_array(lua, report.added)?)?;
+    table.set("removed", diff_entry_array(lua, report.removed)?)?;
+    table.set("changed", diff_change_array(lua, report.changed)?)?;
+    table.set("unchanged", report.unchanged)?;
+    Ok(table)
+}
+
+fn diff_entry_array(lua: &Lua, entries: Vec<crate::DiffEntry>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, entry) in entries.into_iter().enumerate() {
+        table.set(index + 1, diff_entry_table(lua, entry)?)?;
+    }
+    Ok(table)
+}
+
+fn diff_entry_table(lua: &Lua, entry: crate::DiffEntry) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("path", entry.path)?;
+    table.set("path_bytes_hex", entry.path_bytes_hex)?;
+    table.set("size", entry.size)?;
+    table.set("compressed_size", entry.compressed_size)?;
+    table.set("payload_fingerprint", entry.payload_fingerprint)?;
+    Ok(table)
+}
+
+fn diff_change_array(lua: &Lua, changes: Vec<crate::DiffChange>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, change) in changes.into_iter().enumerate() {
+        let change_table = lua.create_table()?;
+        change_table.set("path", change.path)?;
+        change_table.set("path_bytes_hex", change.path_bytes_hex)?;
+        change_table.set("old", diff_entry_state_table(lua, change.old)?)?;
+        change_table.set("new", diff_entry_state_table(lua, change.new)?)?;
+        table.set(index + 1, change_table)?;
+    }
+    Ok(table)
+}
+
+fn diff_entry_state_table(lua: &Lua, state: crate::DiffEntryState) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("size", state.size)?;
+    table.set("compressed_size", state.compressed_size)?;
+    table.set("payload_fingerprint", state.payload_fingerprint)?;
+    Ok(table)
+}
+
+fn extract_all_plan_table(lua: &Lua, plan: crate::ExtractAllPlan) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("operation", extract_plan_operation_name(plan.operation))?;
+    table.set("archive", plan.archive)?;
+    table.set("output", plan.output)?;
+    table.set("entries", extract_plan_entry_array(lua, plan.entries)?)?;
+    Ok(table)
+}
+
+fn extract_plan_entry_array(lua: &Lua, entries: Vec<crate::ExtractPlanEntry>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, entry) in entries.into_iter().enumerate() {
+        let entry_table = lua.create_table()?;
+        entry_table.set("action", extract_plan_action_name(entry.action))?;
+        entry_table.set("path", entry.path)?;
+        entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
+        entry_table.set("target", entry.target)?;
+        table.set(index + 1, entry_table)?;
+    }
+    Ok(table)
+}
+
+fn create_plan_table(lua: &Lua, plan: crate::CreatePlan) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("operation", archive_plan_operation_name(plan.operation))?;
+    table.set("format", format_name(plan.format))?;
+    table.set("output", plan.output)?;
+    table.set("files", plan.files)?;
+    table.set("entries", archive_plan_entry_array(lua, plan.entries)?)?;
+    Ok(table)
+}
+
+fn add_plan_table(lua: &Lua, plan: crate::AddPlan) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    table.set("operation", archive_plan_operation_name(plan.operation))?;
+    table.set("archive", plan.archive)?;
+    table.set("output", plan.output)?;
+    table.set("format", format_name(plan.format))?;
+    table.set("files", plan.files)?;
+    table.set("added", plan.added)?;
+    table.set("replaced", plan.replaced)?;
+    table.set("preserved", plan.preserved)?;
+    table.set("entries", archive_plan_entry_array(lua, plan.entries)?)?;
+    Ok(table)
+}
+
+fn archive_plan_entry_array(lua: &Lua, entries: Vec<crate::ArchivePlanEntry>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, entry) in entries.into_iter().enumerate() {
+        let entry_table = lua.create_table()?;
+        entry_table.set("action", archive_plan_action_name(entry.action))?;
+        entry_table.set("source", entry.source)?;
+        entry_table.set("path", entry.path)?;
+        entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
+        entry_table.set("size", entry.size)?;
+        table.set(index + 1, entry_table)?;
+    }
+    Ok(table)
+}
+
+fn string_array(lua: &Lua, values: Vec<String>) -> LuaResult<Table> {
+    let table = lua.create_table()?;
+    for (index, value) in values.into_iter().enumerate() {
+        table.set(index + 1, value)?;
+    }
+    Ok(table)
+}
+
+fn diff_comparison_name(comparison: DiffComparison) -> &'static str {
+    match comparison {
+        DiffComparison::MetadataOnly => "metadata-only",
+        DiffComparison::PayloadFingerprint => "payload-fingerprint",
+    }
+}
+
+fn archive_plan_operation_name(operation: ArchivePlanOperation) -> &'static str {
+    match operation {
+        ArchivePlanOperation::Create => "create",
+        ArchivePlanOperation::Add => "add",
+    }
+}
+
+fn archive_plan_action_name(action: ArchivePlanAction) -> &'static str {
+    match action {
+        ArchivePlanAction::Add => "add",
+        ArchivePlanAction::Replace => "replace",
+        ArchivePlanAction::Preserve => "preserve",
+    }
+}
+
+fn extract_plan_operation_name(operation: ExtractPlanOperation) -> &'static str {
+    match operation {
+        ExtractPlanOperation::ExtractAll => "extract-all",
+    }
+}
+
+fn extract_plan_action_name(action: ExtractPlanAction) -> &'static str {
+    match action {
+        ExtractPlanAction::Extract => "extract",
+        ExtractPlanAction::Skip => "skip",
+        ExtractPlanAction::Overwrite => "overwrite",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -328,8 +593,8 @@ mod tests {
     }
 
     #[test]
-    fn lua_module_lists_and_reads_created_archive() {
-        let dir = unique_dir("list-read");
+    fn lua_module_exposes_tool_policy_info_only() {
+        let dir = unique_dir("info-boundary");
         let archive = create_test_archive(&dir);
         let lua = Lua::new();
         register(&lua).unwrap();
@@ -337,17 +602,22 @@ mod tests {
             .set("archive_path", archive.to_str().unwrap())
             .unwrap();
 
-        let path: String = lua
-            .load("return dream_archivetool.list(archive_path)[1].path")
-            .eval()
-            .unwrap();
-        let bytes: String = lua
-            .load("return dream_archivetool.read_entry(archive_path, 'textures/example.dds')")
+        let (format, rewritable, list_is_absent, read_is_absent): (String, bool, bool, bool) = lua
+            .load(
+                r"
+                local info = dream_archivetool.info(archive_path)
+                return info.format, info.rewritable,
+                    dream_archivetool.list == nil,
+                    dream_archivetool.read_entry == nil
+            ",
+            )
             .eval()
             .unwrap();
 
-        assert_eq!(path, "textures/example.dds");
-        assert_eq!(bytes.as_bytes(), b"hello");
+        assert_eq!(format, "tes3");
+        assert!(rewritable);
+        assert!(list_is_absent);
+        assert!(read_is_absent);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -397,19 +667,10 @@ mod tests {
             .set("output_path", output.to_str().unwrap())
             .unwrap();
 
-        let bytes: String = lua
-            .load(
-                r"
-                local entry_hex = dream_archivetool.list(archive_path)[1].path_bytes_hex
-                return dream_archivetool.read_entry_hex(archive_path, entry_hex)
-            ",
-            )
-            .eval()
-            .unwrap();
         let extracted: usize = lua
             .load(
                 r"
-                local entry_hex = dream_archivetool.list(archive_path)[1].path_bytes_hex
+                local entry_hex = '74657874757265732f6578616d706c652e646473'
                 local summary = dream_archivetool.extract_hex(archive_path, entry_hex, {
                     output = output_path,
                     preserve_paths = false,
@@ -420,7 +681,6 @@ mod tests {
             .eval()
             .unwrap();
 
-        assert_eq!(bytes.as_bytes(), b"hello");
         assert_eq!(extracted, 1);
         assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
         fs::remove_dir_all(dir).unwrap();
@@ -544,6 +804,95 @@ mod tests {
         let entries = ArchiveTool::list(&updated).unwrap();
         assert!(entries.iter().any(|entry| entry.path == "base.txt"));
         assert!(entries.iter().any(|entry| entry.path == "added.txt"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_reports_verify_diff_and_plans() {
+        let dir = unique_dir("reports-plans");
+        let archive = create_test_archive(&dir);
+        let input = dir.join("input2");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("added.txt"), b"added").unwrap();
+        let updated = dir.join("updated.bsa");
+        let output = dir.join("extract-output");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("input_path", input.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("updated_path", updated.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let (payloads_read, extract_action, create_action, add_action): (
+            usize,
+            String,
+            String,
+            String,
+        ) = lua
+            .load(
+                r"
+                local verify = dream_archivetool.verify(archive_path, { read_payloads = true })
+                local extract_plan = dream_archivetool.plan_extract_all(archive_path, {
+                    output = output_path,
+                })
+                local create_plan = dream_archivetool.plan_create(updated_path, input_path, {
+                    format = 'tes3',
+                })
+                local add_plan = dream_archivetool.plan_add(archive_path, {
+                    output = updated_path,
+                    inputs = { input_path },
+                })
+                local add_action = nil
+                for _, entry in ipairs(add_plan.entries) do
+                    if entry.action == 'add' then
+                        add_action = entry.action
+                    end
+                end
+                return verify.payloads_read, extract_plan.entries[1].action,
+                    create_plan.entries[1].action, add_action
+            ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(payloads_read, 1);
+        assert_eq!(extract_action, "extract");
+        assert_eq!(create_action, "add");
+        assert_eq!(add_action, "add");
+
+        ArchiveTool::create(
+            &updated,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        lua.globals()
+            .set("other_archive_path", updated.to_str().unwrap())
+            .unwrap();
+        let comparison: String = lua
+            .load(
+                r"
+                local diff = dream_archivetool.diff(archive_path, other_archive_path, {
+                    fingerprint_payloads = true,
+                })
+                return diff.comparison
+            ",
+            )
+            .eval()
+            .unwrap();
+        assert_eq!(comparison, "payload-fingerprint");
+
         fs::remove_dir_all(dir).unwrap();
     }
 
