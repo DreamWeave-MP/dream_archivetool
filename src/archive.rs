@@ -386,10 +386,10 @@ impl ArchiveTool {
         crate::create::plan_create_archive(output.as_ref(), input.as_ref(), options)
     }
 
-    /// Add or replace entries by writing a new archive to `options.output`.
+    /// Add or replace entries by rewriting an archive.
     ///
-    /// The source archive is not modified in place. New inputs replace existing archive entries with
-    /// the same archive path.
+    /// When `options.output` is omitted, the source archive is replaced after a successful full
+    /// rewrite. New inputs replace existing archive entries with the same archive path.
     pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
         crate::create::add_to_archive(path.as_ref(), options)
     }

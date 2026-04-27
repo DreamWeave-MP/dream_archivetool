@@ -21,7 +21,7 @@ use crate::paths::{
 use crate::{ArchiveError, Result};
 
 use input::{collect_input_entry_paths, insert_input_path};
-use temp_output::with_temp_output;
+use temp_output::{persist_temp_output, with_temp_output, write_temp_output};
 
 #[derive(Debug, Clone)]
 /// Options controlling archive creation.
@@ -62,8 +62,8 @@ impl Default for CreateOptions {
 pub struct AddOptions {
     /// Files or directories to add. Directory entries are stored relative to the directory root.
     pub inputs: Vec<PathBuf>,
-    /// Output archive path. The input archive is never modified in place.
-    pub output: PathBuf,
+    /// Output archive path. When omitted, the source archive is replaced after a successful rewrite.
+    pub output: Option<PathBuf>,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
     /// Follow symbolic links while collecting input files.
@@ -156,13 +156,15 @@ fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
 
 /// Add or replace entries in an existing archive by writing a new archive.
 ///
-/// Existing archive entries are preserved unless replaced by an input path. The source archive is
-/// opened once and is not modified in place.
+/// Existing archive entries are preserved unless replaced by an input path. When `options.output` is
+/// omitted, the source archive path is replaced only after a successful full rewrite to a temporary
+/// file.
 pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize> {
     if options.inputs.is_empty() {
         return Err(ArchiveError::Archive("no input files supplied".to_string()));
     }
-    reject_same_archive_output(archive_path, &options.output)?;
+    reject_explicit_same_archive_output(archive_path, options)?;
+    let output = add_output_path(archive_path, options);
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
     crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
@@ -172,7 +174,11 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
         }
     }
     preflight_add_paths(input_entries.keys(), &archive)?;
-    write_entries_like(&options.output, input_entries, &archive, options.fsync)
+    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let (temp, count) = write_entries_like_temp(parent, input_entries, &archive, options.fsync)?;
+    drop(archive);
+    persist_temp_output(temp, output, options.fsync)?;
+    Ok(count)
 }
 
 /// Plan archive add/update without writing output.
@@ -180,7 +186,8 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     if options.inputs.is_empty() {
         return Err(ArchiveError::Archive("no input files supplied".to_string()));
     }
-    reject_same_archive_output(archive_path, &options.output)?;
+    reject_explicit_same_archive_output(archive_path, options)?;
+    let output = add_output_path(archive_path, options);
     let archive = crate::loaded::LoadedArchive::open(archive_path)?;
     crate::rewrite_policy::ensure_rewritable(&archive)?;
     let mut input_entries = BTreeMap::new();
@@ -216,7 +223,7 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     Ok(AddPlan {
         operation: ArchivePlanOperation::Add,
         archive: archive_path.display().to_string(),
-        output: options.output.display().to_string(),
+        output: output.display().to_string(),
         format: archive.format(),
         files: entries.len(),
         added,
@@ -226,12 +233,17 @@ pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<
     })
 }
 
-fn reject_same_archive_output(input: &Path, output: &Path) -> Result<()> {
-    let input = comparable_path(input)?;
-    let output = comparable_path(output)?;
-    if input == output {
+fn add_output_path<'a>(archive_path: &'a Path, options: &'a AddOptions) -> &'a Path {
+    options.output.as_deref().unwrap_or(archive_path)
+}
+
+fn reject_explicit_same_archive_output(archive_path: &Path, options: &AddOptions) -> Result<()> {
+    let Some(output) = &options.output else {
+        return Ok(());
+    };
+    if comparable_path(archive_path)? == comparable_path(output)? {
         return Err(ArchiveError::Archive(
-            "output archive path must differ from input archive path".to_string(),
+            "explicit output archive path must differ from input archive path; omit output to replace the input archive".to_string(),
         ));
     }
     Ok(())
@@ -260,14 +272,14 @@ fn write_entries(
     Ok(count)
 }
 
-fn write_entries_like(
-    output: &Path,
+fn write_entries_like_temp(
+    parent: &Path,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &crate::loaded::LoadedArchive,
     fsync: bool,
-) -> Result<usize> {
+) -> Result<(tempfile::NamedTempFile, usize)> {
     let mut count = 0;
-    with_temp_output(output, fsync, |file| match archive.as_dream_archive() {
+    let temp = write_temp_output(parent, fsync, |file| match archive.as_dream_archive() {
         dream_archive::Archive::Tes3Bsa(archive) => {
             count = write_tes3_like(file, entries, archive)?;
             Ok(())
@@ -281,7 +293,7 @@ fn write_entries_like(
             Ok(())
         }
     })?;
-    Ok(count)
+    Ok((temp, count))
 }
 
 fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTreeSet<Vec<u8>>> {
@@ -956,7 +968,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: output.clone(),
+                output: Some(output.clone()),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -988,7 +1000,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: output.clone(),
+                output: Some(output.clone()),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1001,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn add_writes_updated_archive() {
+    fn add_without_output_replaces_source_archive() {
         let dir = unique_dir("add");
         let input = dir.join("input");
         fs::create_dir_all(&input).unwrap();
@@ -1018,13 +1030,11 @@ mod tests {
         .unwrap();
         let added = dir.join("added.txt");
         fs::write(&added, b"added").unwrap();
-        let output = dir.join("updated.bsa");
-
         let count = add_to_archive(
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: output.clone(),
+                output: None,
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1033,13 +1043,48 @@ mod tests {
 
         assert_eq!(count, 2);
         assert_eq!(
-            ArchiveTool::read_entry(&output, "base.txt").unwrap(),
+            ArchiveTool::read_entry(&archive, "base.txt").unwrap(),
             b"base"
         );
         assert_eq!(
-            ArchiveTool::read_entry(&output, "added.txt").unwrap(),
+            ArchiveTool::read_entry(&archive, "added.txt").unwrap(),
             b"added"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_plan_without_output_reports_source_archive() {
+        let dir = unique_dir("add-plan-default-output");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("base.bsa");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+
+        let plan = plan_add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: None,
+                fsync: false,
+                follow_symlinks: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(plan.output, archive.display().to_string());
+        assert_eq!(plan.added, 1);
         fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1069,7 +1114,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![replacement],
-                output: output.clone(),
+                output: Some(output.clone()),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1084,6 +1129,10 @@ mod tests {
         assert_eq!(
             ArchiveTool::read_entry(&output, "keep.txt").unwrap(),
             b"keep"
+        );
+        assert_eq!(
+            ArchiveTool::read_entry(&archive, "textures/example.dds").unwrap(),
+            b"old"
         );
         fs::remove_dir_all(dir).unwrap();
     }
@@ -1131,7 +1180,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![first, second],
-                output: dir.join("updated.bsa"),
+                output: Some(dir.join("updated.bsa")),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1157,7 +1206,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: dir.join("updated.bsa"),
+                output: Some(dir.join("updated.bsa")),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1243,7 +1292,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: archive.clone(),
+                output: Some(archive.clone()),
                 fsync: false,
                 follow_symlinks: false,
             },
@@ -1301,7 +1350,7 @@ mod tests {
             &archive,
             &AddOptions {
                 inputs: vec![added],
-                output: updated.clone(),
+                output: Some(updated.clone()),
                 fsync: false,
                 follow_symlinks: false,
             },

@@ -156,16 +156,16 @@ pub(super) enum Command {
         #[arg(long)]
         follow_symlinks: bool,
     },
-    /// Add or update entries by writing a new archive
+    /// Add or update entries by rewriting the archive
     Add {
         /// Input archive path
         archive: PathBuf,
         /// Files or directories to add. Directory contents are stored relative to each root.
         #[arg(required = true)]
         inputs: Vec<PathBuf>,
-        /// Output archive path
+        /// Output archive path. Omit to replace the input archive after a successful rewrite.
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,

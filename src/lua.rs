@@ -354,7 +354,7 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
     }
     Ok(AddOptions {
         inputs: paths,
-        output: required_path_field(opts, context, "output")?,
+        output: optional_path_field(opts, context, "output")?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
         follow_symlinks: opts
             .get::<Option<bool>>("follow_symlinks")?
@@ -482,14 +482,12 @@ fn required_table_field(opts: &Table, context: &str, field: &str) -> LuaResult<T
     }
 }
 
-fn required_path_field(opts: &Table, context: &str, field: &str) -> LuaResult<PathBuf> {
+fn optional_path_field(opts: &Table, context: &str, field: &str) -> LuaResult<Option<PathBuf>> {
     match opts.get::<Value>(field)? {
-        Value::Nil => Err(LuaError::external(format!(
-            "{context} requires opts.{field}"
-        ))),
+        Value::Nil => Ok(None),
         Value::String(value) => value
             .to_str()
-            .map(|value| PathBuf::from(value.as_ref()))
+            .map(|value| Some(PathBuf::from(value.as_ref())))
             .map_err(|_| {
                 LuaError::external(format!(
                     "{context}.{field} must be a UTF-8 host path string"
@@ -1261,7 +1259,6 @@ mod tests {
         let added = dir.join("added");
         fs::create_dir_all(&added).unwrap();
         fs::write(added.join("added.txt"), b"added").unwrap();
-        let updated = dir.join("updated.bsa");
         let lua = Lua::new();
         register(&lua).unwrap();
         lua.globals()
@@ -1273,16 +1270,11 @@ mod tests {
         lua.globals()
             .set("added_path", added.to_str().unwrap())
             .unwrap();
-        lua.globals()
-            .set("updated_path", updated.to_str().unwrap())
-            .unwrap();
-
         let files: usize = lua
             .load(
                 r"
                 local created = dream_archivetool.create(archive_path, input_path, { format = 'bsa-tes3' })
                 local updated = dream_archivetool.add(archive_path, {
-                    output = updated_path,
                     inputs = { added_path },
                 })
                 return created.files + updated.files
@@ -1292,7 +1284,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(files, 3);
-        let entries = ArchiveTool::list(&updated).unwrap();
+        let entries = ArchiveTool::list(&archive).unwrap();
         assert!(entries.iter().any(|entry| entry.path == "base.txt"));
         assert!(entries.iter().any(|entry| entry.path == "added.txt"));
         fs::remove_dir_all(dir).unwrap();
@@ -1504,12 +1496,6 @@ mod tests {
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("add requires opts.inputs"));
-
-        let err = lua
-            .load("return dream_archivetool.plan_add(archive_path, { inputs = { 'file.txt' } })")
-            .eval::<mlua::Value>()
-            .unwrap_err();
-        assert!(err.to_string().contains("plan_add requires opts.output"));
 
         fs::remove_dir_all(dir).unwrap();
     }

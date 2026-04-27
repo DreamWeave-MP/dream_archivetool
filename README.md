@@ -9,7 +9,7 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 - List archive contents in human-readable or JSON form.
 - Extract single files or whole archives safely.
 - Create TES3 BSA, TES4 BSA, and BA2/Starfield BA2 archives.
-- Add or update archive entries by writing a new archive output.
+- Add or update archive entries by rewriting the archive, optionally to a separate output.
 - Keep CLI parsing dependencies behind the default `cli` feature so GUI/library consumers can opt out.
 - Expose an optional Lua embedding API behind the `lua` feature.
 
@@ -33,6 +33,7 @@ dream-archivetool create out.bsa input_dir/ --format tes3
 dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
 dream-archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
 dream-archivetool create out.bsa input_dir/ --format tes3 --follow-symlinks
+dream-archivetool add base.bsa new_file.txt
 dream-archivetool add base.bsa new_file.txt --output updated.bsa
 dream-archivetool add base.bsa new_dir/ --output updated.bsa --dry-run --json
 dream-archivetool --generate-completion bash > dream-archivetool.bash
@@ -252,12 +253,10 @@ local created = tool.create("out.ba2", "input", {
 })
 
 local add_plan = tool.plan_add("out.ba2", {
-  output = "updated.ba2",
   inputs = { "new_file.txt", "new_dir" },
 })
--- Mutating: writes updated.ba2 now. Review add_plan.entries first.
+-- Mutating: rewrites out.ba2 now. Review add_plan.entries first.
 local updated = tool.add("out.ba2", {
-  output = "updated.ba2",
   inputs = { "new_file.txt", "new_dir" },
 })
 print(created.files, updated.files)
@@ -280,7 +279,7 @@ Lua functions and return values:
 - `add(path, opts) -> { files }`
 - `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
 
-Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Never use display `path` as an identity key when non-UTF-8 archive names matter; use `path_bytes_hex`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is required. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Never use display `path` as an identity key when non-UTF-8 archive names matter; use `path_bytes_hex`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Nested entry table shapes:
 
@@ -302,13 +301,13 @@ Lua option tables:
 
 `plan_extract`, `plan_extract_all`, `plan_create`, and `plan_add` accept the same options as `extract_many`, `extract_all`, `create`, and `add` respectively.
 
-Defaults: `format = "bsa-tes3"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, and omitted extraction `output` writes under the current directory.
+Defaults: `format = "bsa-tes3"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, omitted extraction `output` writes under the current directory, and omitted add `output` rewrites the source archive.
 
 ## Safety
 
 Extraction rejects absolute paths, `..` components, NUL bytes, and colon-containing components before writing files. Existing targets fail by default; pass `--overwrite` or `--skip-existing` to choose another policy. `extract` and `extract-all` write under the current directory when `--output` is omitted. These checks validate archive path syntax; they are not an `openat`-style filesystem jail, so extract into an output tree whose pre-existing directories and symlinks you trust.
 
-Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. Failed writes should not clobber an existing output archive. Input symlinks encountered during collection are rejected by default; `--follow-symlinks` opts into normal filesystem symlink-following behavior and should only be used with trusted input trees that remain stable during the write.
+Archive creation and update write to a temporary file in the output directory, then rename it into place after a successful write. For `add`, omitting `--output` replaces the source archive only after the full rewritten archive has been produced; this is not patch-in-place mutation. Failed writes should not clobber an existing output archive. Input symlinks encountered during collection are rejected by default; `--follow-symlinks` opts into normal filesystem symlink-following behavior and should only be used with trusted input trees that remain stable during the write.
 
 ## Performance
 

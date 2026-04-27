@@ -284,7 +284,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                     &archive,
                     &AddOptions {
                         inputs: vec![replacement.clone()],
-                        output: output.clone(),
+                        output: Some(output.clone()),
                         fsync: false,
                         follow_symlinks: false,
                     },
@@ -318,7 +318,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                     &large_archive,
                     &AddOptions {
                         inputs: vec![large_replacement.clone()],
-                        output: output.clone(),
+                        output: Some(output.clone()),
                         fsync: false,
                         follow_symlinks: false,
                     },

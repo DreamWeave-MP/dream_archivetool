@@ -1063,7 +1063,6 @@ mod tests {
         ArchiveTool::create(&archive, &input, &CreateOptions::default()).unwrap();
         let added = dir.join("added.txt");
         fs::write(&added, b"added").unwrap();
-        let output = dir.join("updated.bsa");
         let mut stdout = Vec::new();
 
         run(
@@ -1072,8 +1071,6 @@ mod tests {
                 "add",
                 archive.to_str().unwrap(),
                 added.to_str().unwrap(),
-                "--output",
-                output.to_str().unwrap(),
                 "--json",
             ]),
             &mut stdout,
@@ -1083,7 +1080,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
         assert_eq!(value["files"], 2);
         assert_eq!(
-            ArchiveTool::read_entry(&output, "added.txt").unwrap(),
+            ArchiveTool::read_entry(&archive, "added.txt").unwrap(),
             b"added"
         );
         fs::remove_dir_all(dir).unwrap();
