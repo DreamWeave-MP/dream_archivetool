@@ -24,12 +24,14 @@ dream-archivetool verify archive.bsa --read-payloads --json
 dream-archivetool extract archive.bsa textures/example.dds --output out/
 dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
 dream-archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds
+dream-archivetool extract-all archive.bsa --output out/ --dry-run --json
 dream-archivetool extract-all archive.bsa --output out/
 # extract/extract-all default to the current directory when --output is omitted
 dream-archivetool create out.bsa input_dir/ --format tes3
 dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
 dream-archivetool create out.ba2 input_dir/ --format fo4 --ba2-kind gnrl
 dream-archivetool add base.bsa new_file.txt --output updated.bsa
+dream-archivetool add base.bsa new_dir/ --output updated.bsa --dry-run --json
 dream-archivetool --generate-completion bash > dream-archivetool.bash
 dream-archivetool --generate-manpage > dream-archivetool.1
 ```
@@ -96,6 +98,10 @@ and optional payload-read counts when `--read-payloads` is used.
 ```json
 { "files": 2 }
 ```
+
+`create --dry-run --json`, `add --dry-run --json`, and
+`extract-all --dry-run --json` expose the same normalized paths and policy checks
+the mutating commands use, but stop before writing output.
 
 ## Library
 

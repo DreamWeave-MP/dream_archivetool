@@ -111,6 +111,9 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Print extraction plan without writing files
+        #[arg(long)]
+        dry_run: bool,
         /// Sync file contents and parent directory after writing
         #[arg(long)]
         fsync: bool,
@@ -136,6 +139,9 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Print archive creation plan without writing files
+        #[arg(long)]
+        dry_run: bool,
         /// Sync file contents and parent directory after writing the archive
         #[arg(long)]
         fsync: bool,
@@ -153,6 +159,9 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Print archive update plan without writing files
+        #[arg(long)]
+        dry_run: bool,
         /// Sync file contents and parent directory after writing the archive
         #[arg(long)]
         fsync: bool,
@@ -233,6 +242,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             overwrite,
             skip_existing,
             json,
+            dry_run,
             fsync,
         } => write_extract_all(
             stdout,
@@ -240,6 +250,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             output,
             overwrite_mode(overwrite, skip_existing),
             json,
+            dry_run,
             fsync,
         ),
         Command::Create {
@@ -250,18 +261,20 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             ba2_kind,
             ba2_version,
             json,
+            dry_run,
             fsync,
         } => {
             let options = create_options(format, tes4_version, ba2_kind, ba2_version, fsync)?;
-            write_create(stdout, archive, input, &options, json)
+            write_create(stdout, archive, input, &options, json, dry_run)
         }
         Command::Add {
             archive,
             inputs,
             output,
             json,
+            dry_run,
             fsync,
-        } => write_add(stdout, archive, inputs, output, json, fsync),
+        } => write_add(stdout, archive, inputs, output, json, dry_run, fsync),
     }
 }
 
@@ -474,6 +487,7 @@ fn write_extract_all(
     output: Option<PathBuf>,
     overwrite: OverwriteMode,
     json: bool,
+    dry_run: bool,
     fsync: bool,
 ) -> Result<()> {
     let options = ExtractAllOptions {
@@ -481,6 +495,11 @@ fn write_extract_all(
         overwrite,
         fsync,
     };
+    if dry_run {
+        let plan = ArchiveTool::plan_extract_all(archive, &options)?;
+        write_json(stdout, &plan)?;
+        return Ok(());
+    }
     let summary = ArchiveTool::extract_all(archive, &options)?;
     if json {
         write_summary_json(stdout, &summary)?;
@@ -496,7 +515,13 @@ fn write_create(
     input: PathBuf,
     options: &CreateOptions,
     json: bool,
+    dry_run: bool,
 ) -> Result<()> {
+    if dry_run {
+        let plan = ArchiveTool::plan_create(&archive, &input, options)?;
+        write_json(stdout, &plan)?;
+        return Ok(());
+    }
     let count = ArchiveTool::create(archive, input, options)?;
     write_count(stdout, count, json)
 }
@@ -507,6 +532,7 @@ fn write_add(
     inputs: Vec<PathBuf>,
     output: PathBuf,
     json: bool,
+    dry_run: bool,
     fsync: bool,
 ) -> Result<()> {
     if inputs.is_empty() {
@@ -514,15 +540,25 @@ fn write_add(
             "no input files supplied".to_string(),
         ));
     }
-    let count = ArchiveTool::add(
-        archive,
-        &AddOptions {
-            inputs,
-            output,
-            fsync,
-        },
-    )?;
+    let options = AddOptions {
+        inputs,
+        output,
+        fsync,
+    };
+    if dry_run {
+        let plan = ArchiveTool::plan_add(&archive, &options)?;
+        write_json(stdout, &plan)?;
+        return Ok(());
+    }
+    let count = ArchiveTool::add(archive, &options)?;
     write_count(stdout, count, json)
+}
+
+fn write_json<T: serde::Serialize>(stdout: &mut dyn Write, value: &T) -> Result<()> {
+    serde_json::to_writer_pretty(&mut *stdout, value)
+        .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+    writeln!(stdout)?;
+    Ok(())
 }
 
 fn format_name(format: ArchiveFormat) -> &'static str {
@@ -849,6 +885,106 @@ mod tests {
             fs::read(output.join("icons/example.dds")).unwrap(),
             b"existing"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn create_command_dry_run_reports_plan_without_writing() {
+        let dir = unique_dir("create-dry-run");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("hello.txt"), b"hello").unwrap();
+        let archive = dir.join("out.bsa");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "create",
+                archive.to_str().unwrap(),
+                input.to_str().unwrap(),
+                "--format",
+                "tes3",
+                "--dry-run",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["operation"], "create");
+        assert_eq!(value["files"], 1);
+        assert!(!archive.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_command_dry_run_reports_add_replace_preserve() {
+        let dir = unique_dir("add-dry-run");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        fs::write(input.join("keep.txt"), b"keep").unwrap();
+        let archive = dir.join("base.bsa");
+        ArchiveTool::create(&archive, &input, &CreateOptions::default()).unwrap();
+        let update = dir.join("update");
+        fs::create_dir_all(&update).unwrap();
+        fs::write(update.join("base.txt"), b"new").unwrap();
+        fs::write(update.join("added.txt"), b"added").unwrap();
+        let output = dir.join("updated.bsa");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "add",
+                archive.to_str().unwrap(),
+                update.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--dry-run",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["added"], 1);
+        assert_eq!(value["replaced"], 1);
+        assert_eq!(value["preserved"], 1);
+        assert!(!output.exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_all_command_dry_run_reports_targets_without_writing() {
+        let dir = unique_dir("extract-all-dry-run");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let output = dir.join("out");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "extract-all",
+                archive_path.to_str().unwrap(),
+                "--output",
+                output.to_str().unwrap(),
+                "--dry-run",
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["operation"], "extract-all");
+        assert_eq!(value["entries"].as_array().unwrap().len(), 2);
+        assert!(!output.exists());
         fs::remove_dir_all(dir).unwrap();
     }
 

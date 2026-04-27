@@ -76,6 +76,33 @@ pub struct ExtractSummary {
     pub skipped: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Plan for extracting every archive entry without writing files.
+pub struct ExtractAllPlan {
+    pub operation: String,
+    pub archive: String,
+    pub output: String,
+    pub entries: Vec<ExtractPlanEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A single planned extraction target.
+pub struct ExtractPlanEntry {
+    pub action: ExtractPlanAction,
+    pub path: String,
+    pub path_bytes_hex: String,
+    pub target: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+/// Planned extraction action.
+pub enum ExtractPlanAction {
+    Extract,
+    Skip,
+    Overwrite,
+}
+
 /// Read a single archive entry into memory.
 pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
@@ -164,6 +191,44 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         summary.skipped += result.skipped;
     }
     Ok(summary)
+}
+
+/// Plan full archive extraction without writing files.
+pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractAllPlan> {
+    let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
+    let archive = crate::loaded::LoadedArchive::open(path)?;
+    let entries = archive.list_loaded_entries()?;
+    if entries.len() != archive.file_count() {
+        return Err(ArchiveError::Archive(
+            "archive contains entries without recoverable paths; refusing to extract it lossy"
+                .to_string(),
+        ));
+    }
+    let targets = planned_extract_targets(&root, entries, options.overwrite)?;
+    let entries = targets
+        .into_iter()
+        .map(|target| {
+            let action = if options.overwrite == OverwriteMode::Skip && target.path.exists() {
+                ExtractPlanAction::Skip
+            } else if options.overwrite == OverwriteMode::Overwrite && target.path.exists() {
+                ExtractPlanAction::Overwrite
+            } else {
+                ExtractPlanAction::Extract
+            };
+            ExtractPlanEntry {
+                action,
+                path: crate::paths::archive_path_bytes_to_display(&target.archive_path),
+                path_bytes_hex: crate::paths::archive_path_bytes_to_hex(&target.archive_path),
+                target: target.path.display().to_string(),
+            }
+        })
+        .collect();
+    Ok(ExtractAllPlan {
+        operation: "extract-all".to_string(),
+        archive: path.display().to_string(),
+        output: root.display().to_string(),
+        entries,
+    })
 }
 
 #[derive(Debug)]

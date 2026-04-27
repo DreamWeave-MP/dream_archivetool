@@ -4,8 +4,8 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AddOptions, ArchiveEntry, ArchiveFormat, CreateOptions, ExtractAllOptions, ExtractOptions,
-    ExtractSummary, Result, VerifyOptions, VerifyReport,
+    AddOptions, AddPlan, ArchiveEntry, ArchiveFormat, CreateOptions, CreatePlan, ExtractAllOptions,
+    ExtractAllPlan, ExtractOptions, ExtractSummary, Result, VerifyOptions, VerifyReport,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -315,6 +315,14 @@ impl ArchiveTool {
         crate::extract::extract_all(path.as_ref(), options)
     }
 
+    /// Plan full archive extraction without writing files.
+    pub fn plan_extract_all(
+        path: impl AsRef<Path>,
+        options: &ExtractAllOptions,
+    ) -> Result<ExtractAllPlan> {
+        crate::extract::plan_extract_all(path.as_ref(), options)
+    }
+
     /// Create a new archive from a file or directory.
     ///
     /// Returns the number of entries written. Existing output is replaced only after a successful
@@ -327,12 +335,26 @@ impl ArchiveTool {
         crate::create::create_archive(output.as_ref(), input.as_ref(), options)
     }
 
+    /// Plan archive creation without writing output.
+    pub fn plan_create(
+        output: impl AsRef<Path>,
+        input: impl AsRef<Path>,
+        options: &CreateOptions,
+    ) -> Result<CreatePlan> {
+        crate::create::plan_create_archive(output.as_ref(), input.as_ref(), options)
+    }
+
     /// Add or replace entries by writing a new archive to `options.output`.
     ///
     /// The source archive is not modified in place. New inputs replace existing archive entries with
     /// the same archive path.
     pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
         crate::create::add_to_archive(path.as_ref(), options)
+    }
+
+    /// Plan archive add/update without writing output.
+    pub fn plan_add(path: impl AsRef<Path>, options: &AddOptions) -> Result<AddPlan> {
+        crate::create::plan_add_to_archive(path.as_ref(), options)
     }
 
     /// Verify archive index health and, optionally, payload readability.

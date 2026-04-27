@@ -41,9 +41,15 @@ pub mod verify;
 pub mod lua;
 
 pub use archive::{ArchiveInfo, ArchiveTool, Fo4Info, OpenArchive, Tes4Info};
-pub use create::{AddOptions, CreateOptions, Fo4ArchiveKind, Fo4Version, Tes4Version};
+pub use create::{
+    AddOptions, AddPlan, ArchivePlanAction, ArchivePlanEntry, CreateOptions, CreatePlan,
+    Fo4ArchiveKind, Fo4Version, Tes4Version,
+};
 pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
-pub use extract::{ExtractAllOptions, ExtractOptions, ExtractSummary, OverwriteMode};
+pub use extract::{
+    ExtractAllOptions, ExtractAllPlan, ExtractOptions, ExtractPlanAction, ExtractPlanEntry,
+    ExtractSummary, OverwriteMode,
+};
 pub use format::ArchiveFormat;
 pub use verify::{VerifyOptions, VerifyPathIssue, VerifyReport, verify_archive};

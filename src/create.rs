@@ -12,7 +12,9 @@ use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::ArchiveFormat;
-use crate::paths::{archive_path_bytes_to_display, path_to_archive_bytes};
+use crate::paths::{
+    archive_path_bytes_to_display, archive_path_bytes_to_hex, path_to_archive_bytes,
+};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone)]
@@ -51,6 +53,51 @@ pub struct AddOptions {
     pub output: PathBuf,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Plan for creating an archive without writing it.
+pub struct CreatePlan {
+    pub operation: String,
+    pub format: ArchiveFormat,
+    pub output: String,
+    pub files: usize,
+    pub entries: Vec<ArchivePlanEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Plan for adding to an archive without writing it.
+pub struct AddPlan {
+    pub operation: String,
+    pub archive: String,
+    pub output: String,
+    pub format: ArchiveFormat,
+    pub files: usize,
+    pub added: usize,
+    pub replaced: usize,
+    pub preserved: usize,
+    pub entries: Vec<ArchivePlanEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A single archive mutation planned action.
+pub struct ArchivePlanEntry {
+    pub action: ArchivePlanAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    pub path: String,
+    pub path_bytes_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+/// Planned archive mutation action.
+pub enum ArchivePlanAction {
+    Add,
+    Replace,
+    Preserve,
 }
 
 /// Supported TES4-family BSA versions for archive creation.
@@ -102,6 +149,28 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
     write_entries(output, input_entries, options)
 }
 
+/// Plan archive creation without writing output.
+pub fn plan_create_archive(
+    output: &Path,
+    input: &Path,
+    options: &CreateOptions,
+) -> Result<CreatePlan> {
+    reject_unsupported_create_options(options)?;
+    let input_entries = collect_input_entry_paths(input)?;
+    preflight_create_paths(input_entries.keys(), options)?;
+    let entries = input_entries
+        .iter()
+        .map(|(path, source)| plan_entry(ArchivePlanAction::Add, path, Some(source)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(CreatePlan {
+        operation: "create".to_string(),
+        format: options.format,
+        output: output.display().to_string(),
+        files: entries.len(),
+        entries,
+    })
+}
+
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
     if options.format == ArchiveFormat::Fo4 && options.fo4_kind == Fo4ArchiveKind::Gnmf {
         return Err(ArchiveError::Archive(
@@ -130,6 +199,57 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
     }
     preflight_add_paths(input_entries.keys(), &archive)?;
     write_entries_like(&options.output, input_entries, &archive, options.fsync)
+}
+
+/// Plan archive add/update without writing output.
+pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<AddPlan> {
+    if options.inputs.is_empty() {
+        return Err(ArchiveError::Archive("no input files supplied".to_string()));
+    }
+    reject_same_archive_output(archive_path, &options.output)?;
+    let archive = crate::loaded::LoadedArchive::open(archive_path)?;
+    reject_unrewritable_archive(&archive)?;
+    let mut input_entries = BTreeMap::new();
+    for input in &options.inputs {
+        for (path, source) in collect_input_entry_paths(input)? {
+            insert_input_path(&mut input_entries, &path, source)?;
+        }
+    }
+    preflight_add_paths(input_entries.keys(), &archive)?;
+
+    let existing = existing_archive_paths(&archive)?;
+    let mut entries = Vec::new();
+    let mut added = 0;
+    let mut replaced = 0;
+    let mut preserved = 0;
+    for path in &existing {
+        if input_entries.contains_key(path) {
+            replaced += 1;
+        } else {
+            preserved += 1;
+            entries.push(plan_entry(ArchivePlanAction::Preserve, path, None)?);
+        }
+    }
+    for (path, source) in &input_entries {
+        let action = if existing.contains(path) {
+            ArchivePlanAction::Replace
+        } else {
+            added += 1;
+            ArchivePlanAction::Add
+        };
+        entries.push(plan_entry(action, path, Some(source))?);
+    }
+    Ok(AddPlan {
+        operation: "add".to_string(),
+        archive: archive_path.display().to_string(),
+        output: options.output.display().to_string(),
+        format: archive.format(),
+        files: entries.len(),
+        added,
+        replaced,
+        preserved,
+        entries,
+    })
 }
 
 fn reject_same_archive_output(input: &Path, output: &Path) -> Result<()> {
@@ -264,6 +384,15 @@ fn count_rewritten_entries(
     inputs: &BTreeMap<Vec<u8>, PathBuf>,
     archive: &crate::loaded::LoadedArchive,
 ) -> Result<usize> {
+    let existing = existing_archive_paths(archive)?;
+    Ok(existing
+        .iter()
+        .filter(|path| !inputs.contains_key(*path))
+        .count()
+        + inputs.len())
+}
+
+fn existing_archive_paths(archive: &crate::loaded::LoadedArchive) -> Result<BTreeSet<Vec<u8>>> {
     let mut existing = BTreeSet::new();
     match archive {
         crate::loaded::LoadedArchive::Tes3(archive) => {
@@ -295,11 +424,25 @@ fn count_rewritten_entries(
             }
         }
     }
-    Ok(existing
-        .iter()
-        .filter(|path| !inputs.contains_key(*path))
-        .count()
-        + inputs.len())
+    Ok(existing)
+}
+
+fn plan_entry(
+    action: ArchivePlanAction,
+    path: &[u8],
+    source: Option<&PathBuf>,
+) -> Result<ArchivePlanEntry> {
+    let size = source
+        .map(fs::metadata)
+        .transpose()?
+        .map(|metadata| metadata.len());
+    Ok(ArchivePlanEntry {
+        action,
+        source: source.map(|path| path.display().to_string()),
+        path: archive_path_bytes_to_display(path),
+        path_bytes_hex: archive_path_bytes_to_hex(path),
+        size,
+    })
 }
 
 fn write_entries_to_file(
