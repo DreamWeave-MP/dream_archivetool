@@ -9,8 +9,8 @@
 //! Lua string boundaries are part of the API contract. Filesystem paths are UTF-8 host paths.
 //! Archive entry paths are byte strings, so `dream_archive` entry paths can be passed straight to
 //! [`dream_archivetool.extract`](create_module) without pretending arbitrary archive bytes are text.
-//! Report display `path` fields are for humans; `path_bytes_hex` is the stable round-trip identity.
-//! Wide archive sizes are exposed as decimal strings because `LuaJIT` numbers are not a u64
+//! Report display `path` fields are for humans; `path_bytes_hex` is the stable normalized lookup
+//! key. Wide archive sizes are exposed as decimal strings because `LuaJIT` numbers are not a u64
 //! transport.
 
 use std::path::PathBuf;
@@ -29,14 +29,14 @@ use crate::{
 /// Create a Lua table for common [`ArchiveTool`] operations.
 ///
 /// The returned table contains tool-policy operations: `info`, `verify`, `diff`, `extract`,
-/// `extract_by_path_hex`, `extract_hex`, `extract_many`, `plan_extract`, `extract_all`,
-/// `plan_extract_all`, `create`, `plan_create`, `add`, and `plan_add`. Archive-format primitives
-/// such as listing and payload reads belong to `dream_archive`'s Lua API instead. Archive entry
-/// arguments are Lua byte strings, so `dream_archive` entry paths can be passed to extraction
-/// functions without a UTF-8 boundary. The table is not registered globally unless [`register`] is
-/// called.
+/// `extract_by_path_hex`, `extract_hex`, `extract_many`, `extract_many_by_path_hex`,
+/// `plan_extract`, `plan_extract_by_path_hex`, `extract_all`, `plan_extract_all`, `create`,
+/// `plan_create`, `add`, and `plan_add`. Archive-format primitives such as listing and payload
+/// reads belong to `dream_archive`'s Lua API instead. Archive entry arguments are Lua byte strings,
+/// so `dream_archive` entry paths can be passed to extraction functions without a UTF-8 boundary.
+/// The table is not registered globally unless [`register`] is called.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
-    let module = lua.create_table_with_capacity(0, 14)?;
+    let module = lua.create_table_with_capacity(0, 16)?;
 
     module.set(
         "info",
@@ -97,6 +97,44 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
                 })?;
                 let entries = lua_byte_string_array(&entries, "plan_extract", "entries")?;
                 let options = extract_options(opts, "plan_extract")?;
+                let plan =
+                    ArchiveTool::plan_extract_many_by_path_bytes(path.as_ref(), &entries, &options)
+                        .map_err(LuaError::external)?;
+                extract_all_plan_table(lua, plan)
+            },
+        )?,
+    )?;
+    module.set(
+        "extract_many_by_path_hex",
+        lua.create_function(
+            |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
+                let path = path.to_str().map_err(|_| {
+                    LuaError::external(
+                        "extract_many_by_path_hex.path must be a UTF-8 host path string",
+                    )
+                })?;
+                let entries =
+                    lua_hex_string_array(&entries, "extract_many_by_path_hex", "entries")?;
+                let options = extract_options(opts, "extract_many_by_path_hex")?;
+                let summary =
+                    ArchiveTool::extract_many_by_path_bytes(path.as_ref(), &entries, &options)
+                        .map_err(LuaError::external)?;
+                summary_table(lua, summary.extracted, summary.skipped)
+            },
+        )?,
+    )?;
+    module.set(
+        "plan_extract_by_path_hex",
+        lua.create_function(
+            |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
+                let path = path.to_str().map_err(|_| {
+                    LuaError::external(
+                        "plan_extract_by_path_hex.path must be a UTF-8 host path string",
+                    )
+                })?;
+                let entries =
+                    lua_hex_string_array(&entries, "plan_extract_by_path_hex", "entries")?;
+                let options = extract_options(opts, "plan_extract_by_path_hex")?;
                 let plan =
                     ArchiveTool::plan_extract_many_by_path_bytes(path.as_ref(), &entries, &options)
                         .map_err(LuaError::external)?;
@@ -394,7 +432,7 @@ fn extract_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractOptio
         &["output", "overwrite", "preserve_paths", "fsync"],
     )?;
     Ok(ExtractOptions {
-        output: optional_path(optional_string_field(&opts, context, "output")?)?,
+        output: optional_path_field(&opts, context, "output")?,
         overwrite: parse_optional_overwrite(optional_string_field(&opts, context, "overwrite")?)?,
         preserve_paths: opts.get::<Option<bool>>("preserve_paths")?.unwrap_or(true),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
@@ -407,7 +445,7 @@ fn extract_all_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractA
     };
     reject_unknown_options(&opts, context, &["output", "overwrite", "fsync"])?;
     Ok(ExtractAllOptions {
-        output: optional_path(optional_string_field(&opts, context, "output")?)?,
+        output: optional_path_field(&opts, context, "output")?,
         overwrite: parse_optional_overwrite(optional_string_field(&opts, context, "overwrite")?)?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
@@ -519,10 +557,24 @@ fn lua_byte_string_array(entries: &Table, context: &str, field: &str) -> LuaResu
     Ok(paths)
 }
 
-fn optional_path(value: Option<LuaString>) -> LuaResult<Option<PathBuf>> {
-    value
-        .map(|value| value.to_str().map(|value| PathBuf::from(value.as_ref())))
-        .transpose()
+fn lua_hex_string_array(entries: &Table, context: &str, field: &str) -> LuaResult<Vec<Vec<u8>>> {
+    let len = validate_dense_string_array(entries, context, field)?;
+    let mut paths = Vec::with_capacity(len);
+    for index in 1..=len {
+        let value: LuaString = entries.raw_get(index)?;
+        let value = value.to_str().map_err(|_| {
+            LuaError::external(format!(
+                "{context}.{field}[{index}] must be a UTF-8 path_bytes_hex string"
+            ))
+        })?;
+        let path = crate::path::decode_archive_path_hex(value.as_ref()).map_err(|err| {
+            LuaError::external(format!(
+                "{context}.{field}[{index}]: invalid path_bytes_hex: {err}"
+            ))
+        })?;
+        paths.push(path);
+    }
+    Ok(paths)
 }
 
 fn parse_optional_format(value: Option<LuaString>) -> LuaResult<ArchiveFormat> {
@@ -1176,6 +1228,44 @@ mod tests {
     }
 
     #[test]
+    fn lua_extract_many_can_use_hex_paths() {
+        let dir = unique_dir("extract-many-hex");
+        let archive = create_test_archive(&dir);
+        let output = dir.join("output");
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", output.to_str().unwrap())
+            .unwrap();
+
+        let (action, extracted): (String, usize) = lua
+            .load(
+                r"
+                local entries = { '74657874757265732f6578616d706c652e646473' }
+                local plan = dream_archivetool.plan_extract_by_path_hex(archive_path, entries, {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                local summary = dream_archivetool.extract_many_by_path_hex(archive_path, entries, {
+                    output = output_path,
+                    preserve_paths = false,
+                })
+                return plan.entries[1].action, summary.extracted
+            ",
+            )
+            .eval()
+            .unwrap();
+
+        assert_eq!(action, "extract");
+        assert_eq!(extracted, 1);
+        assert_eq!(fs::read(output.join("example.dds")).unwrap(), b"hello");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn lua_extract_can_overwrite_existing_file() {
         let dir = unique_dir("extract-overwrite");
         let archive = create_test_archive(&dir);
@@ -1587,6 +1677,58 @@ mod tests {
         assert!(
             err.to_string()
                 .contains("add.output must be a UTF-8 host path string")
+        );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_reports_hex_batch_and_output_path_contexts() {
+        let dir = unique_dir("hex-output-contexts");
+        let archive = create_test_archive(&dir);
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+
+        let err = lua
+            .load("return dream_archivetool.extract_many_by_path_hex(archive_path, { 'not-hex' })")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract_many_by_path_hex.entries[1]: invalid path_bytes_hex")
+        );
+
+        let err = lua
+            .load(
+                r"
+                return dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                    output = 12,
+                })
+            ",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract.output must be a UTF-8 host path string")
+        );
+
+        let err = lua
+            .load(
+                r"
+                return dream_archivetool.extract_all(archive_path, {
+                    output = 12,
+                })
+            ",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract_all.output must be a UTF-8 host path string")
         );
 
         fs::remove_dir_all(dir).unwrap();

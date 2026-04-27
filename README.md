@@ -185,7 +185,7 @@ dream_archivetool::lua::register(&lua)?;
 
 The registered `dream_archivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Lua API.
 
-Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` and `extract_many(path, entries, opts)` accept the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex` accept the serialized `path_bytes_hex` identity used by archivetool reports. This bridge only applies to entries with a non-`nil` `entry.path`; hash-only or unnameable entries belong to lower-level `dream_archive` APIs and are not safe path-policy extraction targets. Display `path` fields are for people; `path_bytes_hex` is the stable round-trip value. In `dream_archivetool` reports/plans, wide archive sizes (`size`, `compressed_size`) are decimal strings, not Lua numbers, because LuaJIT numbers are not a u64 transport. Counts such as `files`, `added`, and `extracted` remain Lua numbers for practical archive counts, not 64-bit identity values.
+Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` and `extract_many(path, entries, opts)` accept the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex`, `extract_many_by_path_hex`, and `plan_extract_by_path_hex` accept the serialized `path_bytes_hex` lookup key used by archivetool reports. This bridge only applies to entries with a non-`nil` `entry.path`; hash-only or unnameable entries belong to lower-level `dream_archive` APIs and are not safe path-policy extraction targets. Display `path` fields are for people; `path_bytes_hex` is the stable normalized lookup key, not a promise that two raw archive names cannot collide after normalization. If duplicate normalized paths matter, use `verify` to detect them and drop to `dream_archive` raw/index APIs for archaeology. In `dream_archivetool` reports/plans, wide archive sizes (`size`, `compressed_size`) are decimal strings, not Lua numbers, because LuaJIT numbers are not a u64 transport. Counts such as `files`, `added`, and `extracted` remain Lua numbers for practical archive counts, not 64-bit identity values.
 
 The `lua` feature enables compatible Lua support in `dream_archive`, including its re-exported `dream_path` helpers. Embedding applications should register `dream_path`, `dream_archive`, and `dream_archivetool` into the same Lua state when they need the whole stack. `dream_archivetool` does not install those dependency globals behind your back; hidden globals are how APIs become haunted furniture.
 
@@ -207,10 +207,18 @@ local selected_plan = tool.plan_extract("Morrowind.bsa", { entry.path }, {
   output = "selected-out",
 })
 
+-- Stable report/plan bridge: use hex batch APIs when selecting from path_bytes_hex fields.
+local selected_hex_plan = tool.plan_extract_by_path_hex("Morrowind.bsa", {
+  "69636f6e732f676f6c642e646473",
+}, { output = "selected-out" })
+
 -- Mutating: writes the selected entries now, opening the archive once for the batch.
 local selected = tool.extract_many("Morrowind.bsa", { entry.path }, {
   output = "selected-out",
 })
+local selected_by_hex = tool.extract_many_by_path_hex("Morrowind.bsa", {
+  "69636f6e732f676f6c642e646473",
+}, { output = "selected-out" })
 
 -- Mutating: writes one file now.
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
@@ -272,6 +280,8 @@ Lua functions and return values:
 - `plan_extract(path, entry_bytes_array, opts?) -> { operation, archive, output, entries }`
 - `extract_by_path_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
 - `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }` compatibility alias
+- `extract_many_by_path_hex(path, path_bytes_hex_array, opts?) -> { extracted, skipped }`
+- `plan_extract_by_path_hex(path, path_bytes_hex_array, opts?) -> { operation, archive, output, entries }`
 - `extract_all(path, opts?) -> { extracted, skipped }`
 - `plan_extract_all(path, opts?) -> { operation, archive, output, entries }`
 - `create(output, input, opts?) -> { files }`
@@ -279,11 +289,13 @@ Lua functions and return values:
 - `add(path, opts) -> { files }`
 - `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
 
-Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Never use display `path` as an identity key when non-UTF-8 archive names matter; use `path_bytes_hex`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for normalized lookup. Never feed display `path` back as identity when non-UTF-8 archive names matter; use the `*_by_path_hex` functions or raw byte strings from `dream_archive`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Nested entry table shapes:
 
 - verify path issue: `{ path, path_bytes_hex, raw_path_bytes_hex, colliding_raw_path_bytes_hex? }`
+- info TES4 table: `{ version, archive_types, archive_types_bits, archive_flags, archive_flags_bits, unsupported_archive_flags_bits, name_mode }`
+- info BA2 table: `{ version, payload_format, compression_format, strings }`
 - diff entry: `{ path, path_bytes_hex, size?, compressed_size?, payload_fingerprint? }`
 - diff change: `{ path, path_bytes_hex, old, new }`, where `old` / `new` are diff entry states
 - extract plan entry: `{ action, path, path_bytes_hex, target }`, with `action = "extract" | "skip" | "overwrite"`
@@ -293,15 +305,18 @@ Lua option tables:
 
 - `extract`: `output`, `overwrite`, `preserve_paths`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
 - `extract_many`: same options as `extract`; `entries` must be a dense array of archive path byte strings
+- `extract_many_by_path_hex`: same options as `extract`; `entries` must be a dense array of `path_bytes_hex` strings
 - `extract_all`: `output`, `overwrite`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
 - `verify`: `read_payloads`
 - `diff`: `fingerprint_payloads`
 - `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`; `format = "bsa-tes3" | "bsa-tes4" | "ba2"` (`"tes3"` / `"tes4"` aliases accepted); `tes4_version = "oblivion" | "fallout3" | "fallout-3" | "skyrim" | "skyrim-se" | "sse"`; `ba2_kind = "gnrl" | "dx10" | "gnmf"`; `ba2_version = "fallout4" | "fallout-4" | "starfield" | "fallout4-next-gen" | "fallout-4-next-gen"`
 - `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
 
-`plan_extract`, `plan_extract_all`, `plan_create`, and `plan_add` accept the same options as `extract_many`, `extract_all`, `create`, and `add` respectively.
+`plan_extract`, `plan_extract_by_path_hex`, `plan_extract_all`, `plan_create`, and `plan_add` accept the same options as `extract_many`, `extract_many_by_path_hex`, `extract_all`, `create`, and `add` respectively. Plan results are advisory snapshots: they do not reserve archive contents, input directories, output paths, or symlink state. Mutating calls repeat policy checks and can still fail if the world changed. Yes, the filesystem is still a shared mutable global; c a p i t u l a t e.
 
-Defaults: `format = "bsa-tes3"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, omitted extraction `output` writes under the current directory, and omitted add `output` rewrites the source archive.
+Defaults: `format = "bsa-tes3"`, `tes4_version = "oblivion"`, `ba2_kind = "gnrl"`, `ba2_version = "fallout4"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, omitted extraction `output` writes under the current directory, and omitted add `output` rewrites the source archive.
+
+Path-based `dream_archivetool` Lua calls reopen the archive path passed to them. If you list with `dream_archive.open_path(path):entries()` and then call `dream_archivetool.extract_many(path, ...)`, the extraction is not bound to the already-opened `dream_archive` userdata; replacing the file between those two calls means you selected from one archive state and extracted from another. For now, keep the list/plan/execute sequence close together and treat execute-time errors as real, not surprising.
 
 ## Safety
 
@@ -312,6 +327,8 @@ Archive creation and update write to a temporary file in the output directory, t
 ## Performance
 
 The stateless `ArchiveTool` facade opens archives once per high-level operation; use `ArchiveTool::open` / `OpenArchive` for repeated list/read/extract calls against the same archive. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
+
+Lua report and plan functions materialize their result tables. `verify`, `diff`, `plan_extract_all`, and large selected-entry plans can therefore allocate a lot of Lua objects and put pressure on LuaJIT's GC. Batch extraction opens the archive once for the batch, but selected entry arrays are validated and copied at the Rust boundary. Prefer `extract_many` / `extract_many_by_path_hex` over looping single-entry extraction; prefer `dream_archive` primitives when you only need low-level listing or payload reads.
 
 Archive creation and update preflight archive paths and format policy before adding deferred payload sources to the backend builders. TES3, TES4, and BA2 GNRL creation pass filesystem paths to `dream_archive` rather than preloading payloads in `dream-archivetool`. `add` preserves unchanged TES3, TES4, and BA2 GNRL entries from the source archive through deferred archive-entry sources instead of decoding them into `dream-archivetool` memory. BA2 DX10 still has to parse DDS texture data through the backend texture builder, and preserved entries are buffered during rewrite because the texture builder currently has no archive-entry preservation API. Annoying, but at least now the code says what it is doing.
 
