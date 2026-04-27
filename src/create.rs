@@ -1,8 +1,10 @@
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use clap::ValueEnum;
+use dream_archive::ByteSlice as _;
 use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
 use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
 use serde::{Deserialize, Serialize};
@@ -97,8 +99,7 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
     reject_unsupported_create_options(options)?;
     let input_entries = collect_input_entry_paths(input)?;
     preflight_create_paths(input_entries.keys(), options)?;
-    let entries = read_input_entries(input_entries)?;
-    write_entries(output, entries, options)
+    write_entries(output, input_entries, options)
 }
 
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
@@ -128,28 +129,7 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
         }
     }
     preflight_add_paths(input_entries.keys(), &archive)?;
-    let mut entries = read_input_entries(input_entries)?;
-    let mut existing_keys = BTreeSet::new();
-    for entry in archive.list_loaded_entries()? {
-        let key = entry.path;
-        if !existing_keys.insert(key.clone()) {
-            return Err(ArchiveError::Archive(format!(
-                "archive contains duplicate normalized path: {}",
-                archive_path_bytes_to_display(&key)
-            )));
-        }
-        if entries.contains_key(&key) {
-            continue;
-        }
-        match entries.entry(key) {
-            Entry::Vacant(entry_slot) => {
-                let bytes = archive.read_entry_bytes_by_normalized_path(entry_slot.key())?;
-                entry_slot.insert(bytes);
-            }
-            Entry::Occupied(_) => unreachable!("input keys were handled before archive insertion"),
-        }
-    }
-    write_entries_like(&options.output, entries, &archive, options.fsync)
+    write_entries_like(&options.output, input_entries, &archive, options.fsync)
 }
 
 fn reject_same_archive_output(input: &Path, output: &Path) -> Result<()> {
@@ -239,14 +219,6 @@ fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>, PathBuf>>
     Ok(entries)
 }
 
-fn read_input_entries(inputs: BTreeMap<Vec<u8>, PathBuf>) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
-    let mut entries = BTreeMap::new();
-    for (archive_path, source_path) in inputs {
-        entries.insert(archive_path, fs::read(source_path)?);
-    }
-    Ok(entries)
-}
-
 fn insert_input_path(
     entries: &mut BTreeMap<Vec<u8>, PathBuf>,
     path: &[u8],
@@ -263,7 +235,7 @@ fn insert_input_path(
 
 fn write_entries(
     output: &Path,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     options: &CreateOptions,
 ) -> Result<usize> {
     let count = entries.len();
@@ -275,22 +247,64 @@ fn write_entries(
 
 fn write_entries_like(
     output: &Path,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &crate::loaded::LoadedArchive,
     fsync: bool,
 ) -> Result<usize> {
-    let count = entries.len();
+    let count = count_rewritten_entries(&entries, archive)?;
     with_temp_output(output, fsync, |file| match archive {
-        crate::loaded::LoadedArchive::Tes3(_) => write_tes3(file, entries),
+        crate::loaded::LoadedArchive::Tes3(archive) => write_tes3_like(file, entries, archive),
         crate::loaded::LoadedArchive::Tes4(archive) => write_tes4_like(file, entries, archive),
         crate::loaded::LoadedArchive::Fo4(archive) => write_fo4_like(file, entries, archive),
     })?;
     Ok(count)
 }
 
+fn count_rewritten_entries(
+    inputs: &BTreeMap<Vec<u8>, PathBuf>,
+    archive: &crate::loaded::LoadedArchive,
+) -> Result<usize> {
+    let mut existing = BTreeSet::new();
+    match archive {
+        crate::loaded::LoadedArchive::Tes3(archive) => {
+            for entry in archive.entries() {
+                insert_existing_archive_path(
+                    &mut existing,
+                    &crate::paths::normalize_archive_path_bytes(entry.path().as_bytes()),
+                )?;
+            }
+        }
+        crate::loaded::LoadedArchive::Tes4(archive) => {
+            for entry in archive.entries() {
+                let Some(path) = entry.path() else { continue };
+                insert_existing_archive_path(
+                    &mut existing,
+                    &crate::paths::normalize_archive_path_bytes(path.as_bytes()),
+                )?;
+            }
+        }
+        crate::loaded::LoadedArchive::Fo4(archive) => {
+            for entry in archive.entries() {
+                if entry.name().is_empty() {
+                    continue;
+                }
+                insert_existing_archive_path(
+                    &mut existing,
+                    &crate::paths::normalize_archive_path_bytes(entry.name().as_bytes()),
+                )?;
+            }
+        }
+    }
+    Ok(existing
+        .iter()
+        .filter(|path| !inputs.contains_key(*path))
+        .count()
+        + inputs.len())
+}
+
 fn write_entries_to_file(
     file: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     options: &CreateOptions,
 ) -> Result<()> {
     match options.format {
@@ -353,10 +367,6 @@ fn preflight_add_paths<'a>(
     Ok(())
 }
 
-fn validate_fo4_entries(entries: &BTreeMap<Vec<u8>, Vec<u8>>, kind: Fo4ArchiveKind) -> Result<()> {
-    validate_fo4_paths(entries.keys(), kind)
-}
-
 fn validate_fo4_paths<'a>(
     paths: impl IntoIterator<Item = &'a Vec<u8>>,
     kind: Fo4ArchiveKind,
@@ -390,21 +400,50 @@ fn has_extension(path: &[u8], expected: &[u8]) -> bool {
         .is_some_and(|extension| extension == expected)
 }
 
-fn write_tes3(output: &mut fs::File, entries: BTreeMap<Vec<u8>, Vec<u8>>) -> Result<()> {
-    let mut builder = dream_archive::Tes3BsaBuilder::new();
-    for (path, bytes) in entries {
-        builder
-            .add_bytes(&path, bytes)
-            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+fn insert_existing_archive_path(existing: &mut BTreeSet<Vec<u8>>, path: &[u8]) -> Result<()> {
+    if !existing.insert(path.to_vec()) {
+        return Err(ArchiveError::Archive(format!(
+            "archive contains duplicate normalized path: {}",
+            archive_path_bytes_to_display(path)
+        )));
     }
-    builder
-        .write_to(output)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    Ok(())
+}
+
+fn write_tes3(output: &mut fs::File, entries: BTreeMap<Vec<u8>, PathBuf>) -> Result<()> {
+    let mut builder = dream_archive::Tes3BsaBuilder::new();
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
+    }
+    builder.write_seek(output).map_err(archive_error)
+}
+
+fn write_tes3_like(
+    output: &mut fs::File,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
+    archive: &dream_archive::bsa::tes3::Archive,
+) -> Result<()> {
+    let mut builder = dream_archive::Tes3BsaBuilder::new();
+    let source_archive = Arc::new(archive.clone());
+    let mut existing_keys = BTreeSet::new();
+    for (id, entry) in archive.entries_with_ids() {
+        let key = crate::paths::normalize_archive_path_bytes(entry.path().as_bytes());
+        insert_existing_archive_path(&mut existing_keys, &key)?;
+        if !entries.contains_key(&key) {
+            builder
+                .add_archive_entry(&key, Arc::clone(&source_archive), id)
+                .map_err(archive_error)?;
+        }
+    }
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
+    }
+    builder.write_seek(output).map_err(archive_error)
 }
 
 fn write_tes4(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     version: Tes4Version,
 ) -> Result<()> {
     let mut builder = dream_archive::Tes4BsaBuilder::new();
@@ -418,7 +457,7 @@ fn write_tes4(
 
 fn write_tes4_like(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::bsa::tes4::Archive,
 ) -> Result<()> {
     let info = archive.info();
@@ -453,27 +492,38 @@ fn write_tes4_like(
             }
         },
     );
-    write_tes4_builder(output, entries, builder)
+    let source_archive = Arc::new(archive.clone());
+    let mut existing_keys = BTreeSet::new();
+    for (id, entry) in archive.entries_with_ids() {
+        let Some(path) = entry.path() else { continue };
+        let key = crate::paths::normalize_archive_path_bytes(path.as_bytes());
+        insert_existing_archive_path(&mut existing_keys, &key)?;
+        if !entries.contains_key(&key) {
+            builder
+                .add_archive_entry(&key, Arc::clone(&source_archive), id)
+                .map_err(archive_error)?;
+        }
+    }
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
+    }
+    builder.write_seek(output).map_err(archive_error)
 }
 
 fn write_tes4_builder(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     mut builder: dream_archive::Tes4BsaBuilder,
 ) -> Result<()> {
-    for (path, bytes) in entries {
-        builder
-            .add_bytes(&path, bytes)
-            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
     }
-    builder
-        .write_to(output)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    builder.write_seek(output).map_err(archive_error)
 }
 
 fn write_fo4(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     kind: Fo4ArchiveKind,
     version: Fo4Version,
 ) -> Result<()> {
@@ -492,20 +542,47 @@ fn write_fo4(
 
 fn write_fo4_like(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
 ) -> Result<()> {
     let info = archive.info();
-    write_fo4_with_format(output, entries, info.format, info.version)
+    if info.format == PayloadFormat::DX10 {
+        return write_dx10_fo4_like(output, entries, archive, info.version);
+    }
+    if info.format == PayloadFormat::GNMF {
+        return Err(ArchiveError::Archive(
+            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+        ));
+    }
+    let mut builder = dream_archive::Ba2Builder::new();
+    builder.set_version(info.version);
+    let source_archive = Arc::new(archive.clone());
+    let mut existing_keys = BTreeSet::new();
+    for (id, entry) in archive.entries_with_ids() {
+        if entry.name().is_empty() {
+            continue;
+        }
+        let key = crate::paths::normalize_archive_path_bytes(entry.name().as_bytes());
+        insert_existing_archive_path(&mut existing_keys, &key)?;
+        if !entries.contains_key(&key) {
+            builder
+                .add_archive_entry(&key, Arc::clone(&source_archive), id)
+                .map_err(archive_error)?;
+        }
+    }
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
+    }
+    builder.write_seek(output).map_err(archive_error)
 }
 
 fn write_fo4_with_format(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     format: PayloadFormat,
     version: Ba2ArchiveVersion,
 ) -> Result<()> {
-    validate_fo4_entries(&entries, fo4_kind_from_payload_format(format))?;
+    validate_fo4_paths(entries.keys(), fo4_kind_from_payload_format(format))?;
     if format == PayloadFormat::DX10 {
         return write_dx10_fo4(output, entries, version);
     }
@@ -516,31 +593,56 @@ fn write_fo4_with_format(
     }
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(version);
-    for (path, bytes) in entries {
-        builder
-            .add_bytes(&path, bytes)
-            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    for (path, source) in entries {
+        builder.add_file(&path, source).map_err(archive_error)?;
     }
-    builder
-        .write_to(output)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    builder.write_seek(output).map_err(archive_error)
 }
 
 fn write_dx10_fo4(
     output: &mut fs::File,
-    entries: BTreeMap<Vec<u8>, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
     version: Ba2ArchiveVersion,
 ) -> Result<()> {
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
-    for (path, bytes) in entries {
-        builder
-            .add_dds_bytes(&path, bytes)
-            .map_err(|err| ArchiveError::Archive(err.to_string()))?;
+    for (path, source) in entries {
+        builder.add_dds_file(&path, source).map_err(archive_error)?;
     }
-    builder
-        .write_to(output)
-        .map_err(|err| ArchiveError::Archive(err.to_string()))
+    builder.write_seek(output).map_err(archive_error)
+}
+
+fn write_dx10_fo4_like(
+    output: &mut fs::File,
+    entries: BTreeMap<Vec<u8>, PathBuf>,
+    archive: &dream_archive::ba2::Archive,
+    version: Ba2ArchiveVersion,
+) -> Result<()> {
+    let mut builder = dream_archive::Ba2Dx10Builder::new();
+    builder.set_version(version);
+    let mut existing_keys = BTreeSet::new();
+    for (id, entry) in archive.entries_with_ids() {
+        if entry.name().is_empty() {
+            continue;
+        }
+        let key = crate::paths::normalize_archive_path_bytes(entry.name().as_bytes());
+        insert_existing_archive_path(&mut existing_keys, &key)?;
+        if !entries.contains_key(&key) {
+            let mut bytes = Vec::new();
+            archive
+                .extract_entry_by_id(id, &mut bytes)
+                .map_err(archive_error)?;
+            builder.add_dds_bytes(&key, bytes).map_err(archive_error)?;
+        }
+    }
+    for (path, source) in entries {
+        builder.add_dds_file(&path, source).map_err(archive_error)?;
+    }
+    builder.write_seek(output).map_err(archive_error)
+}
+
+fn archive_error(err: impl std::fmt::Display) -> ArchiveError {
+    ArchiveError::Archive(err.to_string())
 }
 
 fn fo4_kind_from_payload_format(format: PayloadFormat) -> Fo4ArchiveKind {
@@ -798,9 +900,11 @@ mod tests {
         let dir = unique_dir("preserve-v3");
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
-        let entries = BTreeMap::from([(b"base.txt".to_vec(), b"base".to_vec())]);
+        let mut builder = dream_archive::Ba2Builder::new();
+        builder.set_version(Ba2ArchiveVersion::v3);
+        builder.add_bytes(b"base.txt", b"base").unwrap();
         with_temp_output(&archive, false, |file| {
-            write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v3)
+            builder.write_seek(file).map_err(archive_error)
         })
         .unwrap();
         let added = dir.join("added.txt");
@@ -827,9 +931,11 @@ mod tests {
         let dir = unique_dir("preserve-v8");
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
-        let entries = BTreeMap::from([(b"base.txt".to_vec(), b"base".to_vec())]);
+        let mut builder = dream_archive::Ba2Builder::new();
+        builder.set_version(Ba2ArchiveVersion::v8);
+        builder.add_bytes(b"base.txt", b"base").unwrap();
         with_temp_output(&archive, false, |file| {
-            write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v8)
+            builder.write_seek(file).map_err(archive_error)
         })
         .unwrap();
         let added = dir.join("added.txt");

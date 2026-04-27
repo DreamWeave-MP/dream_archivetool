@@ -22,8 +22,7 @@
 //!
 //! Extraction rejects absolute paths and parent-directory traversal. Disk extraction streams payloads
 //! into temporary files before replacing the destination. Archive creation and update preflight
-//! paths before reading payloads, but currently buffer archive entries in memory because the
-//! backend builder APIs require owned bytes.
+//! paths before handing deferred file/archive-entry sources to `dream_archive` builders.
 //!
 //! Enable the `lua` feature to register a `dream_archivetool` table that mirrors the public
 //! [`ArchiveTool`] API for embedded Lua callers.
