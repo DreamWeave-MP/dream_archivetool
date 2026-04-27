@@ -116,6 +116,7 @@ fn bench_extract_all(c: &mut Criterion) {
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Fail,
+                        fsync: false,
                     },
                 )
                 .unwrap();
@@ -139,6 +140,7 @@ fn bench_extract_all(c: &mut Criterion) {
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Skip,
+                        fsync: false,
                     },
                 )
                 .unwrap();
@@ -169,6 +171,7 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Fail,
+                        fsync: false,
                     },
                 )
                 .unwrap();
@@ -194,6 +197,7 @@ fn bench_tes4_and_fo4(c: &mut Criterion) {
                     &ExtractAllOptions {
                         output: Some(output.clone()),
                         overwrite: OverwriteMode::Fail,
+                        fsync: false,
                     },
                 )
                 .unwrap();
@@ -248,6 +252,7 @@ fn bench_create_and_add(c: &mut Criterion) {
                     &AddOptions {
                         inputs: vec![replacement.clone()],
                         output: output.clone(),
+                        fsync: false,
                     },
                 )
                 .unwrap();

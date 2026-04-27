@@ -59,9 +59,12 @@ enum Command {
         /// Write file bytes to stdout
         #[arg(
             long,
-            conflicts_with_all = ["output", "flat", "overwrite", "skip_existing"]
+            conflicts_with_all = ["output", "flat", "overwrite", "skip_existing", "fsync"]
         )]
         stdout: bool,
+        /// Sync file contents and parent directory after writing
+        #[arg(long, conflicts_with = "stdout")]
+        fsync: bool,
         /// Discard archive directories and write only the basename
         #[arg(long, conflicts_with = "stdout")]
         flat: bool,
@@ -71,6 +74,9 @@ enum Command {
         /// Leave existing files untouched
         #[arg(long, conflicts_with_all = ["overwrite", "stdout"])]
         skip_existing: bool,
+        /// Write JSON summary to stdout
+        #[arg(long, conflicts_with = "stdout")]
+        json: bool,
     },
     /// Extract every archive entry
     ExtractAll {
@@ -88,6 +94,9 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Sync file contents and parent directory after writing
+        #[arg(long)]
+        fsync: bool,
     },
     /// Create a new archive from a file or directory
     Create {
@@ -110,12 +119,16 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Sync file contents and parent directory after writing the archive
+        #[arg(long)]
+        fsync: bool,
     },
     /// Add or update entries by writing a new archive
     Add {
         /// Input archive path
         archive: PathBuf,
         /// Files or directories to add
+        #[arg(required = true)]
         inputs: Vec<PathBuf>,
         /// Output archive path
         #[arg(short, long)]
@@ -123,6 +136,9 @@ enum Command {
         /// Write JSON summary to stdout
         #[arg(long)]
         json: bool,
+        /// Sync file contents and parent directory after writing the archive
+        #[arg(long)]
+        fsync: bool,
     },
 }
 
@@ -167,18 +183,25 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             entry,
             output,
             stdout: stdout_mode,
+            fsync,
             flat,
             overwrite,
             skip_existing,
+            json,
         } => write_extract(
             stdout,
             ExtractCommandOptions {
                 archive,
                 entry,
-                output,
-                stdout_mode,
+                destination: if stdout_mode {
+                    ExtractDestination::Stdout
+                } else {
+                    ExtractDestination::Disk(output)
+                },
+                fsync,
                 preserve_paths: !flat,
                 overwrite: overwrite_mode(overwrite, skip_existing),
+                json,
             },
         ),
         Command::ExtractAll {
@@ -187,7 +210,15 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             overwrite,
             skip_existing,
             json,
-        } => write_extract_all(stdout, archive, output, overwrite, skip_existing, json),
+            fsync,
+        } => write_extract_all(
+            stdout,
+            archive,
+            output,
+            overwrite_mode(overwrite, skip_existing),
+            json,
+            fsync,
+        ),
         Command::Create {
             archive,
             input,
@@ -196,6 +227,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             ba2_kind,
             ba2_version,
             json,
+            fsync,
         } => write_create(
             stdout,
             archive,
@@ -205,6 +237,7 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
                 tes4_version,
                 fo4_kind: ba2_kind,
                 fo4_version: ba2_version,
+                fsync,
             },
             json,
         ),
@@ -213,7 +246,8 @@ fn handle_command(command: Command, stdout: &mut dyn Write) -> Result<()> {
             inputs,
             output,
             json,
-        } => write_add(stdout, archive, inputs, output, json),
+            fsync,
+        } => write_add(stdout, archive, inputs, output, json, fsync),
     }
 }
 
@@ -224,7 +258,7 @@ fn write_info(stdout: &mut dyn Write, archive: PathBuf, json: bool) -> Result<()
             .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
         writeln!(stdout)?;
     } else {
-        writeln!(stdout, "format: {:?}", info.format)?;
+        writeln!(stdout, "format: {}", format_name(info.format))?;
         writeln!(stdout, "files: {}", info.file_count)?;
     }
     Ok(())
@@ -254,44 +288,53 @@ fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) 
 struct ExtractCommandOptions {
     archive: PathBuf,
     entry: String,
-    output: Option<PathBuf>,
-    stdout_mode: bool,
+    destination: ExtractDestination,
+    fsync: bool,
     preserve_paths: bool,
     overwrite: OverwriteMode,
+    json: bool,
+}
+
+enum ExtractDestination {
+    Stdout,
+    Disk(Option<PathBuf>),
 }
 
 fn write_extract(stdout: &mut dyn Write, options: ExtractCommandOptions) -> Result<()> {
-    if options.stdout_mode {
-        let bytes = ArchiveTool::read_entry(&options.archive, &options.entry)?;
-        stdout.write_all(&bytes)?;
+    let ExtractDestination::Disk(output) = options.destination else {
+        ArchiveTool::extract_entry_to_writer(&options.archive, &options.entry, stdout)?;
         return Ok(());
-    }
+    };
     let extract_options = ExtractOptions {
-        output: options.output,
+        output,
         overwrite: options.overwrite,
         preserve_paths: options.preserve_paths,
+        fsync: options.fsync,
     };
     let summary = ArchiveTool::extract(options.archive, &options.entry, &extract_options)?;
-    write_summary(stdout, &summary)
+    if options.json {
+        write_summary_json(stdout, &summary)
+    } else {
+        write_summary(stdout, &summary)
+    }
 }
 
 fn write_extract_all(
     stdout: &mut dyn Write,
     archive: PathBuf,
     output: Option<PathBuf>,
-    overwrite: bool,
-    skip_existing: bool,
+    overwrite: OverwriteMode,
     json: bool,
+    fsync: bool,
 ) -> Result<()> {
     let options = ExtractAllOptions {
         output,
-        overwrite: overwrite_mode(overwrite, skip_existing),
+        overwrite,
+        fsync,
     };
     let summary = ArchiveTool::extract_all(archive, &options)?;
     if json {
-        serde_json::to_writer_pretty(&mut *stdout, &summary)
-            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-        writeln!(stdout)?;
+        write_summary_json(stdout, &summary)?;
     } else {
         write_summary(stdout, &summary)?;
     }
@@ -315,14 +358,30 @@ fn write_add(
     inputs: Vec<PathBuf>,
     output: PathBuf,
     json: bool,
+    fsync: bool,
 ) -> Result<()> {
     if inputs.is_empty() {
         return Err(dream_archivetool::ArchiveError::Archive(
             "no input files supplied".to_string(),
         ));
     }
-    let count = ArchiveTool::add(archive, &AddOptions { inputs, output })?;
+    let count = ArchiveTool::add(
+        archive,
+        &AddOptions {
+            inputs,
+            output,
+            fsync,
+        },
+    )?;
     write_count(stdout, count, json)
+}
+
+fn format_name(format: ArchiveFormat) -> &'static str {
+    match format {
+        ArchiveFormat::Tes3 => "tes3",
+        ArchiveFormat::Tes4 => "tes4",
+        ArchiveFormat::Fo4 => "fo4",
+    }
 }
 
 fn write_summary(
@@ -333,6 +392,16 @@ fn write_summary(
     if summary.skipped > 0 {
         writeln!(stdout, "skipped: {}", summary.skipped)?;
     }
+    Ok(())
+}
+
+fn write_summary_json(
+    stdout: &mut dyn Write,
+    summary: &dream_archivetool::ExtractSummary,
+) -> Result<()> {
+    serde_json::to_writer_pretty(&mut *stdout, summary)
+        .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+    writeln!(stdout)?;
     Ok(())
 }
 
@@ -514,6 +583,57 @@ mod tests {
     }
 
     #[test]
+    fn extract_command_can_write_json_summary() {
+        let dir = unique_dir("extract-json");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let output = dir.join("out");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream-archivetool",
+                "extract",
+                archive_path.to_str().unwrap(),
+                "icons/example.dds",
+                "--output",
+                output.to_str().unwrap(),
+                "--json",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let value: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+        assert_eq!(value["extracted"], 1);
+        assert_eq!(value["skipped"], 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn info_command_writes_human_format_name() {
+        let dir = unique_dir("info-human");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from(["dream-archivetool", "info", archive_path.to_str().unwrap()]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        assert!(
+            String::from_utf8(stdout)
+                .unwrap()
+                .contains("format: tes3\n")
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn extract_all_command_can_skip_existing_and_write_json() {
         let dir = unique_dir("extract-all-json");
         let output = dir.join("out");
@@ -615,27 +735,16 @@ mod tests {
 
     #[test]
     fn add_command_rejects_empty_inputs() {
-        let dir = unique_dir("add-empty");
-        fs::create_dir_all(&dir).unwrap();
-        let archive = dir.join("base.bsa");
-        write_tes3_archive(&archive);
-        let output = dir.join("updated.bsa");
-        let mut stdout = Vec::new();
-
-        let err = run(
-            Cli::parse_from([
-                "dream-archivetool",
-                "add",
-                archive.to_str().unwrap(),
-                "--output",
-                output.to_str().unwrap(),
-            ]),
-            &mut stdout,
-        )
+        let err = Cli::try_parse_from([
+            "dream-archivetool",
+            "add",
+            "base.bsa",
+            "--output",
+            "updated.bsa",
+        ])
         .unwrap_err();
 
-        assert!(err.to_string().contains("no input files supplied"));
-        fs::remove_dir_all(dir).unwrap();
+        assert!(err.to_string().contains("<INPUTS>"));
     }
 
     #[test]

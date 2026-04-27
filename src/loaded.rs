@@ -1,8 +1,9 @@
+use std::io::Write;
 use std::path::Path;
 
 use dream_archive::{Archive, BStr, ByteSlice};
 
-use crate::paths::{normalize_archive_path, normalize_archive_path_bytes};
+use crate::paths::normalize_archive_path;
 use crate::{ArchiveEntry, ArchiveError, ArchiveFormat, Result};
 
 pub enum LoadedArchive {
@@ -36,32 +37,36 @@ impl LoadedArchive {
         }
     }
 
-    pub fn list_entries(&self) -> Vec<ArchiveEntry> {
-        match self {
+    pub fn list_entries(&self) -> Result<Vec<ArchiveEntry>> {
+        Ok(match self {
             Self::Tes3(archive) => archive
                 .entries()
                 .iter()
-                .map(|entry| ArchiveEntry {
-                    path: path_to_string(entry.path()),
-                    size: Some(entry.file().size.into()),
-                    compressed_size: None,
+                .map(|entry| {
+                    Ok(ArchiveEntry {
+                        path: path_to_string(entry.path())?,
+                        size: Some(entry.file().size.into()),
+                        compressed_size: None,
+                    })
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
             Self::Tes4(archive) => archive
                 .entries()
                 .iter()
                 .filter_map(|entry| {
                     let path = entry.path()?;
                     let record = entry.file();
-                    Some(ArchiveEntry {
-                        path: path_to_string(path),
-                        size: Some(record.stored_size.into()),
-                        compressed_size: record
-                            .is_compressed(archive.info().archive_flags)
-                            .then_some(record.stored_size.into()),
-                    })
+                    Some(path_to_string(path).map(|path| {
+                        ArchiveEntry {
+                            path,
+                            size: Some(record.stored_size.into()),
+                            compressed_size: record
+                                .is_compressed(archive.info().archive_flags)
+                                .then_some(record.stored_size.into()),
+                        }
+                    }))
                 })
-                .collect(),
+                .collect::<Result<Vec<_>>>()?,
             Self::Fo4(archive) => archive
                 .entries()
                 .iter()
@@ -80,22 +85,22 @@ impl LoadedArchive {
                         .filter(|chunk| chunk.is_compressed())
                         .map(|chunk| u64::from(chunk.packed_size()))
                         .sum::<u64>();
-                    ArchiveEntry {
-                        path: path_to_string(entry.name()),
+                    Ok(ArchiveEntry {
+                        path: path_to_string(entry.name())?,
                         size: Some(size),
                         compressed_size: (compressed_size > 0).then_some(compressed_size),
-                    }
+                    })
                 })
-                .collect(),
-        }
+                .collect::<Result<Vec<_>>>()?,
+        })
     }
 
-    pub fn named_entry_count(&self) -> usize {
-        self.list_entries().len()
+    pub fn named_entry_count(&self) -> Result<usize> {
+        Ok(self.list_entries()?.len())
     }
 
-    pub fn has_unnameable_entries(&self) -> bool {
-        self.named_entry_count() != self.file_count()
+    pub fn has_unnameable_entries(&self) -> Result<bool> {
+        Ok(self.named_entry_count()? != self.file_count())
     }
 
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
@@ -113,10 +118,46 @@ impl LoadedArchive {
         };
         bytes.ok_or(ArchiveError::EntryNotFound(entry))
     }
+
+    pub fn extract_entry_to_writer(&self, entry: &str, out: &mut dyn Write) -> Result<u64> {
+        let entry = normalize_archive_path(entry);
+        let written = match self {
+            Self::Tes3(archive) => archive
+                .extract_file_required(entry.as_bytes(), out)
+                .map_err(|err| map_bsa_error(err, &entry))?,
+            Self::Tes4(archive) => archive
+                .extract_file_required(entry.as_bytes(), out)
+                .map_err(|err| map_bsa_error(err, &entry))?,
+            Self::Fo4(archive) => archive
+                .extract_file_required(entry.as_bytes(), out)
+                .map_err(|err| map_ba2_error(err, &entry))?,
+        };
+        Ok(written)
+    }
 }
 
-fn path_to_string(path: &BStr) -> String {
-    normalize_archive_path_bytes(path.as_bytes())
+fn path_to_string(path: &BStr) -> Result<String> {
+    path.to_str()
+        .map(normalize_archive_path)
+        .map_err(|_| ArchiveError::UnsafePath(path.to_str_lossy().into_owned()))
+}
+
+fn map_bsa_error(err: dream_archive::bsa::Error, entry: &str) -> ArchiveError {
+    match err {
+        dream_archive::bsa::Error::FileNotFound(_) => {
+            ArchiveError::EntryNotFound(entry.to_string())
+        }
+        err => ArchiveError::Archive(err.to_string()),
+    }
+}
+
+fn map_ba2_error(err: dream_archive::ba2::Error, entry: &str) -> ArchiveError {
+    match err {
+        dream_archive::ba2::Error::FileNotFound(_) => {
+            ArchiveError::EntryNotFound(entry.to_string())
+        }
+        err => ArchiveError::Archive(err.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +185,7 @@ mod tests {
 
         let archive = LoadedArchive::open(&archive_path).unwrap();
         let mut entries = Vec::new();
-        for entry in archive.list_entries() {
+        for entry in archive.list_entries().unwrap() {
             let bytes = archive.read_entry_bytes(&entry.path).unwrap();
             entries.push((entry.path, bytes));
         }

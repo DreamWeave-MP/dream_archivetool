@@ -1,3 +1,4 @@
+use std::io::Write;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,17 @@ impl ArchiveTool {
     /// Entry path matching is case-insensitive and treats `\` as `/`.
     pub fn read_entry(path: impl AsRef<Path>, entry: &str) -> Result<Vec<u8>> {
         crate::extract::read_entry_bytes(path.as_ref(), entry)
+    }
+
+    /// Extract a single archive entry into a writer without materializing the whole payload.
+    ///
+    /// Entry path matching is case-insensitive and treats `\` as `/`.
+    pub fn extract_entry_to_writer(
+        path: impl AsRef<Path>,
+        entry: &str,
+        out: &mut dyn Write,
+    ) -> Result<u64> {
+        crate::extract::extract_entry_to_writer(path.as_ref(), entry, out)
     }
 
     /// Extract a single archive entry to disk according to `options`.

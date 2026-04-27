@@ -17,7 +17,7 @@ pub struct ArchiveEntry {
 
 /// List all entries in an archive.
 pub fn list_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
-    Ok(crate::loaded::LoadedArchive::open(path)?.list_entries())
+    crate::loaded::LoadedArchive::open(path)?.list_entries()
 }
 
 #[cfg(test)]

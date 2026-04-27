@@ -118,6 +118,7 @@ fn create_options(opts: Option<Table>) -> LuaResult<CreateOptions> {
         tes4_version: parse_tes4_version(opts.get::<Option<String>>("tes4_version")?.as_deref())?,
         fo4_kind: parse_fo4_kind(opts.get::<Option<String>>("ba2_kind")?.as_deref())?,
         fo4_version: parse_fo4_version(opts.get::<Option<String>>("ba2_version")?.as_deref())?,
+        fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
 
@@ -130,6 +131,7 @@ fn add_options(opts: &Table) -> LuaResult<AddOptions> {
     Ok(AddOptions {
         inputs: paths,
         output: PathBuf::from(opts.get::<String>("output")?),
+        fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
 
@@ -141,6 +143,7 @@ fn extract_options(opts: Option<Table>) -> LuaResult<ExtractOptions> {
         output: opts.get::<Option<String>>("output")?.map(PathBuf::from),
         overwrite: parse_overwrite(opts.get::<Option<String>>("overwrite")?.as_deref())?,
         preserve_paths: opts.get::<Option<bool>>("preserve_paths")?.unwrap_or(true),
+        fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
 
@@ -151,6 +154,7 @@ fn extract_all_options(opts: Option<Table>) -> LuaResult<ExtractAllOptions> {
     Ok(ExtractAllOptions {
         output: opts.get::<Option<String>>("output")?.map(PathBuf::from),
         overwrite: parse_overwrite(opts.get::<Option<String>>("overwrite")?.as_deref())?,
+        fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
 

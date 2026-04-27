@@ -50,6 +50,7 @@ let extracted = ArchiveTool::extract(
         output: Some("out".into()),
         overwrite: OverwriteMode::Fail,
         preserve_paths: true,
+        fsync: false,
     },
 )?;
 let all = ArchiveTool::extract_all("Morrowind.bsa", &ExtractAllOptions::default())?;
@@ -59,6 +60,7 @@ let updated = ArchiveTool::add(
     &AddOptions {
         inputs: vec!["new_file.txt".into()],
         output: "updated.bsa".into(),
+        fsync: false,
     },
 )?;
 # Ok(())
@@ -125,10 +127,10 @@ Lua functions and return values:
 
 Lua option tables:
 
-- `extract`: `output`, `overwrite`, `preserve_paths`
-- `extract_all`: `output`, `overwrite`
-- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`
-- `add`: `output`, `inputs`
+- `extract`: `output`, `overwrite`, `preserve_paths`, `fsync`
+- `extract_all`: `output`, `overwrite`, `fsync`
+- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`
+- `add`: `output`, `inputs`, `fsync`
 
 ## Safety
 
@@ -138,13 +140,13 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-Archives are opened once per high-level operation. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs.
+Archives are opened once per high-level operation. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. `add` skips decoding existing entries that are replaced by new inputs.
 
-Creation and update currently stage output archive entries in memory before writing because the `dream_archive` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory.
+Archive creation and update preflight archive paths and format policy before reading payload bytes, but currently stage output archive entries in memory before writing because the `dream_archive` writer APIs build archive maps before serialization. This is acceptable for initial use, but very large archive creation or update can require substantial memory until the backend grows deferred source/reader builder APIs.
 
 ## Format Notes
 
-- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names are rejected rather than rewritten lossy.
+- `add` writes a new archive and preserves the source archive's TES4/FO4 write options directly where `dream_archive` exposes them, including BA2 version variants such as Starfield v3 and Fallout 4 next-gen v8. Archives with entries that do not have recoverable path names, including TES4 hash-only archives, are rejected rather than rewritten lossy.
 - `create --format fo4 --ba2-kind gnrl` is the general-purpose BA2 mode and accepts any file names.
 - `create --format fo4 --ba2-kind dx10` only accepts `.dds` entries. This extension check is case-insensitive; the underlying writer may still reject invalid DDS data.
 - `create --format fo4 --ba2-kind gnmf` is currently rejected. GNMF writing requires console texture swizzle semantics that `dream_archive` intentionally does not implement yet.

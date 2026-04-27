@@ -1,5 +1,5 @@
+use std::collections::BTreeSet;
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,8 @@ pub struct ExtractOptions {
     pub overwrite: OverwriteMode,
     /// Preserve archive directories. When false, only the entry basename is written.
     pub preserve_paths: bool,
+    /// Sync file contents and parent directory after writing extracted files.
+    pub fsync: bool,
 }
 
 impl Default for ExtractOptions {
@@ -37,6 +39,7 @@ impl Default for ExtractOptions {
             output: None,
             overwrite: OverwriteMode::Fail,
             preserve_paths: true,
+            fsync: false,
         }
     }
 }
@@ -48,6 +51,8 @@ pub struct ExtractAllOptions {
     pub output: Option<PathBuf>,
     /// Existing-file handling policy.
     pub overwrite: OverwriteMode,
+    /// Sync file contents and parent directory after writing extracted files.
+    pub fsync: bool,
 }
 
 impl Default for ExtractAllOptions {
@@ -55,6 +60,7 @@ impl Default for ExtractAllOptions {
         Self {
             output: None,
             overwrite: OverwriteMode::Fail,
+            fsync: false,
         }
     }
 }
@@ -73,6 +79,15 @@ pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
+/// Extract a single archive entry into a writer.
+pub fn extract_entry_to_writer(
+    path: &Path,
+    entry: &str,
+    out: &mut dyn std::io::Write,
+) -> Result<u64> {
+    crate::loaded::LoadedArchive::open(path)?.extract_entry_to_writer(entry, out)
+}
+
 /// Extract a single archive entry to disk.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -82,9 +97,8 @@ pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Resu
         flat_target_path(&root, entry)?
     };
     let archive = crate::loaded::LoadedArchive::open(path)?;
-    write_target_with(&target, options.overwrite, |output| {
-        let bytes = archive.read_entry_bytes(entry)?;
-        output.write_all(&bytes).map_err(ArchiveError::Io)
+    write_target_with(&target, options.overwrite, options.fsync, |output| {
+        archive.extract_entry_to_writer(entry, output).map(|_| ())
     })
 }
 
@@ -98,17 +112,18 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
         extracted: 0,
         skipped: 0,
     };
-    if archive.has_unnameable_entries() {
+    if archive.has_unnameable_entries()? {
         return Err(ArchiveError::Archive(
             "archive contains entries without recoverable paths; refusing to extract it lossy"
                 .to_string(),
         ));
     }
-    for entry in archive.list_entries() {
-        let target = safe_target_path(&root, &entry.path)?;
-        let result = write_target_with(&target, options.overwrite, |output| {
-            let bytes = archive.read_entry_bytes(&entry.path)?;
-            output.write_all(&bytes).map_err(ArchiveError::Io)
+    let targets = planned_extract_targets(&root, archive.list_entries()?, options.overwrite)?;
+    for target in targets {
+        let result = write_target_with(&target.path, options.overwrite, options.fsync, |output| {
+            archive
+                .extract_entry_to_writer(&target.archive_path, output)
+                .map(|_| ())
         })?;
         summary.extracted += result.extracted;
         summary.skipped += result.skipped;
@@ -116,9 +131,42 @@ pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSu
     Ok(summary)
 }
 
+#[derive(Debug)]
+struct PlannedExtractTarget {
+    archive_path: String,
+    path: PathBuf,
+}
+
+fn planned_extract_targets(
+    root: &Path,
+    entries: Vec<crate::ArchiveEntry>,
+    overwrite: OverwriteMode,
+) -> Result<Vec<PlannedExtractTarget>> {
+    let mut targets = Vec::with_capacity(entries.len());
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        let path = safe_target_path(root, &entry.path)?;
+        if !seen.insert(path.clone()) {
+            return Err(ArchiveError::Archive(format!(
+                "duplicate extraction target after normalization: {}",
+                path.display()
+            )));
+        }
+        if overwrite == OverwriteMode::Fail && path.exists() {
+            return Err(ArchiveError::TargetExists(path.display().to_string()));
+        }
+        targets.push(PlannedExtractTarget {
+            archive_path: entry.path,
+            path,
+        });
+    }
+    Ok(targets)
+}
+
 fn write_target_with(
     target: &Path,
     overwrite: OverwriteMode,
+    fsync: bool,
     write: impl FnOnce(&mut fs::File) -> Result<()>,
 ) -> Result<ExtractSummary> {
     if target.exists() {
@@ -142,10 +190,48 @@ fn write_target_with(
     let parent = target.parent().unwrap_or_else(|| Path::new("."));
     let mut temp = NamedTempFile::new_in(parent)?;
     write(temp.as_file_mut())?;
-    temp.as_file_mut().sync_all()?;
-    temp.persist(target)
-        .map_err(|err| ArchiveError::Io(err.error))?;
-    sync_parent_dir(parent)?;
+    if fsync {
+        temp.as_file_mut().sync_all()?;
+    }
+    persist_temp(temp, target, parent, overwrite, fsync)
+}
+
+fn persist_temp(
+    temp: NamedTempFile,
+    target: &Path,
+    parent: &Path,
+    overwrite: OverwriteMode,
+    fsync: bool,
+) -> Result<ExtractSummary> {
+    match overwrite {
+        OverwriteMode::Overwrite => {
+            temp.persist(target)
+                .map_err(|err| ArchiveError::Io(err.error))?;
+        }
+        OverwriteMode::Fail => {
+            temp.persist_noclobber(target).map_err(|err| {
+                if err.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    ArchiveError::TargetExists(target.display().to_string())
+                } else {
+                    ArchiveError::Io(err.error)
+                }
+            })?;
+        }
+        OverwriteMode::Skip => {
+            if let Err(err) = temp.persist_noclobber(target) {
+                if err.error.kind() == std::io::ErrorKind::AlreadyExists {
+                    return Ok(ExtractSummary {
+                        extracted: 0,
+                        skipped: 1,
+                    });
+                }
+                return Err(ArchiveError::Io(err.error));
+            }
+        }
+    }
+    if fsync {
+        sync_parent_dir(parent)?;
+    }
     Ok(ExtractSummary {
         extracted: 1,
         skipped: 0,
@@ -347,6 +433,7 @@ mod tests {
                 output: Some(output.clone()),
                 overwrite: OverwriteMode::Fail,
                 preserve_paths: false,
+                fsync: false,
             },
         )
         .unwrap();
@@ -393,6 +480,7 @@ mod tests {
             &ExtractAllOptions {
                 output: Some(output_dir.clone()),
                 overwrite: OverwriteMode::Skip,
+                fsync: false,
             },
         )
         .unwrap();
@@ -405,5 +493,54 @@ mod tests {
         );
         assert_eq!(fs::read(output_dir.join("meshes/b.nif")).unwrap(), b"b");
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_all_preflights_existing_targets_before_writing() {
+        let dir = unique_dir("extract-all-preflight");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("meshes")).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive_path);
+        fs::write(output_dir.join("meshes/b.nif"), b"existing").unwrap();
+
+        let err = extract_all(
+            &archive_path,
+            &ExtractAllOptions {
+                output: Some(output_dir.clone()),
+                overwrite: OverwriteMode::Fail,
+                fsync: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ArchiveError::TargetExists(_)));
+        assert!(!output_dir.join("textures/a.dds").exists());
+        assert_eq!(
+            fs::read(output_dir.join("meshes/b.nif")).unwrap(),
+            b"existing"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn extract_all_rejects_duplicate_planned_targets() {
+        let dir = unique_dir("extract-all-duplicate-target");
+        let entries = vec![
+            crate::ArchiveEntry {
+                path: "textures/example.dds".to_string(),
+                size: None,
+                compressed_size: None,
+            },
+            crate::ArchiveEntry {
+                path: "textures\\EXAMPLE.DDS".to_string(),
+                size: None,
+                compressed_size: None,
+            },
+        ];
+
+        let err = planned_extract_targets(&dir, entries, OverwriteMode::Overwrite).unwrap_err();
+
+        assert!(err.to_string().contains("duplicate extraction target"));
     }
 }

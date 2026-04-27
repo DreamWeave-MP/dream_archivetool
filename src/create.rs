@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, btree_map::Entry};
+use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +10,9 @@ use tempfile::NamedTempFile;
 use walkdir::WalkDir;
 
 use crate::ArchiveFormat;
-use crate::paths::{normalize_archive_path, path_to_archive_string};
+use crate::paths::{
+    archive_path_bytes_to_display, normalize_archive_path_bytes, path_to_archive_bytes,
+};
 use crate::{ArchiveError, Result};
 
 #[derive(Debug, Clone)]
@@ -24,6 +26,8 @@ pub struct CreateOptions {
     pub fo4_kind: Fo4ArchiveKind,
     /// FO4/Starfield BA2 version used when `format` is [`ArchiveFormat::Fo4`].
     pub fo4_version: Fo4Version,
+    /// Sync file contents and parent directory after writing the archive.
+    pub fsync: bool,
 }
 
 impl Default for CreateOptions {
@@ -33,6 +37,7 @@ impl Default for CreateOptions {
             tes4_version: Tes4Version::Oblivion,
             fo4_kind: Fo4ArchiveKind::Gnrl,
             fo4_version: Fo4Version::Fallout4,
+            fsync: false,
         }
     }
 }
@@ -44,6 +49,8 @@ pub struct AddOptions {
     pub inputs: Vec<PathBuf>,
     /// Output archive path. The input archive is never modified in place.
     pub output: PathBuf,
+    /// Sync file contents and parent directory after writing the archive.
+    pub fsync: bool,
 }
 
 /// Supported TES4-family BSA versions for archive creation.
@@ -90,7 +97,9 @@ pub enum Fo4Version {
 /// directory before replacing `output`.
 pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> Result<usize> {
     reject_unsupported_create_options(options)?;
-    let entries = collect_input_entries(input)?;
+    let input_entries = collect_input_entry_paths(input)?;
+    preflight_create_paths(input_entries.keys(), options)?;
+    let entries = read_input_entries(input_entries)?;
     write_entries(output, entries, options)
 }
 
@@ -108,36 +117,85 @@ fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
 /// Existing archive entries are preserved unless replaced by an input path. The source archive is
 /// opened once and is not modified in place.
 pub fn add_to_archive(archive: &Path, options: &AddOptions) -> Result<usize> {
+    if options.inputs.is_empty() {
+        return Err(ArchiveError::Archive("no input files supplied".to_string()));
+    }
     let archive = crate::loaded::LoadedArchive::open(archive)?;
-    if archive.has_unnameable_entries() {
+    reject_unrewritable_archive(&archive)?;
+    let mut input_entries = BTreeMap::new();
+    for input in &options.inputs {
+        for (path, source) in collect_input_entry_paths(input)? {
+            insert_input_path(&mut input_entries, &path, source)?;
+        }
+    }
+    preflight_add_paths(input_entries.keys(), &archive)?;
+    let mut entries = read_input_entries(input_entries)?;
+    let input_keys = entries.keys().cloned().collect::<BTreeSet<_>>();
+    let mut existing_keys = BTreeSet::new();
+    for entry in archive.list_entries()? {
+        let key = normalize_archive_path_bytes(entry.path.as_bytes());
+        if !existing_keys.insert(key.clone()) {
+            return Err(ArchiveError::Archive(format!(
+                "archive contains duplicate normalized path: {}",
+                archive_path_bytes_to_display(&key)
+            )));
+        }
+        if input_keys.contains(&key) {
+            continue;
+        }
+        match entries.entry(key) {
+            Entry::Vacant(entry_slot) => {
+                entry_slot.insert(archive.read_entry_bytes(&entry.path)?);
+            }
+            Entry::Occupied(_) => unreachable!("input keys were handled before archive insertion"),
+        }
+    }
+    write_entries_like(&options.output, entries, &archive, options.fsync)
+}
+
+fn reject_unrewritable_archive(archive: &crate::loaded::LoadedArchive) -> Result<()> {
+    if archive.has_unnameable_entries()? {
         return Err(ArchiveError::Archive(
             "archive contains entries without recoverable paths; refusing to rewrite it lossy"
                 .to_string(),
         ));
     }
-    let mut entries = BTreeMap::new();
-    for input in &options.inputs {
-        entries.extend(collect_input_entries(input)?);
+    if let crate::loaded::LoadedArchive::Tes4(archive) = archive
+        && !tes4_has_recoverable_path_storage(archive.info().archive_flags)
+    {
+        return Err(ArchiveError::Archive(
+            "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy".to_string(),
+        ));
     }
-    for entry in archive.list_entries() {
-        let key = normalize_archive_path(&entry.path);
-        if let Entry::Vacant(entry_slot) = entries.entry(key) {
-            entry_slot.insert(archive.read_entry_bytes(&entry.path)?);
-        }
+    if let crate::loaded::LoadedArchive::Fo4(archive) = archive
+        && archive.info().format == PayloadFormat::GNMF
+    {
+        return Err(ArchiveError::Archive(
+            "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+        ));
     }
-    write_entries_like(&options.output, entries, &archive)
+    Ok(())
 }
 
-fn collect_input_entries(input: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
+fn tes4_has_recoverable_path_storage(flags: dream_archive::bsa::tes4::ArchiveFlags) -> bool {
+    let has_directory_strings =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::DIRECTORY_STRINGS);
+    let has_file_strings = flags.contains(dream_archive::bsa::tes4::ArchiveFlags::FILE_STRINGS);
+    let has_embedded_names =
+        flags.contains(dream_archive::bsa::tes4::ArchiveFlags::EMBEDDED_FILE_NAMES);
+    (has_directory_strings && has_file_strings) || has_embedded_names
+}
+
+fn collect_input_entry_paths(input: &Path) -> Result<BTreeMap<Vec<u8>, PathBuf>> {
     let mut entries = BTreeMap::new();
     if input.is_file() {
         let name = input
             .file_name()
             .ok_or_else(|| ArchiveError::UnsafePath(input.display().to_string()))?;
-        insert_entry(
+        insert_input_path(
             &mut entries,
-            &path_to_archive_string(Path::new(name))?,
-            fs::read(input)?,
+            &path_to_archive_bytes(Path::new(name))?,
+            input.to_path_buf(),
         )?;
         return Ok(entries);
     }
@@ -151,19 +209,32 @@ fn collect_input_entries(input: &Path) -> Result<BTreeMap<String, Vec<u8>>> {
         let relative = path
             .strip_prefix(input)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
-        insert_entry(
+        insert_input_path(
             &mut entries,
-            &path_to_archive_string(relative)?,
-            fs::read(path)?,
+            &path_to_archive_bytes(relative)?,
+            path.to_path_buf(),
         )?;
     }
     Ok(entries)
 }
 
-fn insert_entry(entries: &mut BTreeMap<String, Vec<u8>>, path: &str, bytes: Vec<u8>) -> Result<()> {
-    if entries.insert(path.to_string(), bytes).is_some() {
+fn read_input_entries(inputs: BTreeMap<Vec<u8>, PathBuf>) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+    let mut entries = BTreeMap::new();
+    for (archive_path, source_path) in inputs {
+        entries.insert(archive_path, fs::read(source_path)?);
+    }
+    Ok(entries)
+}
+
+fn insert_input_path(
+    entries: &mut BTreeMap<Vec<u8>, PathBuf>,
+    path: &[u8],
+    source: PathBuf,
+) -> Result<()> {
+    if entries.insert(path.to_vec(), source).is_some() {
         return Err(ArchiveError::Archive(format!(
-            "duplicate archive path after normalization: {path}"
+            "duplicate archive path after normalization: {}",
+            archive_path_bytes_to_display(path)
         )));
     }
     Ok(())
@@ -171,21 +242,24 @@ fn insert_entry(entries: &mut BTreeMap<String, Vec<u8>>, path: &str, bytes: Vec<
 
 fn write_entries(
     output: &Path,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     options: &CreateOptions,
 ) -> Result<usize> {
     let count = entries.len();
-    with_temp_output(output, |file| write_entries_to_file(file, entries, options))?;
+    with_temp_output(output, options.fsync, |file| {
+        write_entries_to_file(file, entries, options)
+    })?;
     Ok(count)
 }
 
 fn write_entries_like(
     output: &Path,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     archive: &crate::loaded::LoadedArchive,
+    fsync: bool,
 ) -> Result<usize> {
     let count = entries.len();
-    with_temp_output(output, |file| match archive {
+    with_temp_output(output, fsync, |file| match archive {
         crate::loaded::LoadedArchive::Tes3(_) => write_tes3(file, entries),
         crate::loaded::LoadedArchive::Tes4(archive) => write_tes4_like(file, entries, archive),
         crate::loaded::LoadedArchive::Fo4(archive) => write_fo4_like(file, entries, archive),
@@ -195,7 +269,7 @@ fn write_entries_like(
 
 fn write_entries_to_file(
     file: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     options: &CreateOptions,
 ) -> Result<()> {
     match options.format {
@@ -205,14 +279,22 @@ fn write_entries_to_file(
     }
 }
 
-fn with_temp_output(output: &Path, write: impl FnOnce(&mut fs::File) -> Result<()>) -> Result<()> {
+fn with_temp_output(
+    output: &Path,
+    fsync: bool,
+    write: impl FnOnce(&mut fs::File) -> Result<()>,
+) -> Result<()> {
     let parent = output.parent().unwrap_or_else(|| Path::new("."));
     let mut temp = NamedTempFile::new_in(parent)?;
     write(temp.as_file_mut())?;
-    temp.as_file_mut().sync_all()?;
+    if fsync {
+        temp.as_file_mut().sync_all()?;
+    }
     temp.persist(output)
         .map_err(|err| ArchiveError::Io(err.error))?;
-    sync_parent_dir(parent)?;
+    if fsync {
+        sync_parent_dir(parent)?;
+    }
     Ok(())
 }
 
@@ -224,44 +306,74 @@ fn sync_parent_dir(parent: &Path) -> Result<()> {
     Ok(())
 }
 
-fn validate_fo4_entries(entries: &BTreeMap<String, Vec<u8>>, kind: Fo4ArchiveKind) -> Result<()> {
-    match kind {
-        Fo4ArchiveKind::Gnrl => Ok(()),
-        Fo4ArchiveKind::Dx10 => {
-            for path in entries.keys() {
-                if !has_extension(path, "dds") {
-                    return Err(ArchiveError::Archive(format!(
-                        "DX10 BA2 archives can only contain .dds files: {path}"
-                    )));
-                }
-            }
-            Ok(())
+fn preflight_create_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Vec<u8>>,
+    options: &CreateOptions,
+) -> Result<()> {
+    if options.format == ArchiveFormat::Fo4 {
+        validate_fo4_paths(paths, options.fo4_kind)?;
+    }
+    Ok(())
+}
+
+fn preflight_add_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Vec<u8>>,
+    archive: &crate::loaded::LoadedArchive,
+) -> Result<()> {
+    if let crate::loaded::LoadedArchive::Fo4(archive) = archive {
+        let kind = fo4_kind_from_payload_format(archive.info().format);
+        if kind == Fo4ArchiveKind::Gnmf {
+            return Err(ArchiveError::Archive(
+                "creating or updating GNMF BA2 archives requires console texture swizzle semantics and is not supported by dream_archive".to_string(),
+            ));
         }
-        Fo4ArchiveKind::Gnmf => {
-            for path in entries.keys() {
-                if !has_extension(path, "gnf") {
-                    return Err(ArchiveError::Archive(format!(
-                        "GNMF BA2 archives can only contain .gnf files: {path}"
-                    )));
-                }
-            }
-            Ok(())
+        validate_fo4_paths(paths, kind)?;
+    }
+    Ok(())
+}
+
+fn validate_fo4_entries(entries: &BTreeMap<Vec<u8>, Vec<u8>>, kind: Fo4ArchiveKind) -> Result<()> {
+    validate_fo4_paths(entries.keys(), kind)
+}
+
+fn validate_fo4_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Vec<u8>>,
+    kind: Fo4ArchiveKind,
+) -> Result<()> {
+    let (extension, label) = match kind {
+        Fo4ArchiveKind::Gnrl => return Ok(()),
+        Fo4ArchiveKind::Dx10 => (
+            b"dds".as_slice(),
+            "DX10 BA2 archives can only contain .dds files",
+        ),
+        Fo4ArchiveKind::Gnmf => (
+            b"gnf".as_slice(),
+            "GNMF BA2 archives can only contain .gnf files",
+        ),
+    };
+    for path in paths {
+        if !has_extension(path, extension) {
+            return Err(ArchiveError::Archive(format!(
+                "{}: {}",
+                label,
+                archive_path_bytes_to_display(path)
+            )));
         }
     }
+    Ok(())
 }
 
-fn has_extension(path: &str, expected: &str) -> bool {
-    Path::new(path)
+fn has_extension(path: &[u8], expected: &[u8]) -> bool {
+    dream_path::NormalizedPath::new(path)
         .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
+        .is_some_and(|extension| extension == expected)
 }
 
-fn write_tes3(output: &mut fs::File, entries: BTreeMap<String, Vec<u8>>) -> Result<()> {
+fn write_tes3(output: &mut fs::File, entries: BTreeMap<Vec<u8>, Vec<u8>>) -> Result<()> {
     let mut builder = dream_archive::Tes3BsaBuilder::new();
     for (path, bytes) in entries {
         builder
-            .add_bytes(path.as_bytes(), bytes)
+            .add_bytes(&path, bytes)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
     }
     builder
@@ -271,7 +383,7 @@ fn write_tes3(output: &mut fs::File, entries: BTreeMap<String, Vec<u8>>) -> Resu
 
 fn write_tes4(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     version: Tes4Version,
 ) -> Result<()> {
     let mut builder = dream_archive::Tes4BsaBuilder::new();
@@ -285,7 +397,7 @@ fn write_tes4(
 
 fn write_tes4_like(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     archive: &dream_archive::bsa::tes4::Archive,
 ) -> Result<()> {
     let info = archive.info();
@@ -313,7 +425,11 @@ fn write_tes4_like(
             (true, true) => NameMode::StringsAndEmbedded,
             (true, false) => NameMode::Strings,
             (false, true) => NameMode::Embedded,
-            (false, false) => NameMode::HashOnly,
+            (false, false) => {
+                return Err(ArchiveError::Archive(
+                    "TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy".to_string(),
+                ));
+            }
         },
     );
     write_tes4_builder(output, entries, builder)
@@ -321,12 +437,12 @@ fn write_tes4_like(
 
 fn write_tes4_builder(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     mut builder: dream_archive::Tes4BsaBuilder,
 ) -> Result<()> {
     for (path, bytes) in entries {
         builder
-            .add_bytes(path.as_bytes(), bytes)
+            .add_bytes(&path, bytes)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
     }
     builder
@@ -336,7 +452,7 @@ fn write_tes4_builder(
 
 fn write_fo4(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     kind: Fo4ArchiveKind,
     version: Fo4Version,
 ) -> Result<()> {
@@ -355,7 +471,7 @@ fn write_fo4(
 
 fn write_fo4_like(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     archive: &dream_archive::ba2::Archive,
 ) -> Result<()> {
     let info = archive.info();
@@ -364,7 +480,7 @@ fn write_fo4_like(
 
 fn write_fo4_with_format(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     format: PayloadFormat,
     version: Ba2ArchiveVersion,
 ) -> Result<()> {
@@ -381,7 +497,7 @@ fn write_fo4_with_format(
     builder.set_version(version);
     for (path, bytes) in entries {
         builder
-            .add_bytes(path.as_bytes(), bytes)
+            .add_bytes(&path, bytes)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
     }
     builder
@@ -391,14 +507,14 @@ fn write_fo4_with_format(
 
 fn write_dx10_fo4(
     output: &mut fs::File,
-    entries: BTreeMap<String, Vec<u8>>,
+    entries: BTreeMap<Vec<u8>, Vec<u8>>,
     version: Ba2ArchiveVersion,
 ) -> Result<()> {
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
     for (path, bytes) in entries {
         builder
-            .add_dds_bytes(path.as_bytes(), bytes)
+            .add_dds_bytes(&path, bytes)
             .map_err(|err| ArchiveError::Archive(err.to_string()))?;
     }
     builder
@@ -661,8 +777,8 @@ mod tests {
         let dir = unique_dir("preserve-v3");
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
-        let entries = BTreeMap::from([("base.txt".to_string(), b"base".to_vec())]);
-        with_temp_output(&archive, |file| {
+        let entries = BTreeMap::from([(b"base.txt".to_vec(), b"base".to_vec())]);
+        with_temp_output(&archive, false, |file| {
             write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v3)
         })
         .unwrap();
@@ -675,6 +791,7 @@ mod tests {
             &AddOptions {
                 inputs: vec![added],
                 output: output.clone(),
+                fsync: false,
             },
         )
         .unwrap();
@@ -689,8 +806,8 @@ mod tests {
         let dir = unique_dir("preserve-v8");
         let archive = dir.join("base.ba2");
         fs::create_dir_all(&dir).unwrap();
-        let entries = BTreeMap::from([("base.txt".to_string(), b"base".to_vec())]);
-        with_temp_output(&archive, |file| {
+        let entries = BTreeMap::from([(b"base.txt".to_vec(), b"base".to_vec())]);
+        with_temp_output(&archive, false, |file| {
             write_fo4_with_format(file, entries, PayloadFormat::GNRL, Ba2ArchiveVersion::v8)
         })
         .unwrap();
@@ -703,6 +820,7 @@ mod tests {
             &AddOptions {
                 inputs: vec![added],
                 output: output.clone(),
+                fsync: false,
             },
         )
         .unwrap();
@@ -737,6 +855,7 @@ mod tests {
             &AddOptions {
                 inputs: vec![added],
                 output: output.clone(),
+                fsync: false,
             },
         )
         .unwrap();
@@ -780,6 +899,7 @@ mod tests {
             &AddOptions {
                 inputs: vec![replacement],
                 output: output.clone(),
+                fsync: false,
             },
         )
         .unwrap();
@@ -808,6 +928,87 @@ mod tests {
         let err = create_archive(&archive, &input, &CreateOptions::default()).unwrap_err();
 
         assert!(err.to_string().contains("duplicate archive path"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_rejects_duplicate_paths_across_inputs() {
+        let dir = unique_dir("add-duplicate-across-inputs");
+        fs::create_dir_all(&dir).unwrap();
+        let base_input = dir.join("base-input");
+        fs::create_dir_all(&base_input).unwrap();
+        fs::write(base_input.join("base.txt"), b"base").unwrap();
+        let archive = dir.join("base.bsa");
+        create_archive(
+            &archive,
+            &base_input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let first = dir.join("first");
+        let second = dir.join("second");
+        fs::create_dir_all(first.join("textures")).unwrap();
+        fs::create_dir_all(second.join("textures")).unwrap();
+        fs::write(first.join("textures/example.dds"), b"first").unwrap();
+        fs::write(second.join("textures/EXAMPLE.DDS"), b"second").unwrap();
+
+        let err = add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![first, second],
+                output: dir.join("updated.bsa"),
+                fsync: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("duplicate archive path"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_rejects_empty_tes4_hash_only_archive() {
+        let dir = unique_dir("add-hash-only");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("hash-only.bsa");
+        let mut builder = dream_archive::Tes4BsaBuilder::new();
+        builder.set_name_mode(NameMode::HashOnly);
+        builder.write_path(&archive).unwrap();
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+
+        let err = add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: dir.join("updated.bsa"),
+                fsync: false,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("hash-only"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn input_collection_preserves_non_utf8_archive_path_bytes() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let dir = unique_dir("non-utf8-path");
+        fs::create_dir_all(&dir).unwrap();
+        let file_name = OsString::from_vec(vec![b'F', b'O', b'O', 0xff, b'.', b'T', b'X', b'T']);
+        let file_path = dir.join(file_name);
+        fs::write(&file_path, b"payload").unwrap();
+
+        let entries = collect_input_entry_paths(&dir).unwrap();
+
+        assert!(entries.contains_key(b"foo\xff.txt".as_slice()));
         fs::remove_dir_all(dir).unwrap();
     }
 }

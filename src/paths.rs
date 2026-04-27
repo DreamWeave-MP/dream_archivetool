@@ -1,5 +1,8 @@
 use std::path::{Component, Path, PathBuf};
 
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+
 use dream_archive::ByteSlice;
 use dream_path::NormalizedPath;
 
@@ -10,15 +13,34 @@ pub(crate) fn normalize_archive_path(path: &str) -> String {
     normalized.as_bstr().to_str_lossy().into_owned()
 }
 
-pub(crate) fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> String {
-    let normalized = NormalizedPath::new(path.as_ref());
-    normalized.as_bstr().to_str_lossy().into_owned()
+pub(crate) fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> Vec<u8> {
+    NormalizedPath::new(path).into()
 }
 
-pub(crate) fn path_to_archive_string(path: &Path) -> Result<String> {
-    let value = path.to_string_lossy();
-    let normalized = normalize_archive_path(&value);
-    validate_virtual_path(&normalized)?;
+pub(crate) fn archive_path_bytes_to_display(path: &[u8]) -> String {
+    path.as_bstr().to_str_lossy().into_owned()
+}
+
+pub(crate) fn path_to_archive_bytes(path: &Path) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    for component in path.components() {
+        if !bytes.is_empty() {
+            bytes.push(b'/');
+        }
+        let Component::Normal(part) = component else {
+            return Err(ArchiveError::UnsafePath(path.display().to_string()));
+        };
+        #[cfg(unix)]
+        bytes.extend_from_slice(part.as_bytes());
+        #[cfg(not(unix))]
+        bytes.extend_from_slice(
+            part.to_str()
+                .ok_or_else(|| ArchiveError::UnsafePath(path.display().to_string()))?
+                .as_bytes(),
+        );
+    }
+    let normalized = normalize_archive_path_bytes(bytes);
+    validate_virtual_path_bytes(&normalized)?;
     Ok(normalized)
 }
 
@@ -53,8 +75,17 @@ pub(crate) fn flat_target_path(root: &Path, archive_path: &str) -> Result<PathBu
 }
 
 fn validate_virtual_path(path: &str) -> Result<()> {
-    if path.is_empty() || path.starts_with('/') || path.split('/').any(|part| part == "..") {
-        return Err(ArchiveError::UnsafePath(path.to_string()));
+    validate_virtual_path_bytes(path.as_bytes())
+}
+
+fn validate_virtual_path_bytes(path: &[u8]) -> Result<()> {
+    if path.is_empty()
+        || path.starts_with(b"/")
+        || path.split(|byte| *byte == b'/').any(|part| part == b"..")
+    {
+        return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
+            path,
+        )));
     }
     Ok(())
 }
