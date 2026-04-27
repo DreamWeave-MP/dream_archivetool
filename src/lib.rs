@@ -53,7 +53,7 @@ pub use entry::ArchiveEntry;
 pub use error::{ArchiveError, Result};
 pub use extract::{
     ExtractAllOptions, ExtractAllPlan, ExtractOptions, ExtractPlanAction, ExtractPlanEntry,
-    ExtractSummary, OverwriteMode,
+    ExtractPlanOperation, ExtractSummary, OverwriteMode,
 };
 pub use format::ArchiveFormat;
 pub use verify::{VerifyOptions, VerifyPathIssue, VerifyReport, verify_archive};

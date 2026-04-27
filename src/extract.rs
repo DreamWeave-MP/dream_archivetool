@@ -79,10 +79,17 @@ pub struct ExtractSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 /// Plan for extracting every archive entry without writing files.
 pub struct ExtractAllPlan {
-    pub operation: String,
+    pub operation: ExtractPlanOperation,
     pub archive: String,
     pub output: String,
     pub entries: Vec<ExtractPlanEntry>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+/// Extraction dry-run operation represented by a plan.
+pub enum ExtractPlanOperation {
+    ExtractAll,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,7 +231,7 @@ pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<Extr
         })
         .collect();
     Ok(ExtractAllPlan {
-        operation: "extract-all".to_string(),
+        operation: ExtractPlanOperation::ExtractAll,
         archive: path.display().to_string(),
         output: root.display().to_string(),
         entries,
