@@ -15,7 +15,9 @@
 
 use std::path::PathBuf;
 
-use mlua::{Error as LuaError, Lua, Result as LuaResult, String as LuaString, Table, Value};
+use mlua::{
+    Error as LuaError, Function, Lua, Result as LuaResult, String as LuaString, Table, Value,
+};
 
 use crate::{
     AddOptions, ArchiveFormat, ArchivePlanAction, ArchivePlanOperation, ArchiveTool,
@@ -65,21 +67,30 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
             },
         )?,
     )?;
-    let extract_by_path_hex = lua.create_function(
+    module.set(
+        "extract_hex",
+        extract_by_path_hex_function(lua, "extract_hex")?,
+    )?;
+    module.set(
+        "extract_by_path_hex",
+        extract_by_path_hex_function(lua, "extract_by_path_hex")?,
+    )?;
+    Ok(())
+}
+
+fn extract_by_path_hex_function(lua: &Lua, context: &'static str) -> LuaResult<Function> {
+    lua.create_function(
         |lua, (path, entry_hex, opts): (LuaString, LuaString, Option<Table>)| {
             let path = path.to_str()?;
             let entry_hex = entry_hex.to_str()?;
             let entry = crate::path::decode_archive_path_hex(entry_hex.as_ref())
                 .map_err(LuaError::external)?;
-            let options = extract_options(opts, "extract_by_path_hex")?;
+            let options = extract_options(opts, context)?;
             let summary = ArchiveTool::extract_by_path_bytes(path.as_ref(), &entry, &options)
                 .map_err(LuaError::external)?;
             summary_table(lua, summary.extracted, summary.skipped)
         },
-    )?;
-    module.set("extract_hex", extract_by_path_hex.clone())?;
-    module.set("extract_by_path_hex", extract_by_path_hex)?;
-    Ok(())
+    )
 }
 
 fn register_report_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
@@ -133,12 +144,13 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
         "create",
         lua.create_function(
-            |_, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
+            |lua, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
                 let output = output.to_str()?;
                 let input = input.to_str()?;
                 let options = create_options(opts, "create")?;
-                ArchiveTool::create(output.as_ref(), input.as_ref(), &options)
-                    .map_err(LuaError::external)
+                let files = ArchiveTool::create(output.as_ref(), input.as_ref(), &options)
+                    .map_err(LuaError::external)?;
+                files_table(lua, files)
             },
         )?,
     )?;
@@ -157,10 +169,11 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     )?;
     module.set(
         "add",
-        lua.create_function(|_, (archive, opts): (LuaString, Table)| {
+        lua.create_function(|lua, (archive, opts): (LuaString, Table)| {
             let archive = archive.to_str()?;
             let options = add_options(&opts, "add")?;
-            ArchiveTool::add(archive.as_ref(), &options).map_err(LuaError::external)
+            let files = ArchiveTool::add(archive.as_ref(), &options).map_err(LuaError::external)?;
+            files_table(lua, files)
         })?,
     )?;
     module.set(
@@ -260,7 +273,7 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
     let inputs: Table = opts
         .get("inputs")
         .map_err(|_| LuaError::external(format!("{context} requires opts.inputs")))?;
-    let len = validate_dense_string_array(&inputs, &format!("{context}.inputs"))?;
+    let len = validate_dense_string_array(&inputs, context, "inputs")?;
     if len == 0 {
         return Err(LuaError::external(format!(
             "{context} requires at least one input path"
@@ -365,30 +378,32 @@ fn reject_unknown_options(opts: &Table, function: &str, allowed: &[&str]) -> Lua
     Ok(())
 }
 
-fn validate_dense_string_array(inputs: &Table, name: &str) -> LuaResult<usize> {
+fn validate_dense_string_array(inputs: &Table, context: &str, field: &str) -> LuaResult<usize> {
     let len = inputs.raw_len();
     let mut count = 0usize;
     for pair in inputs.clone().pairs::<Value, Value>() {
         let (key, value) = pair?;
         let Value::Integer(index) = key else {
             return Err(LuaError::external(format!(
-                "{name} must be a dense array of strings"
+                "{context}.{field} must be a dense array of strings"
             )));
         };
         if index < 1 || usize::try_from(index).map_or(true, |index| index > len) {
             return Err(LuaError::external(format!(
-                "{name} must be a dense 1-based array of strings"
+                "{context}.{field} must be a dense 1-based array of strings"
             )));
         }
         if !matches!(value, Value::String(_)) {
             return Err(LuaError::external(format!(
-                "{name}[{index}] must be a string"
+                "{context}.{field}[{index}] must be a string"
             )));
         }
         count += 1;
     }
     if count != len {
-        return Err(LuaError::external(format!("{name} must not contain holes")));
+        return Err(LuaError::external(format!(
+            "{context}.{field} must not contain holes"
+        )));
     }
     Ok(len)
 }
@@ -488,6 +503,12 @@ fn summary_table(lua: &Lua, extracted: usize, skipped: usize) -> LuaResult<Table
     let table = lua.create_table_with_capacity(0, 2)?;
     table.set("extracted", extracted)?;
     table.set("skipped", skipped)?;
+    Ok(table)
+}
+
+fn files_table(lua: &Lua, files: usize) -> LuaResult<Table> {
+    let table = lua.create_table_with_capacity(0, 1)?;
+    table.set("files", files)?;
     Ok(table)
 }
 
@@ -1104,7 +1125,7 @@ mod tests {
                     output = updated_path,
                     inputs = { added_path },
                 })
-                return created + updated
+                return created.files + updated.files
             ",
             )
             .eval()
@@ -1141,12 +1162,15 @@ mod tests {
             .set("output_path", output.to_str().unwrap())
             .unwrap();
 
-        let (payloads_read, extract_action, create_action, add_action): (
-            usize,
-            String,
-            String,
-            String,
-        ) = lua
+        let (
+            payloads_read,
+            verify_format,
+            create_format,
+            add_format,
+            extract_action,
+            create_action,
+            add_action,
+        ): (usize, String, String, String, String, String, String) = lua
             .load(
                 r"
                 local verify = dream_archivetool.verify(archive_path, { read_payloads = true })
@@ -1166,14 +1190,17 @@ mod tests {
                         add_action = entry.action
                     end
                 end
-                return verify.payloads_read, extract_plan.entries[1].action,
-                    create_plan.entries[1].action, add_action
+                return verify.payloads_read, verify.format, create_plan.format, add_plan.format,
+                    extract_plan.entries[1].action, create_plan.entries[1].action, add_action
             ",
             )
             .eval()
             .unwrap();
 
         assert_eq!(payloads_read, 1);
+        assert_eq!(verify_format, "bsa-tes3");
+        assert_eq!(create_format, "bsa-tes3");
+        assert_eq!(add_format, "bsa-tes3");
         assert_eq!(extract_action, "extract");
         assert_eq!(create_action, "add");
         assert_eq!(add_action, "add");
@@ -1244,11 +1271,18 @@ mod tests {
         let files: usize = lua
             .load(
                 r"
-                return dream_archivetool.create(archive_path, input_path, {
+                local created = dream_archivetool.create(archive_path, input_path, {
                     format = 'ba2',
                     ba2_kind = 'gnrl',
                     ba2_version = 'starfield',
                 })
+                local plan = dream_archivetool.plan_create(archive_path, input_path, {
+                    format = 'ba2',
+                    ba2_kind = 'gnrl',
+                    ba2_version = 'starfield',
+                })
+                assert(plan.format == 'ba2')
+                return created.files
             ",
             )
             .eval()
@@ -1348,6 +1382,21 @@ mod tests {
         let err = lua
             .load(
                 r"
+                return dream_archivetool.extract_hex(archive_path, '74657874757265732f6578616d706c652e646473', {
+                    overwirte = 'skip',
+                })
+            ",
+            )
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("extract_hex: unknown option key: overwirte")
+        );
+
+        let err = lua
+            .load(
+                r"
                 return dream_archivetool.add(archive_path, {
                     output = 'out.bsa',
                     inputs = { [2] = 'file.txt' },
@@ -1360,6 +1409,19 @@ mod tests {
             err.to_string()
                 .contains("add.inputs must be a dense 1-based array")
         );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_reports_plan_unknown_option_contexts() {
+        let dir = unique_dir("plan-unknown-options");
+        let archive = create_test_archive(&dir);
+        let lua = Lua::new();
+        register(&lua).unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
 
         let err = lua
             .load(

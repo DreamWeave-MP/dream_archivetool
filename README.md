@@ -124,7 +124,7 @@ GUI or embedding projects that do not need the command-line interface should dis
 dream-archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables these bindings plus `dream_path`'s Lua helpers, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_path` is already wired through this crate, while `dream_archive` must use the same `mlua` major version and runtime-selection policy before enabling all Lua APIs in one embedding application.
+The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables these bindings plus the re-exported `dream_archive` and `dream_path` Lua helpers, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -171,9 +171,12 @@ use mlua::Lua;
 let lua = Lua::new();
 lua.globals().set(
     "dream_path",
-    dream_archive::dream_path::lua::create_module(&lua)?,
+    dream_archivetool::dream_archive::dream_path::lua::create_module(&lua)?,
 )?;
-lua.globals().set("dream_archive", dream_archive::lua::create_module(&lua)?)?;
+lua.globals().set(
+    "dream_archive",
+    dream_archivetool::dream_archive::lua::create_module(&lua)?,
+)?;
 dream_archivetool::lua::register(&lua)?;
 # Ok(())
 # }
@@ -227,6 +230,7 @@ local create_plan = tool.plan_create("out.ba2", "input", {
   format = "ba2",
   ba2_kind = "gnrl",
 })
+-- Review create_plan.entries here before touching the output archive.
 local created = tool.create("out.ba2", "input", {
   format = "ba2", -- bsa-tes3 | bsa-tes4 | ba2; tes3/tes4 aliases accepted
   ba2_kind = "gnrl", -- gnrl | dx10 | gnmf
@@ -237,10 +241,12 @@ local add_plan = tool.plan_add("out.ba2", {
   output = "updated.ba2",
   inputs = { "new_file.txt", "new_dir" },
 })
+-- Review add_plan.entries here before writing updated.ba2.
 local updated = tool.add("out.ba2", {
   output = "updated.ba2",
   inputs = { "new_file.txt", "new_dir" },
 })
+print(created.files, updated.files)
 ```
 
 Lua functions and return values:
@@ -253,12 +259,20 @@ Lua functions and return values:
 - `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }` compatibility alias
 - `extract_all(path, opts?) -> { extracted, skipped }`
 - `plan_extract_all(path, opts?) -> { operation, archive, output, entries }`
-- `create(output, input, opts?) -> file_count`
+- `create(output, input, opts?) -> { files }`
 - `plan_create(output, input, opts?) -> { operation, format, output, files, entries }`
-- `add(path, opts) -> file_count`
+- `add(path, opts) -> { files }`
 - `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
 
-Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` also accepts the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is required. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for identity. Never use display `path` as an identity key when non-UTF-8 archive names matter; use `path_bytes_hex`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is required. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+
+Nested entry table shapes:
+
+- verify path issue: `{ path, path_bytes_hex, raw_path_bytes_hex, colliding_raw_path_bytes_hex? }`
+- diff entry: `{ path, path_bytes_hex, size?, compressed_size?, payload_fingerprint? }`
+- diff change: `{ path, path_bytes_hex, old, new }`, where `old` / `new` are diff entry states
+- extract plan entry: `{ action, path, path_bytes_hex, target }`, with `action = "extract" | "skip" | "overwrite"`
+- create/add plan entry: `{ action, source?, path, path_bytes_hex, size? }`, with `action = "add" | "replace" | "preserve"`
 
 Lua option tables:
 
@@ -266,8 +280,10 @@ Lua option tables:
 - `extract_all`: `output`, `overwrite`, `fsync`
 - `verify`: `read_payloads`
 - `diff`: `fingerprint_payloads`
-- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`
+- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`; `tes4_version = "oblivion" | "fallout3" | "fallout-3" | "skyrim" | "skyrim-se" | "sse"`
 - `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
+
+`plan_extract_all`, `plan_create`, and `plan_add` accept the same options as `extract_all`, `create`, and `add` respectively.
 
 Defaults: `format = "bsa-tes3"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, and omitted extraction `output` writes under the current directory.
 
