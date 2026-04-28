@@ -52,7 +52,9 @@ pub struct AddPlan {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum ArchivePlanOperation {
+    /// Plan for creating a new archive.
     Create,
+    /// Plan for adding to or updating an existing archive by rewrite.
     Add,
 }
 
@@ -79,7 +81,10 @@ pub struct ArchivePlanEntry {
 #[serde(rename_all = "kebab-case")]
 #[non_exhaustive]
 pub enum ArchivePlanAction {
+    /// Entry would be newly added.
     Add,
+    /// Existing archive entry would be replaced by an input entry.
     Replace,
+    /// Existing archive entry would be preserved unchanged.
     Preserve,
 }

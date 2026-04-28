@@ -54,6 +54,8 @@ Extraction streams payloads to writers through `dream_archive`; it should not ma
 Before changing public behavior, check:
 
 - CLI JSON fields and names; additive fields are minor-version compatible, removals or renames are not.
+- Future public DTO fields that matter for deserializing saved JSON should be optional or
+  `serde(default)` so older data does not fail just because a newer tool knows more facts.
 - Lua function names, option keys, return table keys, and decimal-string size fields.
 - Rust public DTO fields and serde names.
 - Archive rewrite blockers and unsupported-format diagnostics.

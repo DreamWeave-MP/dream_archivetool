@@ -22,6 +22,12 @@ fn write_test_archive(dir: &TempDir) -> std::path::PathBuf {
     archive
 }
 
+fn write_input_file(dir: &TempDir, name: &str) -> std::path::PathBuf {
+    let input = dir.path().join(name);
+    std::fs::write(&input, b"payload").unwrap();
+    input
+}
+
 #[test]
 fn no_subcommand_prints_help_to_stdout_successfully() {
     let output = run(&[]);
@@ -72,5 +78,45 @@ fn dry_run_without_json_prints_json_plan() {
     assert!(output.stderr.is_empty());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["operation"], "extract-all");
+    assert!(json["entries"].as_array().is_some());
+}
+
+#[test]
+fn create_dry_run_without_json_prints_json_plan() {
+    let dir = TempDir::new().unwrap();
+    let input = write_input_file(&dir, "input.txt");
+    let output_archive = dir.path().join("created.bsa");
+    let output = run(&[
+        "create",
+        output_archive.to_str().unwrap(),
+        input.to_str().unwrap(),
+        "--format",
+        "tes3",
+        "--dry-run",
+    ]);
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["operation"], "create");
+    assert!(json["entries"].as_array().is_some());
+}
+
+#[test]
+fn add_dry_run_without_json_prints_json_plan() {
+    let dir = TempDir::new().unwrap();
+    let archive = write_test_archive(&dir);
+    let input = write_input_file(&dir, "new_file.txt");
+    let output = run(&[
+        "add",
+        archive.to_str().unwrap(),
+        input.to_str().unwrap(),
+        "--dry-run",
+    ]);
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["operation"], "add");
     assert!(json["entries"].as_array().is_some());
 }

@@ -115,7 +115,7 @@ pub(super) enum Command {
         /// Leave existing files untouched
         #[arg(long, conflicts_with = "overwrite")]
         skip_existing: bool,
-        /// Write JSON summary to stdout
+        /// Write JSON summary to stdout; dry-run always writes a JSON plan
         #[arg(long)]
         json: bool,
         /// Print JSON extraction plan without writing files
@@ -143,7 +143,7 @@ pub(super) enum Command {
         /// BA2 version; only valid with --format ba2
         #[arg(long, value_enum)]
         ba2_version: Option<CliBa2Version>,
-        /// Write JSON summary to stdout
+        /// Write JSON summary to stdout; dry-run always writes a JSON plan
         #[arg(long)]
         json: bool,
         /// Print JSON archive creation plan without writing files
@@ -166,7 +166,7 @@ pub(super) enum Command {
         /// Output archive path. Omit to replace the input archive after a successful rewrite.
         #[arg(short, long)]
         output: Option<PathBuf>,
-        /// Write JSON summary to stdout
+        /// Write JSON summary to stdout; dry-run always writes a JSON plan
         #[arg(long)]
         json: bool,
         /// Print JSON archive update plan without writing files

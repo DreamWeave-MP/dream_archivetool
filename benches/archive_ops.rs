@@ -181,6 +181,91 @@ fn fixture_archive_with_format(
     }
 }
 
+fn push_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_le_bytes());
+}
+
+fn push_zeros(out: &mut Vec<u8>, count: usize) {
+    out.resize(out.len() + count, 0);
+}
+
+fn dx10_dds(width: u32, height: u32, payload: &[u8]) -> Vec<u8> {
+    const DDSD_CAPS: u32 = 0x0000_0001;
+    const DDSD_HEIGHT: u32 = 0x0000_0002;
+    const DDSD_WIDTH: u32 = 0x0000_0004;
+    const DDSD_PIXELFORMAT: u32 = 0x0000_1000;
+    const DDSD_MIPMAPCOUNT: u32 = 0x0002_0000;
+    const DDSD_LINEARSIZE: u32 = 0x0008_0000;
+    const DDPF_FOURCC: u32 = 0x0000_0004;
+    const DDSCAPS_TEXTURE: u32 = 0x0000_1000;
+    const DDS_DIMENSION_TEXTURE2D: u32 = 3;
+    const DXGI_FORMAT_BC7_UNORM: u32 = 98;
+
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"DDS ");
+    push_u32(&mut bytes, 124);
+    push_u32(
+        &mut bytes,
+        DDSD_CAPS
+            | DDSD_HEIGHT
+            | DDSD_WIDTH
+            | DDSD_PIXELFORMAT
+            | DDSD_MIPMAPCOUNT
+            | DDSD_LINEARSIZE,
+    );
+    push_u32(&mut bytes, height);
+    push_u32(&mut bytes, width);
+    push_u32(&mut bytes, payload.len().try_into().unwrap());
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, 1);
+    push_zeros(&mut bytes, 44);
+    push_u32(&mut bytes, 32);
+    push_u32(&mut bytes, DDPF_FOURCC);
+    push_u32(&mut bytes, u32::from_le_bytes(*b"DX10"));
+    push_zeros(&mut bytes, 20);
+    push_u32(&mut bytes, DDSCAPS_TEXTURE);
+    push_zeros(&mut bytes, 16);
+    push_u32(&mut bytes, DXGI_FORMAT_BC7_UNORM);
+    push_u32(&mut bytes, DDS_DIMENSION_TEXTURE2D);
+    push_u32(&mut bytes, 0);
+    push_u32(&mut bytes, 1);
+    push_u32(&mut bytes, 0);
+    bytes.extend_from_slice(payload);
+    bytes
+}
+
+fn dx10_add_preserve_case(
+    entry_count: usize,
+    dds_payload_len: usize,
+) -> (TempDir, PathBuf, PathBuf) {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("dx10-base");
+    let textures = input.join("textures");
+    fs::create_dir_all(&textures).unwrap();
+    let payload = vec![0xabu8; dds_payload_len];
+    for index in 0..entry_count {
+        fs::write(
+            textures.join(format!("preserved_{index:03}.dds")),
+            dx10_dds(1024, 1024, &payload),
+        )
+        .unwrap();
+    }
+    let archive = dir.path().join("dx10.ba2");
+    ArchiveTool::create(
+        &archive,
+        &input,
+        &CreateOptions {
+            format: ArchiveFormat::Ba2,
+            ba2_kind: dream_archivetool::Ba2ArchiveKind::Dx10,
+            ..CreateOptions::default()
+        },
+    )
+    .unwrap();
+    let replacement = dir.path().join("replacement.dds");
+    fs::write(&replacement, dx10_dds(1024, 1024, &payload)).unwrap();
+    (dir, archive, replacement)
+}
+
 fn extract_options(output: &Path, overwrite: OverwriteMode) -> ExtractOptions {
     ExtractOptions {
         output: Some(output.to_path_buf()),
@@ -204,10 +289,9 @@ fn bench_read_only(c: &mut Criterion) {
         b.iter(|| black_box(ArchiveTool::list(black_box(&fixture.archive)).unwrap()));
     });
 
-    let (_, peak) = measure_peak_bytes(|| {
-        let archive = ArchiveTool::open(&fixture.archive).unwrap();
-        archive.read_entry_by_path_bytes(&selected).unwrap()
-    });
+    let opened_for_peak = ArchiveTool::open(&fixture.archive).unwrap();
+    let (_, peak) =
+        measure_peak_bytes(|| opened_for_peak.read_entry_by_path_bytes(&selected).unwrap());
     report_peak("single entry read from opened archive", peak);
 
     group.bench_function(BenchmarkId::new("open_and_read_entry", PAYLOAD_LEN), |b| {
@@ -516,6 +600,7 @@ fn bench_create_and_update(c: &mut Criterion) {
 
     bench_create_tes3(&mut group, ENTRY_COUNT, PAYLOAD_LEN);
     bench_add_preserve_rewrite(&mut group, ENTRY_COUNT, PAYLOAD_LEN);
+    bench_ba2_dx10_add_preserve_rewrite(&mut group);
     bench_diff_payload_fingerprint(&mut group, ENTRY_COUNT, PAYLOAD_LEN);
 
     group.finish();
@@ -526,10 +611,9 @@ fn bench_create_tes3(
     entry_count: usize,
     payload_len: usize,
 ) {
-    let (_, peak) = measure_peak_bytes(|| {
-        let (dir, input) = create_input_case(entry_count, payload_len, "create");
-        create_tes3(dir.path().join("created.bsa"), &input)
-    });
+    let (peak_dir, peak_input) = create_input_case(entry_count, payload_len, "create-peak");
+    let (_, peak) =
+        measure_peak_bytes(|| create_tes3(peak_dir.path().join("created.bsa"), &peak_input));
     report_peak("create generated archive", peak);
 
     group.bench_function(BenchmarkId::new("create_tes3", entry_count), |b| {
@@ -551,9 +635,9 @@ fn bench_add_preserve_rewrite(
     entry_count: usize,
     payload_len: usize,
 ) {
+    let (peak_dir, peak_archive, peak_new_file) = add_preserve_case(entry_count, payload_len);
     let (_, peak) = measure_peak_bytes(|| {
-        let (dir, archive, new_file) = add_preserve_case(entry_count, payload_len);
-        add_preserving_entries(dir.path(), &archive, new_file)
+        add_preserving_entries(peak_dir.path(), &peak_archive, peak_new_file)
     });
     report_peak("add preserving unchanged entries", peak);
 
@@ -570,6 +654,36 @@ fn bench_add_preserve_rewrite(
             BatchSize::SmallInput,
         );
     });
+}
+
+fn bench_ba2_dx10_add_preserve_rewrite(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+) {
+    const ENTRY_COUNT: usize = 4;
+    const DDS_PAYLOAD_LEN: usize = 1024 * 1024;
+    let (peak_dir, peak_archive, peak_new_file) =
+        dx10_add_preserve_case(ENTRY_COUNT, DDS_PAYLOAD_LEN);
+    let (_, peak) = measure_peak_bytes(|| {
+        add_preserving_entries(peak_dir.path(), &peak_archive, peak_new_file)
+    });
+    report_peak("BA2 DX10 add preserving buffered DDS entries", peak);
+
+    group.bench_function(
+        BenchmarkId::new("ba2_dx10_add_preserve_buffering", ENTRY_COUNT),
+        |b| {
+            b.iter_batched(
+                || dx10_add_preserve_case(ENTRY_COUNT, DDS_PAYLOAD_LEN),
+                |(dir, archive, new_file)| {
+                    black_box(add_preserving_entries(
+                        dir.path(),
+                        black_box(&archive),
+                        new_file,
+                    ));
+                },
+                BatchSize::SmallInput,
+            );
+        },
+    );
 }
 
 fn bench_diff_payload_fingerprint(
@@ -806,9 +920,9 @@ fn bench_add_many_preserve(
     entry_count: usize,
     payload_len: usize,
 ) {
+    let (peak_dir, peak_archive, peak_new_file) = add_preserve_case(entry_count, payload_len);
     let (_, peak) = measure_peak_bytes(|| {
-        let (dir, archive, new_file) = add_preserve_case(entry_count, payload_len);
-        add_preserving_entries(dir.path(), &archive, new_file)
+        add_preserving_entries(peak_dir.path(), &peak_archive, peak_new_file)
     });
     report_peak("add preserving many unchanged entries", peak);
 

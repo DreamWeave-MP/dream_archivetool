@@ -187,16 +187,21 @@ fn diff_entries(
 ) -> Result<BTreeMap<Vec<u8>, DiffEntryData>> {
     let mut entries = BTreeMap::new();
     for entry in archive.list_loaded_entries()? {
-        let path = entry.path.clone();
+        let crate::loaded::LoadedEntry {
+            raw_path,
+            path,
+            size,
+            compressed_size,
+        } = entry;
         let payload_fingerprint = if fingerprint_payloads {
-            Some(payload_fingerprint(archive, &entry.path)?)
+            Some(payload_fingerprint(archive, &path)?)
         } else {
             None
         };
         let data = DiffEntryData {
-            raw_path: entry.raw_path,
-            size: entry.size,
-            compressed_size: entry.compressed_size,
+            raw_path,
+            size,
+            compressed_size,
             payload_fingerprint,
         };
         match entries.entry(path) {

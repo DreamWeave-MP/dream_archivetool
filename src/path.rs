@@ -1,8 +1,8 @@
 //! Public helpers for archive virtual-path byte contracts.
 //!
 //! Archive entry identity is byte-oriented. Display strings are for humans; these helpers are for
-//! frontends that need to round-trip `path_bytes_hex` from JSON without copying CLI-only parsing
-//! code. Yes, that was a real footgun. Now it has a name.
+//! frontends that need to feed `path_bytes_hex` normalized lookup keys back into this crate without
+//! copying CLI-only parsing code. Yes, that was a real footgun. Now it has a name.
 
 use crate::{ArchiveError, Result};
 
@@ -15,7 +15,10 @@ pub fn normalize_archive_path_bytes(path: impl AsRef<[u8]>) -> Vec<u8> {
     crate::paths::normalize_archive_path_bytes(path)
 }
 
-/// Encode normalized archive path bytes as lowercase hexadecimal text.
+/// Encode archive path bytes as lowercase hexadecimal text.
+///
+/// This function does not normalize its input. Call [`normalize_archive_path_bytes`] first when
+/// encoding lookup keys compatible with `path_bytes_hex` report fields.
 #[must_use]
 pub fn encode_archive_path_hex(path: &[u8]) -> String {
     crate::paths::archive_path_bytes_to_hex(path)

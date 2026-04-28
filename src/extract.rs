@@ -94,7 +94,9 @@ pub struct ExtractAllPlan {
 /// Extraction dry-run operation represented by a plan.
 #[non_exhaustive]
 pub enum ExtractPlanOperation {
+    /// Plan for selected-entry extraction.
     Extract,
+    /// Plan for full archive extraction.
     ExtractAll,
 }
 
@@ -117,8 +119,11 @@ pub struct ExtractPlanEntry {
 /// Planned extraction action.
 #[non_exhaustive]
 pub enum ExtractPlanAction {
+    /// Entry would be written to a new target path.
     Extract,
+    /// Entry would be skipped because the target exists and overwrite mode is `Skip`.
     Skip,
+    /// Entry would replace an existing target path.
     Overwrite,
 }
 

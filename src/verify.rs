@@ -56,7 +56,7 @@ pub struct VerifyPathIssue {
     pub path: String,
     /// Hex-encoded normalized archive-path lookup key, not raw identity.
     pub path_bytes_hex: String,
-    /// Hex-encoded raw archive path bytes when they differ from the normalized lookup key.
+    /// Hex-encoded raw archive path bytes for the entry being reported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_path_bytes_hex: Option<String>,
     /// Hex-encoded raw path bytes for a previous entry with the same normalized lookup key.
@@ -164,7 +164,34 @@ fn duplicate_path_issue(
     VerifyPathIssue {
         path: archive_path_bytes_to_display(path),
         path_bytes_hex: archive_path_bytes_to_hex(path),
-        raw_path_bytes_hex: Some(archive_path_bytes_to_hex(first_raw_path)),
-        colliding_raw_path_bytes_hex: Some(archive_path_bytes_to_hex(duplicate_raw_path)),
+        raw_path_bytes_hex: Some(archive_path_bytes_to_hex(duplicate_raw_path)),
+        colliding_raw_path_bytes_hex: Some(archive_path_bytes_to_hex(first_raw_path)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duplicate_path_issue_reports_duplicate_then_previous_raw_path() {
+        let issue = duplicate_path_issue(
+            b"textures/example.dds",
+            b"Textures/Example.dds",
+            b"textures/example.dds",
+        );
+
+        assert_eq!(
+            issue.path_bytes_hex,
+            "74657874757265732f6578616d706c652e646473"
+        );
+        assert_eq!(
+            issue.raw_path_bytes_hex.as_deref(),
+            Some("74657874757265732f6578616d706c652e646473")
+        );
+        assert_eq!(
+            issue.colliding_raw_path_bytes_hex.as_deref(),
+            Some("54657874757265732f4578616d706c652e646473")
+        );
     }
 }
