@@ -39,6 +39,6 @@ name = "archive_ops"
 harness = false
 
 [[bin]]
-name = "dream-archivetool"
+name = "dream_archivetool"
 path = "src/main.rs"
 required-features = ["cli"]
