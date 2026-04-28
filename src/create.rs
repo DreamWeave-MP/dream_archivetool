@@ -1266,17 +1266,22 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_paths_after_normalization() {
-        let dir = unique_dir("duplicate-normalized");
-        let input = dir.join("input");
-        fs::create_dir_all(input.join("textures")).unwrap();
-        fs::write(input.join("textures/example.dds"), b"lower").unwrap();
-        fs::write(input.join("textures/EXAMPLE.DDS"), b"upper").unwrap();
-        let archive = dir.join("out.bsa");
+        let mut entries = BTreeMap::new();
+        insert_input_path(
+            &mut entries,
+            b"textures/example.dds",
+            PathBuf::from("textures/example.dds"),
+        )
+        .unwrap();
 
-        let err = create_archive(&archive, &input, &CreateOptions::default()).unwrap_err();
+        let err = insert_input_path(
+            &mut entries,
+            b"textures/example.dds",
+            PathBuf::from("textures/EXAMPLE.DDS"),
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("duplicate archive path"));
-        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -1344,7 +1349,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn input_collection_preserves_non_utf8_archive_path_bytes() {
         use std::ffi::OsString;
@@ -1430,7 +1435,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn created_non_utf8_archive_can_be_listed_extracted_and_rewritten() {
         use std::ffi::OsString;

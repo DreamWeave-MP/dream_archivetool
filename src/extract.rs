@@ -732,6 +732,29 @@ mod tests {
         assert_eq!(path, Path::new("out").join("textures/example.dds"));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rejects_non_utf8_archive_paths_before_writing_on_macos() {
+        let dir = unique_dir("extract-non-utf8-macos");
+        fs::create_dir_all(&dir).unwrap();
+        let archive_path = dir.join("test.bsa");
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes(b"bad-\xff.dds", b"payload").unwrap();
+        builder.write_path(&archive_path).unwrap();
+
+        let err = extract_all(
+            &archive_path,
+            &ExtractAllOptions {
+                output: Some(dir.join("out")),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn extract_entry_fails_when_target_exists_by_default() {
         let dir = unique_dir("extract-entry-exists");

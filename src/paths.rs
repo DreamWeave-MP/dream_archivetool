@@ -75,7 +75,6 @@ pub(crate) fn normalize_safe_archive_path_bytes(path: impl AsRef<[u8]>) -> Resul
 
 pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_archive_path_bytes_for_extraction(normalized)?;
-    #[cfg(not(unix))]
     ensure_platform_target_path_bytes(normalized)?;
     let mut target = PathBuf::from(root);
     for component in normalized.split(|byte| *byte == b'/') {
@@ -89,7 +88,6 @@ pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
 
 pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_archive_path_bytes_for_extraction(normalized)?;
-    #[cfg(not(unix))]
     ensure_platform_target_path_bytes(normalized)?;
     let normalized_path = NormalizedPath::new(normalized);
     let file_name = normalized_path
@@ -100,8 +98,10 @@ pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
     Ok(target)
 }
 
-#[cfg(not(unix))]
 fn ensure_platform_target_path_bytes(path: &[u8]) -> Result<()> {
+    if !target_paths_require_utf8_components() {
+        return Ok(());
+    }
     for component in path.split(|byte| *byte == b'/') {
         let component = std::str::from_utf8(component)
             .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(path)))?;
@@ -117,6 +117,10 @@ fn ensure_platform_target_path_bytes(path: &[u8]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+const fn target_paths_require_utf8_components() -> bool {
+    cfg!(any(not(unix), target_os = "macos"))
 }
 
 fn push_component_bytes(target: &mut PathBuf, component: &[u8]) {
@@ -172,5 +176,16 @@ mod tests {
         for path in [b".".as_slice(), b"./.", b".\\."] {
             assert!(safe_target_path_normalized(Path::new("out"), path).is_err());
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn rejects_non_utf8_target_paths_on_macos() {
+        let err = safe_target_path_normalized(Path::new("out"), b"bad-\xff.dds").unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
+
+        let err =
+            flat_target_path_normalized(Path::new("out"), b"textures/bad-\xff.dds").unwrap_err();
+        assert!(matches!(err, ArchiveError::UnsafePath(_)));
     }
 }

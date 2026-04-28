@@ -1485,7 +1485,7 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn lua_extracts_non_utf8_archive_path_bytes() {
         use std::ffi::OsString;
