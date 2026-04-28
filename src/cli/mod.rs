@@ -1116,7 +1116,7 @@ mod tests {
         assert!(
             String::from_utf8(stdout)
                 .unwrap()
-                .contains("dream-archivetool")
+                .contains("dream__archivetool")
         );
 
         let mut stdout = Vec::new();
@@ -1128,7 +1128,7 @@ mod tests {
         assert!(
             String::from_utf8(stdout)
                 .unwrap()
-                .contains("dream-archivetool")
+                .contains("dream_archivetool")
         );
     }
 

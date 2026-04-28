@@ -1,5 +1,5 @@
 [package]
-name = "dream-archivetool"
+name = "dream_archivetool"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
@@ -31,7 +31,7 @@ standalone-lua = ["lua", "mlua/luajit52", "mlua/vendored"]
 features = ["standalone-lua"]
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = { version = "0.5", default-features = false }
 
 [[bench]]
 name = "archive_ops"
