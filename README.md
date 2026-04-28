@@ -400,3 +400,11 @@ Use `cargo bench --bench archive_ops` to profile generated synthetic archives fo
 ## License
 
 GPL-3.0-or-later. See `LICENSE`.
+
+## Support
+
+Has `dream_archivetool` been useful to you?
+
+If so, please consider [amplifying the signal](https://ko-fi.com/magicaldave) through my ko-fi. 
+
+Thank you for using `dream_archivetool`.
