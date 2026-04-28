@@ -339,7 +339,7 @@ mod tests {
     #[test]
     fn streams_entries_without_collecting_first() {
         let dir = std::env::temp_dir().join(format!(
-            "dream-archivetool-stream-{}",
+            "dream_archivetool-stream-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

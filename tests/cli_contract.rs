@@ -7,7 +7,7 @@ use std::process::{Command, Output};
 use tempfile::TempDir;
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_dream-archivetool")
+    env!("CARGO_BIN_EXE_dream_archivetool")
 }
 
 fn run(args: &[&str]) -> Output {

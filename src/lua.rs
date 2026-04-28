@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Lua bindings for the `dream-archivetool` policy layer.
+//! Lua bindings for the `dream_archivetool` policy layer.
 //!
 //! This module deliberately does not mirror `dream_archive`'s archive primitives. Use
 //! `dream_archive` to open archives, list entries, read payloads, and use path helpers; use this
@@ -1153,7 +1153,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dream-archivetool-lua-{name}-{}",
+            "dream_archivetool-lua-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

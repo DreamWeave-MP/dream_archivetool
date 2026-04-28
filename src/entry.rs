@@ -43,7 +43,7 @@ mod tests {
     #[test]
     fn lists_tes3_entries() {
         let dir = std::env::temp_dir().join(format!(
-            "dream-archivetool-list-{}",
+            "dream_archivetool-list-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

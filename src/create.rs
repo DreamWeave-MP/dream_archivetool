@@ -739,7 +739,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dream-archivetool-{name}-{}",
+            "dream_archivetool-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

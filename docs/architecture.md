@@ -1,12 +1,12 @@
 # Architecture Notes
 
-`dream-archivetool` is a policy layer over `dream_archive`, not a second archive parser. Keep that boundary boring. The archive crate owns format mechanics; this crate owns application decisions about safety, filesystem writes, CLI shape, Lua tables, and rewrite refusal.
+`dream_archivetool` is a policy layer over `dream_archive`, not a second archive parser. Keep that boundary boring. The archive crate owns format mechanics; this crate owns application decisions about safety, filesystem writes, CLI shape, Lua tables, and rewrite refusal.
 
 ## Layer ownership
 
 - `dream_path` owns virtual archive path normalization and path helper semantics.
 - `dream_archive` owns BSA/BA2 parsing, writing, entry lookup, payload extraction, and lower-level Lua archive userdata.
-- `dream-archivetool` owns policy: safe extraction targets, JSON/CLI/Lua DTOs, create/add planning, rewrite blockers, symlink policy, temp-output replacement, and durability options.
+- `dream_archivetool` owns policy: safe extraction targets, JSON/CLI/Lua DTOs, create/add planning, rewrite blockers, symlink policy, temp-output replacement, and durability options.
 - `src/cli` owns argument parsing and presentation only. It should translate command-line options into library option structs, then get out of the way.
 - `src/lua.rs` owns Lua embedding ergonomics and converts between Lua values and the same library policy APIs used by the CLI.
 

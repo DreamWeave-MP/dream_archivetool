@@ -572,7 +572,7 @@ mod tests {
     #[test]
     fn reports_tes3_info() {
         let dir = std::env::temp_dir().join(format!(
-            "dream-archivetool-info-{}",
+            "dream_archivetool-info-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -595,7 +595,7 @@ mod tests {
     #[test]
     fn open_archive_reuses_loaded_index() {
         let dir = std::env::temp_dir().join(format!(
-            "dream-archivetool-open-{}",
+            "dream_archivetool-open-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()

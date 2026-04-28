@@ -4,7 +4,7 @@ use std::io;
 
 use thiserror::Error;
 
-/// Result type used by `dream-archivetool` APIs.
+/// Result type used by `dream_archivetool` APIs.
 pub type Result<T> = std::result::Result<T, ArchiveError>;
 
 /// Error type returned by archive operations.

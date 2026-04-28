@@ -1,6 +1,6 @@
-# dream-archivetool
+# dream_archivetool
 
-`dream-archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
+`dream_archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
 
 The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support. See [`docs/architecture.md`](docs/architecture.md) for subsystem ownership, compatibility contracts, and Lua handle semantics.
 
@@ -16,33 +16,33 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 ## Usage
 
 ```bash
-dream-archivetool info archive.bsa
-dream-archivetool info --json archive.bsa
-dream-archivetool list archive.bsa
-dream-archivetool list --long archive.bsa
-dream-archivetool list --json archive.bsa
-dream-archivetool verify archive.bsa --read-payloads --json
-dream-archivetool diff old.bsa new.bsa --hash --json
-dream-archivetool extract archive.bsa textures/example.dds --output out/
-dream-archivetool extract archive.bsa textures/example.dds --stdout > example.dds
-dream-archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds
-dream-archivetool extract-all archive.bsa --output out/ --dry-run
-dream-archivetool extract-all archive.bsa --output out/
+dream_archivetool info archive.bsa
+dream_archivetool info --json archive.bsa
+dream_archivetool list archive.bsa
+dream_archivetool list --long archive.bsa
+dream_archivetool list --json archive.bsa
+dream_archivetool verify archive.bsa --read-payloads --json
+dream_archivetool diff old.bsa new.bsa --hash --json
+dream_archivetool extract archive.bsa textures/example.dds --output out/
+dream_archivetool extract archive.bsa textures/example.dds --stdout > example.dds
+dream_archivetool extract archive.bsa --entry-hex 74657874757265732f6578616d706c652e646473 --stdout > example.dds
+dream_archivetool extract-all archive.bsa --output out/ --dry-run
+dream_archivetool extract-all archive.bsa --output out/
 # extract/extract-all default to the current directory when --output is omitted
-dream-archivetool create out.bsa input_dir/ --format tes3
-dream-archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
-dream-archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
-dream-archivetool create out.bsa input_dir/ --format tes3 --follow-symlinks
-dream-archivetool add base.bsa new_file.txt
-dream-archivetool add base.bsa new_file.txt --output updated.bsa
-dream-archivetool add base.bsa new_dir/ --output updated.bsa --dry-run
-dream-archivetool --generate-completion bash > dream-archivetool.bash
-dream-archivetool --generate-manpage > dream-archivetool.1
+dream_archivetool create out.bsa input_dir/ --format tes3
+dream_archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
+dream_archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
+dream_archivetool create out.bsa input_dir/ --format tes3 --follow-symlinks
+dream_archivetool add base.bsa new_file.txt
+dream_archivetool add base.bsa new_file.txt --output updated.bsa
+dream_archivetool add base.bsa new_dir/ --output updated.bsa --dry-run
+dream_archivetool --generate-completion bash > dream_archivetool.bash
+dream_archivetool --generate-manpage > dream_archivetool.1
 ```
 
 ## CLI Contracts
 
-Running `dream-archivetool` without a subcommand intentionally prints top-level help and exits successfully. Argument parsing errors still use clap's nonzero misuse exit code, and runtime archive/file failures return a runtime error.
+Running `dream_archivetool` without a subcommand intentionally prints top-level help and exits successfully. Argument parsing errors still use clap's nonzero misuse exit code, and runtime archive/file failures return a runtime error.
 
 Human output is for people. JSON output is the scripting contract and is written to stdout without progress text; diagnostics go to stderr in the binary. `extract --stdout` writes only payload bytes to stdout and conflicts with JSON and disk-write options. JSON compatibility follows the crate's semver contract; additive fields may appear in minor releases, while field removals or renames require a breaking release.
 
@@ -122,10 +122,10 @@ GUI or embedding projects that do not need the command-line interface should dis
 
 ```toml
 [dependencies]
-dream-archivetool = { version = "0.1", default-features = false }
+dream_archivetool = { version = "0.1", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream-archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables this crate's Lua module and compatible Lua support in the re-exported `dream_archive` and `dream_path` APIs, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
+The `cli` feature is enabled by default for building the `dream_archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables this crate's Lua module and compatible Lua support in the re-exported `dream_archive` and `dream_path` APIs, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -361,11 +361,11 @@ Archive creation and update write to a temporary file in the output directory, t
 
 ## Performance
 
-The stateless `ArchiveTool` facade opens archives once per high-level operation; use `ArchiveTool::open` / `OpenArchive` for repeated list/read/extract calls against the same archive. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream-archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
+The stateless `ArchiveTool` facade opens archives once per high-level operation; use `ArchiveTool::open` / `OpenArchive` for repeated list/read/extract calls against the same archive. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream_archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
 
 Lua report and plan functions materialize their result tables. `verify`, `diff`, `plan_extract_all`, and large selected-entry plans can therefore allocate a lot of Lua objects and put pressure on LuaJIT's GC. Batch extraction opens the archive once for the batch, but selected entry arrays are validated and copied at the Rust boundary. Prefer `extract_many` / `extract_many_by_path_hex` over looping single-entry extraction; prefer `dream_archive` primitives when you only need low-level listing or payload reads.
 
-Archive creation and update preflight archive paths and format policy before adding deferred payload sources to the backend builders. TES3, TES4, and BA2 GNRL creation pass filesystem paths to `dream_archive` rather than preloading payloads in `dream-archivetool`. `add` preserves unchanged TES3, TES4, BA2 GNRL, and BA2 DX10 entries from the source archive through deferred archive-entry sources instead of decoding them into `dream-archivetool` memory. BA2 DX10 still has to parse DDS texture data for new or replaced files, but preserved texture entries are copied as native BA2 chunks.
+Archive creation and update preflight archive paths and format policy before adding deferred payload sources to the backend builders. TES3, TES4, and BA2 GNRL creation pass filesystem paths to `dream_archive` rather than preloading payloads in `dream_archivetool`. `add` preserves unchanged TES3, TES4, BA2 GNRL, and BA2 DX10 entries from the source archive through deferred archive-entry sources instead of decoding them into `dream_archivetool` memory. BA2 DX10 still has to parse DDS texture data for new or replaced files, but preserved texture entries are copied as native BA2 chunks.
 
 ## Format Notes
 

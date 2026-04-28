@@ -21,7 +21,7 @@ pub(crate) fn run_from_env(stdout: &mut dyn Write) -> Result<()> {
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
     if let Some(shell) = cli.generate_completion {
-        clap_complete::generate(shell, &mut Cli::command(), "dream-archivetool", stdout);
+        clap_complete::generate(shell, &mut Cli::command(), "dream_archivetool", stdout);
         return Ok(());
     }
     if cli.generate_manpage {
@@ -627,7 +627,7 @@ mod tests {
 
     fn unique_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "dream-archivetool-cli-{name}-{}",
+            "dream_archivetool-cli-{name}-{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -651,7 +651,7 @@ mod tests {
         let mut stdout = Vec::new();
 
         run(
-            Cli::parse_from(["dream-archivetool", "list", archive_path.to_str().unwrap()]),
+            Cli::parse_from(["dream_archivetool", "list", archive_path.to_str().unwrap()]),
             &mut stdout,
         )
         .unwrap();
@@ -673,7 +673,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "info",
                 archive_path.to_str().unwrap(),
                 "--json",
@@ -701,7 +701,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "list",
                 archive_path.to_str().unwrap(),
                 "--json",
@@ -741,7 +741,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "diff",
                 old_archive.to_str().unwrap(),
                 new_archive.to_str().unwrap(),
@@ -769,7 +769,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "verify",
                 archive_path.to_str().unwrap(),
                 "--read-payloads",
@@ -803,7 +803,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "icons/example.dds",
@@ -828,7 +828,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "icons/example.dds",
@@ -856,7 +856,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "icons/example.dds",
@@ -883,7 +883,7 @@ mod tests {
         let mut stdout = Vec::new();
 
         run(
-            Cli::parse_from(["dream-archivetool", "info", archive_path.to_str().unwrap()]),
+            Cli::parse_from(["dream_archivetool", "info", archive_path.to_str().unwrap()]),
             &mut stdout,
         )
         .unwrap();
@@ -908,7 +908,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract-all",
                 archive_path.to_str().unwrap(),
                 "--output",
@@ -941,7 +941,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "create",
                 archive.to_str().unwrap(),
                 input.to_str().unwrap(),
@@ -979,7 +979,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "add",
                 archive.to_str().unwrap(),
                 update.to_str().unwrap(),
@@ -1011,7 +1011,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract-all",
                 archive_path.to_str().unwrap(),
                 "--output",
@@ -1041,7 +1041,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "create",
                 archive.to_str().unwrap(),
                 input.to_str().unwrap(),
@@ -1074,7 +1074,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "add",
                 archive.to_str().unwrap(),
                 added.to_str().unwrap(),
@@ -1096,7 +1096,7 @@ mod tests {
     #[test]
     fn add_command_rejects_empty_inputs() {
         let err = Cli::try_parse_from([
-            "dream-archivetool",
+            "dream_archivetool",
             "add",
             "base.bsa",
             "--output",
@@ -1111,19 +1111,19 @@ mod tests {
     fn generation_options_do_not_require_subcommand() {
         let mut stdout = Vec::new();
         run(
-            Cli::parse_from(["dream-archivetool", "--generate-completion", "bash"]),
+            Cli::parse_from(["dream_archivetool", "--generate-completion", "bash"]),
             &mut stdout,
         )
         .unwrap();
         assert!(
             String::from_utf8(stdout)
                 .unwrap()
-                .contains("dream__archivetool")
+                .contains("dream_archivetool")
         );
 
         let mut stdout = Vec::new();
         run(
-            Cli::parse_from(["dream-archivetool", "--generate-manpage"]),
+            Cli::parse_from(["dream_archivetool", "--generate-manpage"]),
             &mut stdout,
         )
         .unwrap();
@@ -1138,7 +1138,7 @@ mod tests {
     fn create_command_rejects_irrelevant_format_options() {
         let err = run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "create",
                 "out.bsa",
                 "input",
@@ -1160,7 +1160,7 @@ mod tests {
     #[test]
     fn list_json_conflicts_with_long() {
         let err =
-            Cli::try_parse_from(["dream-archivetool", "list", "test.bsa", "--json", "--long"])
+            Cli::try_parse_from(["dream_archivetool", "list", "test.bsa", "--json", "--long"])
                 .unwrap_err();
 
         assert!(err.to_string().contains("cannot be used with"));
@@ -1169,7 +1169,7 @@ mod tests {
     #[test]
     fn extract_stdout_conflicts_with_disk_options() {
         let err = Cli::try_parse_from([
-            "dream-archivetool",
+            "dream_archivetool",
             "extract",
             "test.bsa",
             "textures/a.dds",
@@ -1198,7 +1198,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                OsString::from("dream-archivetool"),
+                OsString::from("dream_archivetool"),
                 OsString::from("extract"),
                 archive_path.into_os_string(),
                 OsString::from_vec(b"textures/invalid-\xff.dds".to_vec()),
@@ -1222,7 +1222,7 @@ mod tests {
 
         run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract",
                 archive_path.to_str().unwrap(),
                 "--entry-hex",
@@ -1240,7 +1240,7 @@ mod tests {
     #[test]
     fn entry_hex_conflicts_with_positional_entry() {
         let err = Cli::try_parse_from([
-            "dream-archivetool",
+            "dream_archivetool",
             "extract",
             "test.bsa",
             "icons/example.dds",
@@ -1256,7 +1256,7 @@ mod tests {
     fn invalid_entry_hex_is_rejected() {
         let err = run(
             Cli::parse_from([
-                "dream-archivetool",
+                "dream_archivetool",
                 "extract",
                 "test.bsa",
                 "--entry-hex",
@@ -1274,7 +1274,7 @@ mod tests {
     fn no_subcommand_prints_help_successfully() {
         let mut stdout = Vec::new();
 
-        run(Cli::parse_from(["dream-archivetool"]), &mut stdout).unwrap();
+        run(Cli::parse_from(["dream_archivetool"]), &mut stdout).unwrap();
 
         assert!(
             String::from_utf8(stdout)
@@ -1290,7 +1290,7 @@ mod tests {
         let mut stdout = Vec::new();
 
         let err = run(
-            Cli::parse_from(["dream-archivetool", "list", archive_path.to_str().unwrap()]),
+            Cli::parse_from(["dream_archivetool", "list", archive_path.to_str().unwrap()]),
             &mut stdout,
         )
         .unwrap_err();
