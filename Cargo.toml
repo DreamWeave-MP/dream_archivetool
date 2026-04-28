@@ -6,6 +6,7 @@ rust-version = "1.87"
 description = "Inspect, extract, create, and update Bethesda BSA and BA2 archives"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/DreamWeave-MP/dream_archivetool"
+documentation = "https://dreamweave-mp.github.io/dream_archivetool/dream_archivetool/index.html"
 readme = "README.md"
 keywords = ["bethesda", "bsa", "ba2", "archive", "cli"]
 categories = ["command-line-utilities", "filesystem"]
