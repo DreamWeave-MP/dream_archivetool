@@ -75,12 +75,12 @@ pub(crate) fn normalize_safe_archive_path_bytes(path: impl AsRef<[u8]>) -> Resul
 
 pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_archive_path_bytes_for_extraction(normalized)?;
-    ensure_platform_target_path_bytes(normalized)?;
     let mut target = PathBuf::from(root);
     for component in normalized.split(|byte| *byte == b'/') {
         if component == b"." {
             continue;
         }
+        ensure_platform_target_component_bytes(component, normalized)?;
         push_component_bytes(&mut target, component);
     }
     Ok(target)
@@ -88,33 +88,31 @@ pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
 
 pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_archive_path_bytes_for_extraction(normalized)?;
-    ensure_platform_target_path_bytes(normalized)?;
     let normalized_path = NormalizedPath::new(normalized);
     let file_name = normalized_path
         .file_name()
         .ok_or_else(|| ArchiveError::UnsafePath(archive_path_bytes_to_display(normalized)))?;
     let mut target = PathBuf::from(root);
+    ensure_platform_target_component_bytes(file_name.as_bytes(), normalized)?;
     push_component_bytes(&mut target, file_name.as_bytes());
     Ok(target)
 }
 
-fn ensure_platform_target_path_bytes(path: &[u8]) -> Result<()> {
+fn ensure_platform_target_component_bytes(component: &[u8], full_path: &[u8]) -> Result<()> {
     if !target_paths_require_utf8_components() {
         return Ok(());
     }
-    for component in path.split(|byte| *byte == b'/') {
-        let component = std::str::from_utf8(component)
-            .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(path)))?;
-        if Path::new(component).components().count() != 1
-            || !matches!(
-                Path::new(component).components().next(),
-                Some(Component::Normal(_))
-            )
-        {
-            return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
-                path,
-            )));
-        }
+    let component = std::str::from_utf8(component)
+        .map_err(|_| ArchiveError::UnsafePath(archive_path_bytes_to_display(full_path)))?;
+    if Path::new(component).components().count() != 1
+        || !matches!(
+            Path::new(component).components().next(),
+            Some(Component::Normal(_))
+        )
+    {
+        return Err(ArchiveError::UnsafePath(archive_path_bytes_to_display(
+            full_path,
+        )));
     }
     Ok(())
 }
