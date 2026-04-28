@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dream_archive::ByteSlice as _;
-use dream_archive::ba2::{ArchiveVersion as Ba2ArchiveVersion, PayloadFormat};
+use dream_archive::ba2::{
+    ArchiveVersion as Ba2ArchiveVersion, Ba2CompressionFormat, PayloadFormat,
+};
 use dream_archive::bsa::tes4::{ArchiveVersion as Tes4ArchiveVersion, NameMode};
 use serde::{Deserialize, Serialize};
 
@@ -597,12 +599,7 @@ fn write_ba2_like(
     let input_count = entries.len();
     let info = archive.info();
     if info.format == PayloadFormat::DX10 {
-        return write_dx10_ba2_like_buffering_preserved_entries(
-            output,
-            entries,
-            archive,
-            info.version,
-        );
+        return write_dx10_ba2_like(output, entries, archive, info.version);
     }
     let mut preserved = 0;
     crate::rewrite_policy::ensure_ba2_payload_format_writable(info.format)?;
@@ -663,7 +660,7 @@ fn write_dx10_ba2(
     builder.write_seek(output).map_err(archive_error)
 }
 
-fn write_dx10_ba2_like_buffering_preserved_entries(
+fn write_dx10_ba2_like(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     archive: &dream_archive::ba2::Archive,
@@ -673,6 +670,10 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
     let mut preserved = 0;
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
+    if archive.info().compression_format == Ba2CompressionFormat::LZ4 {
+        builder.set_compression(Some(Ba2CompressionFormat::LZ4));
+    }
+    let source_archive = Arc::new(archive.clone());
     let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
         if entry.name().is_empty() {
@@ -683,11 +684,9 @@ fn write_dx10_ba2_like_buffering_preserved_entries(
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             preserved += 1;
-            let mut bytes = Vec::new();
-            archive
-                .extract_entry_by_id(id, &mut bytes)
+            builder
+                .add_archive_entry(&key, Arc::clone(&source_archive), id)
                 .map_err(archive_error)?;
-            builder.add_dds_bytes(&key, bytes).map_err(archive_error)?;
         }
     }
     for (path, source) in entries {
@@ -729,6 +728,59 @@ mod tests {
     fn write_input_tree(dir: &Path) {
         fs::create_dir_all(dir.join("textures")).unwrap();
         fs::write(dir.join("textures/example.dds"), b"payload").unwrap();
+    }
+
+    fn push_u32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_zeros(out: &mut Vec<u8>, count: usize) {
+        out.resize(out.len() + count, 0);
+    }
+
+    fn dx10_dds(payload: &[u8]) -> Vec<u8> {
+        const DDSD_CAPS: u32 = 0x0000_0001;
+        const DDSD_HEIGHT: u32 = 0x0000_0002;
+        const DDSD_WIDTH: u32 = 0x0000_0004;
+        const DDSD_PIXELFORMAT: u32 = 0x0000_1000;
+        const DDSD_MIPMAPCOUNT: u32 = 0x0002_0000;
+        const DDSD_LINEARSIZE: u32 = 0x0008_0000;
+        const DDPF_FOURCC: u32 = 0x0000_0004;
+        const DDSCAPS_TEXTURE: u32 = 0x0000_1000;
+        const DDS_DIMENSION_TEXTURE2D: u32 = 3;
+        const DXGI_FORMAT_BC7_UNORM: u32 = 98;
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"DDS ");
+        push_u32(&mut bytes, 124);
+        push_u32(
+            &mut bytes,
+            DDSD_CAPS
+                | DDSD_HEIGHT
+                | DDSD_WIDTH
+                | DDSD_PIXELFORMAT
+                | DDSD_MIPMAPCOUNT
+                | DDSD_LINEARSIZE,
+        );
+        push_u32(&mut bytes, 4);
+        push_u32(&mut bytes, 4);
+        push_u32(&mut bytes, payload.len().try_into().unwrap());
+        push_u32(&mut bytes, 0);
+        push_u32(&mut bytes, 1);
+        push_zeros(&mut bytes, 44);
+        push_u32(&mut bytes, 32);
+        push_u32(&mut bytes, DDPF_FOURCC);
+        push_u32(&mut bytes, u32::from_le_bytes(*b"DX10"));
+        push_zeros(&mut bytes, 20);
+        push_u32(&mut bytes, DDSCAPS_TEXTURE);
+        push_zeros(&mut bytes, 16);
+        push_u32(&mut bytes, DXGI_FORMAT_BC7_UNORM);
+        push_u32(&mut bytes, DDS_DIMENSION_TEXTURE2D);
+        push_u32(&mut bytes, 0);
+        push_u32(&mut bytes, 1);
+        push_u32(&mut bytes, 0);
+        bytes.extend_from_slice(payload);
+        bytes
     }
 
     #[test]
@@ -852,6 +904,56 @@ mod tests {
         .unwrap_err();
 
         assert!(!err.to_string().contains("can only contain .dds"));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_preserves_existing_dx10_entries() {
+        let dir = unique_dir("add-dx10-preserve");
+        let input = dir.join("input");
+        let textures = input.join("textures");
+        fs::create_dir_all(&textures).unwrap();
+        fs::write(textures.join("base.dds"), dx10_dds(&[0x11; 16])).unwrap();
+        fs::write(textures.join("kept.dds"), dx10_dds(&[0x22; 16])).unwrap();
+        let archive = dir.join("base.ba2");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Dx10,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let added = dir.join("added.dds");
+        fs::write(&added, dx10_dds(&[0x33; 16])).unwrap();
+        let output = dir.join("updated.ba2");
+
+        let count = add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: Some(output.clone()),
+                fsync: false,
+                follow_symlinks: false,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(count, 3);
+        let updated = dream_archive::ba2::Archive::open_path(&output).unwrap();
+        assert_eq!(updated.info().format, PayloadFormat::DX10);
+        assert!(
+            ArchiveTool::read_entry(&output, "textures/kept.dds")
+                .unwrap()
+                .ends_with(&[0x22; 16])
+        );
+        assert!(
+            ArchiveTool::read_entry(&output, "added.dds")
+                .unwrap()
+                .ends_with(&[0x33; 16])
+        );
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -666,10 +666,10 @@ fn bench_ba2_dx10_add_preserve_rewrite(
     let (_, peak) = measure_peak_bytes(|| {
         add_preserving_entries(peak_dir.path(), &peak_archive, peak_new_file)
     });
-    report_peak("BA2 DX10 add preserving buffered DDS entries", peak);
+    report_peak("BA2 DX10 add preserving native texture entries", peak);
 
     group.bench_function(
-        BenchmarkId::new("ba2_dx10_add_preserve_buffering", ENTRY_COUNT),
+        BenchmarkId::new("ba2_dx10_add_preserve_native", ENTRY_COUNT),
         |b| {
             b.iter_batched(
                 || dx10_add_preserve_case(ENTRY_COUNT, DDS_PAYLOAD_LEN),

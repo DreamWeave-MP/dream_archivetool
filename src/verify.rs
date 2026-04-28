@@ -124,14 +124,6 @@ pub(crate) fn verify_loaded_archive(
     if !unsafe_paths.is_empty() {
         warnings.push("archive contains paths unsafe to extract directly".to_string());
     }
-    if info
-        .ba2
-        .as_ref()
-        .is_some_and(|ba2| ba2.payload_format == "dx10")
-    {
-        warnings.push("BA2 DX10 rewrite may buffer preserved texture entries".to_string());
-    }
-
     Ok(VerifyReport {
         path: info.path,
         format: info.format,

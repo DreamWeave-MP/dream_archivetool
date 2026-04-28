@@ -30,7 +30,7 @@
 //! tree. Archive creation and update reject input symlinks encountered during collection unless
 //! `follow_symlinks` is explicitly enabled; callers must keep input trees trusted and stable during
 //! the write. Paths are preflighted before handing file/archive-entry sources to `dream_archive`
-//! builders; BA2 DX10 preserved entries are the known buffering exception.
+//! builders, including BA2 DX10 texture preservation where the backend can copy native chunks.
 //!
 //! Enable the `lua` feature to compile the Lua module for embedding applications that already
 //! choose an `mlua` runtime. This crate deliberately does not select a Lua runtime for normal

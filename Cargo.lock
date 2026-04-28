@@ -326,9 +326,9 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26a6ca990278ecde7e8ec853ab35b3ef6cc3c250063c92b68263cac0c04e539f"
+checksum = "a2fb1512b3bd0cce7a79d5b5c8fa2d34dc2b559ca6e0d7232fda651c892f46b8"
 dependencies = [
  "dream-path",
  "encoding_rs",
