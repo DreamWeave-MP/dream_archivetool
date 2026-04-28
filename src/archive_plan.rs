@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Serializable archive mutation plans shared by create and add dry-runs.
 
 use serde::{Deserialize, Serialize};

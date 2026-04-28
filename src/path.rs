@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Public helpers for archive virtual-path byte contracts.
 //!
 //! Archive entry identity is byte-oriented. Display strings are for humans; these helpers are for
@@ -25,6 +27,10 @@ pub fn encode_archive_path_hex(path: &[u8]) -> String {
 }
 
 /// Decode hexadecimal archive path bytes from `ArchiveEntry::path_bytes_hex`.
+///
+/// # Errors
+///
+/// Returns an error if `hex` has an odd number of digits or contains non-hexadecimal characters.
 pub fn decode_archive_path_hex(hex: &str) -> Result<Vec<u8>> {
     let bytes = hex.as_bytes();
     if !bytes.len().is_multiple_of(2) {

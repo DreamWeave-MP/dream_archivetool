@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::io::Write;
@@ -103,6 +105,10 @@ struct DiffEntryData {
 }
 
 /// Compare two archives by normalized path bytes and metadata, optionally fingerprinting payloads.
+///
+/// # Errors
+///
+/// Returns an error if either archive cannot be opened or requested payload fingerprints cannot be read.
 pub fn diff_archives(old: &Path, new: &Path, options: &DiffOptions) -> Result<DiffReport> {
     let old_archive = crate::loaded::LoadedArchive::open(old)?;
     let new_archive = crate::loaded::LoadedArchive::open(new)?;

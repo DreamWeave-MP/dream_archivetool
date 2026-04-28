@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +25,10 @@ pub struct ArchiveEntry {
 }
 
 /// List all entries in an archive.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened or its entries cannot be read.
 pub fn list_entries(path: &Path) -> Result<Vec<ArchiveEntry>> {
     crate::loaded::LoadedArchive::open(path)?.list_entries()
 }

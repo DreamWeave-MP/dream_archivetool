@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -128,16 +130,28 @@ pub enum ExtractPlanAction {
 }
 
 /// Read a single archive entry into memory.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, or the payload cannot be read.
 pub fn read_entry_bytes(path: &Path, entry: &str) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes(entry)
 }
 
 /// Read a single archive entry selected by archive path bytes, normalized before lookup.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, or the payload cannot be read.
 pub fn read_entry_bytes_by_path(path: &Path, entry: &[u8]) -> Result<Vec<u8>> {
     crate::loaded::LoadedArchive::open(path)?.read_entry_bytes_by_path(entry)
 }
 
 /// Extract a single archive entry into a writer.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, the payload cannot be read, or the writer fails.
 pub fn extract_entry_to_writer(
     path: &Path,
     entry: &str,
@@ -147,6 +161,10 @@ pub fn extract_entry_to_writer(
 }
 
 /// Extract a single archive entry selected by archive path bytes, normalized before lookup.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, the payload cannot be read, or the writer fails.
 pub fn extract_entry_path_to_writer(
     path: &Path,
     entry: &[u8],
@@ -156,11 +174,19 @@ pub fn extract_entry_path_to_writer(
 }
 
 /// Extract a single archive entry to disk.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, extraction is unsafe, or filesystem writes fail.
 pub fn extract_entry(path: &Path, entry: &str, options: &ExtractOptions) -> Result<ExtractSummary> {
     extract_entry_by_path(path, entry.as_bytes(), options)
 }
 
 /// Extract a single archive entry selected by archive path bytes, normalized before lookup.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, the entry cannot be found, extraction is unsafe, or filesystem writes fail.
 pub fn extract_entry_by_path(
     path: &Path,
     entry: &[u8],
@@ -196,6 +222,10 @@ pub(crate) fn extract_entry_by_path_from_loaded_archive(
 }
 
 /// Extract selected archive entries to disk without reopening the archive for each entry.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, a requested entry cannot be found, extraction is unsafe, or filesystem writes fail.
 pub fn extract_entries_by_path(
     path: &Path,
     entries: &[Vec<u8>],
@@ -246,6 +276,10 @@ pub(crate) fn extract_entries_by_path_from_loaded_archive(
 }
 
 /// Plan selected archive entry extraction without writing files.
+///
+/// # Errors
+///
+/// Returns an error if a requested path is invalid or planned targets are unsafe.
 pub fn plan_extract_entries_by_path(
     path: &Path,
     entries: &[Vec<u8>],
@@ -278,6 +312,10 @@ pub(crate) fn plan_extract_entries_by_path_from_loaded_archive(
 /// Extract every archive entry to disk.
 ///
 /// In skip-existing mode, target existence is checked before entry bytes are decoded.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, entries cannot be listed, targets are unsafe, or filesystem writes fail.
 pub fn extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractSummary> {
     let archive = crate::loaded::LoadedArchive::open(path)?;
     extract_all_from_loaded_archive(&path.display().to_string(), archive.as_ref(), options)
@@ -320,6 +358,10 @@ pub(crate) fn extract_all_from_loaded_archive(
 }
 
 /// Plan full archive extraction without writing files.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened, entries cannot be listed, or planned targets are unsafe.
 pub fn plan_extract_all(path: &Path, options: &ExtractAllOptions) -> Result<ExtractAllPlan> {
     let archive = crate::loaded::LoadedArchive::open(path)?;
     plan_extract_all_from_loaded_archive(&path.display().to_string(), archive.as_ref(), options)

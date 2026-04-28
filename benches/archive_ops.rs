@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::fs;
 use std::hint::black_box;

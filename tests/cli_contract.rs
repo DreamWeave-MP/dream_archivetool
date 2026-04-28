@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 #![cfg(feature = "cli")]
 
 use std::process::{Command, Output};

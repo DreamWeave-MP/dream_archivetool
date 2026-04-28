@@ -1,4 +1,4 @@
-#![allow(clippy::missing_errors_doc)]
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Library support for inspecting, extracting, creating, and updating Bethesda archives.
 //!

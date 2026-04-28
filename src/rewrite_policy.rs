@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Shared archive rewrite capability checks.
 //!
 //! `info`, dry-run planning, and actual update operations must answer the same question: can this

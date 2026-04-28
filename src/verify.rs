@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::collections::BTreeMap;
 use std::io;
 use std::path::Path;
@@ -65,6 +67,11 @@ pub struct VerifyPathIssue {
 }
 
 /// Verify archive index health and, optionally, payload readability.
+///
+/// # Errors
+///
+/// Returns an error if the archive cannot be opened or payload verification cannot read requested
+/// entry data.
 pub fn verify_archive(path: &Path, options: &VerifyOptions) -> Result<VerifyReport> {
     let archive = crate::loaded::LoadedArchive::open(path)?;
     verify_loaded_archive(&path.display().to_string(), archive.as_ref(), *options)

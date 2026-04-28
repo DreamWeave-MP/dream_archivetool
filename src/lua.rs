@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 //! Lua bindings for the `dream-archivetool` policy layer.
 //!
 //! This module deliberately does not mirror `dream_archive`'s archive primitives. Use
@@ -39,6 +41,11 @@ use crate::{
 /// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
 /// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
 /// bytes are pinned after the handle is created.
+///
+/// # Errors
+///
+/// Returns a Lua error if the lower-level archive module table or userdata method registration
+/// cannot be created.
 pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
     dream_archive::lua::create_module_with_archive_methods(lua, add_archive_tool_methods)
 }
@@ -54,6 +61,10 @@ pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
 /// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
 /// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
 /// bytes are pinned after the handle is created.
+///
+/// # Errors
+///
+/// Returns a Lua error if userdata method registration fails.
 pub fn register_dream_archive_methods(lua: &Lua) -> LuaResult<()> {
     dream_archive::lua::register_archive_methods(lua, add_archive_tool_methods)
 }
@@ -235,6 +246,10 @@ fn lua_path_hex(entry_hex: &LuaString, context: &str) -> LuaResult<Vec<u8>> {
 /// reads belong to `dream_archive`'s Lua API instead. Archive entry arguments are Lua byte strings,
 /// so `dream_archive` entry paths can be passed to extraction functions without a UTF-8 boundary.
 /// The table is not registered globally unless [`register`] is called.
+///
+/// # Errors
+///
+/// Returns a Lua error if table/function creation fails.
 pub fn create_module(lua: &Lua) -> LuaResult<Table> {
     let module = lua.create_table_with_capacity(0, 16)?;
 
@@ -494,6 +509,10 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
 }
 
 /// Register the Lua API table as the global `dream_archivetool` value.
+///
+/// # Errors
+///
+/// Returns a Lua error if the module table cannot be created or assigned to globals.
 pub fn register(lua: &Lua) -> LuaResult<()> {
     let module = create_module(lua)?;
     lua.globals().set("dream_archivetool", module)

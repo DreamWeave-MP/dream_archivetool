@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -121,6 +123,11 @@ pub enum Ba2Version {
 ///
 /// Returns the number of archive entries written. Writes go through a temporary file in the output
 /// directory before replacing `output`.
+///
+/// # Errors
+///
+/// Returns an error if inputs cannot be collected, archive options are unsupported, paths are
+/// invalid for the selected archive format, or writing the output archive fails.
 pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> Result<usize> {
     reject_unsupported_create_options(options)?;
     let input_entries = collect_input_entry_paths(input, options.follow_symlinks)?;
@@ -129,6 +136,11 @@ pub fn create_archive(output: &Path, input: &Path, options: &CreateOptions) -> R
 }
 
 /// Plan archive creation without writing output.
+///
+/// # Errors
+///
+/// Returns an error if inputs cannot be collected, archive options are unsupported, or paths are
+/// invalid for the selected archive format.
 pub fn plan_create_archive(
     output: &Path,
     input: &Path,
@@ -164,6 +176,11 @@ fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
 /// Existing archive entries are preserved unless replaced by an input path. When `options.output` is
 /// omitted, the source archive path is replaced only after a successful full rewrite to a temporary
 /// file.
+///
+/// # Errors
+///
+/// Returns an error if no inputs are supplied, the archive cannot be opened, rewrite is unsupported,
+/// inputs are invalid, or writing the rewritten archive fails.
 pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize> {
     if options.inputs.is_empty() {
         return Err(ArchiveError::Archive("no input files supplied".to_string()));
@@ -187,6 +204,11 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
 }
 
 /// Plan archive add/update without writing output.
+///
+/// # Errors
+///
+/// Returns an error if no inputs are supplied, the archive cannot be opened, rewrite is unsupported,
+/// or inputs are invalid.
 pub fn plan_add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<AddPlan> {
     if options.inputs.is_empty() {
         return Err(ArchiveError::Archive("no input files supplied".to_string()));

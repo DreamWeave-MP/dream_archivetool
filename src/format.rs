@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::fs::File;
 use std::path::Path;
 
@@ -19,6 +21,10 @@ pub enum ArchiveFormat {
 }
 
 /// Detect an archive format from its file header.
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be opened, cannot be read, or has an unsupported header.
 pub fn guess_format(path: &Path) -> Result<ArchiveFormat> {
     let mut file = File::open(path).map_err(|err| {
         ArchiveError::Archive(format!(

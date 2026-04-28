@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 use std::io::Write;
 use std::path::Path;
 
@@ -78,6 +80,10 @@ pub struct OpenArchive {
 
 impl OpenArchive {
     /// Open an archive once and keep its index available for repeated operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or parsed.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let archive = crate::loaded::LoadedArchive::open(path)?;
@@ -106,16 +112,28 @@ impl OpenArchive {
     }
 
     /// List all entries in the archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive index cannot be read into entry metadata.
     pub fn list(&self) -> Result<Vec<ArchiveEntry>> {
         self.archive.list_entries()
     }
 
     /// Read a single archive entry into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found or its payload cannot be read.
     pub fn read_entry(&self, entry: &str) -> Result<Vec<u8>> {
         self.archive.read_entry_bytes(entry)
     }
 
     /// Read a single archive entry selected by normalized archive path bytes into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found or its payload cannot be read.
     pub fn read_entry_by_path_bytes(&self, entry: &[u8]) -> Result<Vec<u8>> {
         self.archive.read_entry_bytes_by_path(entry)
     }
@@ -124,16 +142,28 @@ impl OpenArchive {
     ///
     /// Prefer [`Self::read_entry_by_path_bytes`] in new code; this name predates the explicit
     /// distinction between display paths, filesystem paths, and archive path bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found or its payload cannot be read.
     pub fn read_entry_by_path(&self, entry: &[u8]) -> Result<Vec<u8>> {
         self.read_entry_by_path_bytes(entry)
     }
 
     /// Extract a single archive entry into a writer without materializing the whole payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_to_writer(&self, entry: &str, out: &mut dyn Write) -> Result<u64> {
         self.archive.extract_entry_to_writer(entry, out)
     }
 
     /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_by_path_bytes_to_writer(
         &self,
         entry: &[u8],
@@ -146,6 +176,10 @@ impl OpenArchive {
     ///
     /// Prefer [`Self::extract_entry_by_path_bytes_to_writer`] in new code; this name predates the
     /// explicit byte-path API naming convention.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_path_to_writer(&self, entry: &[u8], out: &mut dyn Write) -> Result<u64> {
         self.extract_entry_by_path_bytes_to_writer(entry, out)
     }
@@ -250,16 +284,28 @@ pub struct ArchiveTool;
 
 impl ArchiveTool {
     /// Open an archive handle for repeated list/read/extract operations.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or parsed.
     pub fn open(path: impl AsRef<Path>) -> Result<OpenArchive> {
         OpenArchive::open(path)
     }
 
     /// Detect an archive format from its file header without opening it as a full archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the file cannot be read or its header is not a supported archive format.
     pub fn guess_format(path: impl AsRef<Path>) -> Result<ArchiveFormat> {
         crate::format::guess_format(path.as_ref())
     }
 
     /// Open an archive and return format plus file-count metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or parsed.
     pub fn info(path: impl AsRef<Path>) -> Result<ArchiveInfo> {
         let path = path.as_ref();
         let archive = crate::loaded::LoadedArchive::open(path)?;
@@ -267,6 +313,10 @@ impl ArchiveTool {
     }
 
     /// List all entries in an archive.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or its entries cannot be listed.
     pub fn list(path: impl AsRef<Path>) -> Result<Vec<ArchiveEntry>> {
         crate::entry::list_entries(path.as_ref())
     }
@@ -274,11 +324,19 @@ impl ArchiveTool {
     /// Read a single archive entry into memory.
     ///
     /// Entry path matching is case-insensitive and treats `\` as `/`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, or its payload cannot be read.
     pub fn read_entry(path: impl AsRef<Path>, entry: &str) -> Result<Vec<u8>> {
         crate::extract::read_entry_bytes(path.as_ref(), entry)
     }
 
     /// Read a single archive entry selected by normalized archive path bytes into memory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, or its payload cannot be read.
     pub fn read_entry_by_path_bytes(path: impl AsRef<Path>, entry: &[u8]) -> Result<Vec<u8>> {
         crate::extract::read_entry_bytes_by_path(path.as_ref(), entry)
     }
@@ -287,6 +345,10 @@ impl ArchiveTool {
     ///
     /// Prefer [`Self::read_entry_by_path_bytes`] in new code; this name predates the explicit
     /// distinction between display paths, filesystem paths, and archive path bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, or its payload cannot be read.
     pub fn read_entry_by_path(path: impl AsRef<Path>, entry: &[u8]) -> Result<Vec<u8>> {
         Self::read_entry_by_path_bytes(path, entry)
     }
@@ -294,6 +356,10 @@ impl ArchiveTool {
     /// Extract a single archive entry into a writer without materializing the whole payload.
     ///
     /// Entry path matching is case-insensitive and treats `\` as `/`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_to_writer(
         path: impl AsRef<Path>,
         entry: &str,
@@ -303,6 +369,10 @@ impl ArchiveTool {
     }
 
     /// Extract a single archive entry selected by normalized archive path bytes into a writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_by_path_bytes_to_writer(
         path: impl AsRef<Path>,
         entry: &[u8],
@@ -315,6 +385,10 @@ impl ArchiveTool {
     ///
     /// Prefer [`Self::extract_entry_by_path_bytes_to_writer`] in new code; this name predates the
     /// explicit byte-path API naming convention.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, the payload cannot be read, or the writer fails.
     pub fn extract_entry_path_to_writer(
         path: impl AsRef<Path>,
         entry: &[u8],
@@ -324,6 +398,10 @@ impl ArchiveTool {
     }
 
     /// Extract a single archive entry to disk according to `options`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, extraction is unsafe, or filesystem writes fail.
     pub fn extract(
         path: impl AsRef<Path>,
         entry: &str,
@@ -333,6 +411,10 @@ impl ArchiveTool {
     }
 
     /// Extract a single archive entry selected by normalized archive path bytes to disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, extraction is unsafe, or filesystem writes fail.
     pub fn extract_by_path_bytes(
         path: impl AsRef<Path>,
         entry: &[u8],
@@ -345,6 +427,10 @@ impl ArchiveTool {
     ///
     /// Prefer [`Self::extract_by_path_bytes`] in new code; this name predates the explicit
     /// byte-path API naming convention.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, the entry cannot be found, extraction is unsafe, or filesystem writes fail.
     pub fn extract_by_path(
         path: impl AsRef<Path>,
         entry: &[u8],
@@ -354,6 +440,10 @@ impl ArchiveTool {
     }
 
     /// Extract selected archive entries by normalized archive path bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, a requested entry cannot be found, extraction is unsafe, or filesystem writes fail.
     pub fn extract_many_by_path_bytes(
         path: impl AsRef<Path>,
         entries: &[Vec<u8>],
@@ -363,6 +453,10 @@ impl ArchiveTool {
     }
 
     /// Plan selected archive entry extraction without writing files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, a requested entry cannot be found, or the extraction plan is unsafe.
     pub fn plan_extract_many_by_path_bytes(
         path: impl AsRef<Path>,
         entries: &[Vec<u8>],
@@ -372,6 +466,10 @@ impl ArchiveTool {
     }
 
     /// Extract every archive entry to disk according to `options`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, planned targets are unsafe, or filesystem writes fail.
     pub fn extract_all(
         path: impl AsRef<Path>,
         options: &ExtractAllOptions,
@@ -380,6 +478,10 @@ impl ArchiveTool {
     }
 
     /// Plan full archive extraction without writing files.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or planned targets are unsafe.
     pub fn plan_extract_all(
         path: impl AsRef<Path>,
         options: &ExtractAllOptions,
@@ -391,6 +493,10 @@ impl ArchiveTool {
     ///
     /// Returns the number of entries written. Existing output is replaced only after a successful
     /// write to a temporary file in the output directory.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if inputs cannot be read, archive options are unsupported, paths are invalid, or output writes fail.
     pub fn create(
         output: impl AsRef<Path>,
         input: impl AsRef<Path>,
@@ -400,6 +506,10 @@ impl ArchiveTool {
     }
 
     /// Plan archive creation without writing output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if inputs cannot be read, archive options are unsupported, or paths are invalid.
     pub fn plan_create(
         output: impl AsRef<Path>,
         input: impl AsRef<Path>,
@@ -412,21 +522,37 @@ impl ArchiveTool {
     ///
     /// When `options.output` is omitted, the source archive is replaced after a successful full
     /// rewrite. New inputs replace existing archive entries with the same archive path.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, rewrite is unsupported, inputs are invalid, or output writes fail.
     pub fn add(path: impl AsRef<Path>, options: &AddOptions) -> Result<usize> {
         crate::create::add_to_archive(path.as_ref(), options)
     }
 
     /// Plan archive add/update without writing output.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened, rewrite is unsupported, or inputs are invalid.
     pub fn plan_add(path: impl AsRef<Path>, options: &AddOptions) -> Result<AddPlan> {
         crate::create::plan_add_to_archive(path.as_ref(), options)
     }
 
     /// Verify archive index health and, optionally, payload readability.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the archive cannot be opened or verification cannot inspect the requested payloads.
     pub fn verify(path: impl AsRef<Path>, options: &VerifyOptions) -> Result<VerifyReport> {
         crate::verify::verify_archive(path.as_ref(), options)
     }
 
     /// Compare two archives by normalized path bytes and optional payload hashes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either archive cannot be opened or requested payload hashes cannot be read.
     pub fn diff(
         old: impl AsRef<Path>,
         new: impl AsRef<Path>,
