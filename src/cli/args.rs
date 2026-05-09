@@ -145,6 +145,9 @@ pub(super) enum Command {
         /// BA2 version; only valid with --format ba2
         #[arg(long, value_enum)]
         ba2_version: Option<CliBa2Version>,
+        /// Enable compression for TES4 BSA and BA2 archives
+        #[arg(long)]
+        compress: bool,
         /// Write JSON summary to stdout; dry-run always writes a JSON plan
         #[arg(long)]
         json: bool,

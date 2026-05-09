@@ -127,6 +127,7 @@ fn handle_mutation_command(stdout: &mut dyn Write, command: Command) -> Result<(
             tes4_version,
             ba2_kind,
             ba2_version,
+            compress,
             json,
             dry_run,
             fsync,
@@ -140,6 +141,7 @@ fn handle_mutation_command(stdout: &mut dyn Write, command: Command) -> Result<(
                 tes4_version,
                 ba2_kind,
                 ba2_version,
+                compress,
                 output: CommandOutput { json, dry_run },
                 fsync,
                 input_collection: InputCollection { follow_symlinks },
@@ -176,6 +178,7 @@ struct CreateCommand {
     tes4_version: Option<CliTes4Version>,
     ba2_kind: Option<CliBa2ArchiveKind>,
     ba2_version: Option<CliBa2Version>,
+    compress: bool,
     output: CommandOutput,
     fsync: bool,
     input_collection: InputCollection,
@@ -196,6 +199,7 @@ fn handle_create_command(stdout: &mut dyn Write, command: CreateCommand) -> Resu
         command.tes4_version,
         command.ba2_kind,
         command.ba2_version,
+        command.compress,
         command.fsync,
         command.input_collection.follow_symlinks,
     )?;
@@ -214,6 +218,7 @@ fn create_options(
     tes4_version: Option<CliTes4Version>,
     ba2_kind: Option<CliBa2ArchiveKind>,
     ba2_version: Option<CliBa2Version>,
+    compress: bool,
     fsync: bool,
     follow_symlinks: bool,
 ) -> Result<CreateOptions> {
@@ -225,6 +230,7 @@ fn create_options(
             reject_irrelevant_create_option("--ba2-version", ba2_version.is_some(), format)?;
             Ok(CreateOptions {
                 format,
+                compress,
                 fsync,
                 follow_symlinks,
                 ..Default::default()
@@ -236,6 +242,7 @@ fn create_options(
             Ok(CreateOptions {
                 format,
                 tes4_version: tes4_version.map_or(Tes4Version::Oblivion, Tes4Version::from),
+                compress,
                 fsync,
                 follow_symlinks,
                 ..Default::default()
@@ -247,6 +254,7 @@ fn create_options(
                 format,
                 ba2_kind: ba2_kind.map_or(Ba2ArchiveKind::Gnrl, Ba2ArchiveKind::from),
                 ba2_version: ba2_version.map_or(Ba2Version::Fallout4, Ba2Version::from),
+                compress,
                 fsync,
                 follow_symlinks,
                 ..Default::default()
@@ -1056,6 +1064,43 @@ mod tests {
         assert_eq!(
             ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
             b"hello"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn create_command_writes_compressed_tes4_archive() {
+        let dir = unique_dir("create-compressed-tes4");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("hello.txt"), b"hello hello hello hello").unwrap();
+        let archive = dir.join("out.bsa");
+        let mut stdout = Vec::new();
+
+        run(
+            Cli::parse_from([
+                "dream_archivetool",
+                "create",
+                archive.to_str().unwrap(),
+                input.to_str().unwrap(),
+                "--format",
+                "tes4",
+                "--compress",
+            ]),
+            &mut stdout,
+        )
+        .unwrap();
+
+        let created = dream_archive::bsa::tes4::Archive::open_path(&archive).unwrap();
+        assert!(
+            created
+                .info()
+                .archive_flags
+                .contains(dream_archive::bsa::tes4::ArchiveFlags::COMPRESSED)
+        );
+        assert_eq!(
+            ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
+            b"hello hello hello hello"
         );
         fs::remove_dir_all(dir).unwrap();
     }

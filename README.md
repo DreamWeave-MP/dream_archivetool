@@ -31,7 +31,9 @@ dream_archivetool extract-all archive.bsa --output out/
 # extract/extract-all default to the current directory when --output is omitted
 dream_archivetool create out.bsa input_dir/ --format tes3
 dream_archivetool create out.bsa input_dir/ --format tes4 --tes4-version oblivion
+dream_archivetool create out.bsa input_dir/ --format tes4 --compress
 dream_archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl
+dream_archivetool create out.ba2 input_dir/ --format ba2 --ba2-kind gnrl --compress
 dream_archivetool create out.bsa input_dir/ --format tes3 --follow-symlinks
 dream_archivetool add base.bsa new_file.txt
 dream_archivetool add base.bsa new_file.txt --output updated.bsa

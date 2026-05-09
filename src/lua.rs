@@ -538,6 +538,7 @@ fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions
             "tes4_version",
             "ba2_kind",
             "ba2_version",
+            "compress",
             "fsync",
             "follow_symlinks",
         ],
@@ -565,6 +566,7 @@ fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions
         tes4_version: parse_optional_tes4_version(tes4_version)?,
         ba2_kind: parse_optional_ba2_kind(ba2_kind)?,
         ba2_version: parse_optional_ba2_version(ba2_version)?,
+        compress: opts.get::<Option<bool>>("compress")?.unwrap_or(false),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
         follow_symlinks: opts
             .get::<Option<bool>>("follow_symlinks")?

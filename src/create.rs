@@ -38,6 +38,8 @@ pub struct CreateOptions {
     pub ba2_kind: Ba2ArchiveKind,
     /// BA2/Starfield BA2 version used when `format` is [`ArchiveFormat::Ba2`].
     pub ba2_version: Ba2Version,
+    /// Enable archive compression when the selected format supports it.
+    pub compress: bool,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
     /// Follow symbolic links while collecting input files.
@@ -55,6 +57,7 @@ impl Default for CreateOptions {
             tes4_version: Tes4Version::Oblivion,
             ba2_kind: Ba2ArchiveKind::Gnrl,
             ba2_version: Ba2Version::Fallout4,
+            compress: false,
             fsync: false,
             follow_symlinks: false,
         }
@@ -163,6 +166,11 @@ pub fn plan_create_archive(
 }
 
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
+    if options.format == ArchiveFormat::Tes3 && options.compress {
+        return Err(ArchiveError::Archive(
+            "--compress is not valid with TES3 BSA archives".to_string(),
+        ));
+    }
     if options.format == ArchiveFormat::Ba2 && options.ba2_kind == Ba2ArchiveKind::Gnmf {
         return Err(ArchiveError::Archive(
             crate::rewrite_policy::GNMF_BLOCKER.to_string(),
@@ -389,8 +397,14 @@ fn write_entries_to_file(
 ) -> Result<()> {
     match options.format {
         ArchiveFormat::Tes3 => write_tes3(file, entries),
-        ArchiveFormat::Tes4 => write_tes4(file, entries, options.tes4_version),
-        ArchiveFormat::Ba2 => write_ba2(file, entries, options.ba2_kind, options.ba2_version),
+        ArchiveFormat::Tes4 => write_tes4(file, entries, options.tes4_version, options.compress),
+        ArchiveFormat::Ba2 => write_ba2(
+            file,
+            entries,
+            options.ba2_kind,
+            options.ba2_version,
+            options.compress,
+        ),
     }
 }
 
@@ -506,6 +520,7 @@ fn write_tes4(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     version: Tes4Version,
+    compress: bool,
 ) -> Result<()> {
     let mut builder = dream_archive::Tes4BsaBuilder::new();
     builder.set_version(match version {
@@ -513,6 +528,9 @@ fn write_tes4(
         Tes4Version::Fallout3 | Tes4Version::Skyrim => Tes4ArchiveVersion::v104,
         Tes4Version::SkyrimSe => Tes4ArchiveVersion::v105,
     });
+    if compress {
+        builder.set_compressed(true);
+    }
     write_tes4_builder(output, entries, builder)
 }
 
@@ -599,6 +617,7 @@ fn write_ba2(
     entries: BTreeMap<Vec<u8>, PathBuf>,
     kind: Ba2ArchiveKind,
     version: Ba2Version,
+    compress: bool,
 ) -> Result<()> {
     let format = match kind {
         Ba2ArchiveKind::Gnrl => PayloadFormat::GNRL,
@@ -610,7 +629,7 @@ fn write_ba2(
         Ba2Version::Starfield => Ba2ArchiveVersion::v2,
         Ba2Version::Fallout4NextGen => Ba2ArchiveVersion::v8,
     };
-    write_ba2_with_format(output, entries, format, version)
+    write_ba2_with_format(output, entries, format, version, compress)
 }
 
 fn write_ba2_like(
@@ -655,14 +674,18 @@ fn write_ba2_with_format(
     entries: BTreeMap<Vec<u8>, PathBuf>,
     format: PayloadFormat,
     version: Ba2ArchiveVersion,
+    compress: bool,
 ) -> Result<()> {
     validate_ba2_paths(entries.keys(), ba2_kind_from_payload_format(format))?;
     if format == PayloadFormat::DX10 {
-        return write_dx10_ba2(output, entries, version);
+        return write_dx10_ba2(output, entries, version, compress);
     }
     crate::rewrite_policy::ensure_ba2_payload_format_writable(format)?;
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(version);
+    if compress {
+        builder.set_compression(Some(Ba2CompressionFormat::Zip));
+    }
     for (path, source) in entries {
         builder.add_file(&path, source).map_err(archive_error)?;
     }
@@ -673,9 +696,13 @@ fn write_dx10_ba2(
     output: &mut fs::File,
     entries: BTreeMap<Vec<u8>, PathBuf>,
     version: Ba2ArchiveVersion,
+    compress: bool,
 ) -> Result<()> {
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
+    if compress {
+        builder.set_compression(Some(Ba2CompressionFormat::Zip));
+    }
     for (path, source) in entries {
         builder.add_dds_file(&path, source).map_err(archive_error)?;
     }
@@ -857,6 +884,39 @@ mod tests {
     }
 
     #[test]
+    fn creates_compressed_tes4_archive() {
+        let dir = unique_dir("create-tes4-compressed");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("hello.txt"), b"hello hello hello hello").unwrap();
+        let archive = dir.join("out.bsa");
+
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes4,
+                compress: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let created = dream_archive::bsa::tes4::Archive::open_path(&archive).unwrap();
+        assert!(
+            created
+                .info()
+                .archive_flags
+                .contains(dream_archive::bsa::tes4::ArchiveFlags::COMPRESSED)
+        );
+        assert_eq!(
+            ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
+            b"hello hello hello hello"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn creates_ba2_gnrl_archive() {
         let dir = unique_dir("create-ba2");
         let input = dir.join("input");
@@ -878,6 +938,60 @@ mod tests {
             ArchiveTool::read_entry(&archive, "textures/example.dds").unwrap(),
             b"payload"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn creates_compressed_ba2_gnrl_archive() {
+        let dir = unique_dir("create-ba2-compressed");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        let payload = vec![b'a'; 1024];
+        fs::write(input.join("hello.txt"), &payload).unwrap();
+        let archive = dir.join("out.ba2");
+
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Ba2,
+                compress: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let entries = ArchiveTool::list(&archive).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert!(entries[0].compressed_size.is_some());
+        assert_eq!(
+            ArchiveTool::read_entry(&archive, "hello.txt").unwrap(),
+            payload
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn rejects_tes3_compression() {
+        let dir = unique_dir("create-tes3-compressed-invalid");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("hello.txt"), b"hello").unwrap();
+        let archive = dir.join("out.bsa");
+
+        let err = create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes3,
+                compress: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("--compress"));
+        assert!(!archive.exists());
         fs::remove_dir_all(dir).unwrap();
     }
 
