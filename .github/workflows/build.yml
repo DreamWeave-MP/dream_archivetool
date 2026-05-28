@@ -18,3 +18,5 @@ jobs:
     with:
       binary_names: '["dream_archivetool"]'
       generate_benchmarks: true
+      enable_android: true
+      enable_portmaster: true
