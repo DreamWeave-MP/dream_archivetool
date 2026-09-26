@@ -307,8 +307,6 @@ fn fnv1a64_update(mut hash: u64, bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-
     use super::*;
 
     #[test]

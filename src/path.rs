@@ -39,9 +39,9 @@ pub fn decode_archive_path_hex(hex: &str) -> Result<Vec<u8>> {
         ));
     }
     let mut decoded = Vec::with_capacity(bytes.len() / 2);
-    for chunk in bytes.chunks_exact(2) {
-        let high = hex_nibble(chunk[0])?;
-        let low = hex_nibble(chunk[1])?;
+    for [high, low] in bytes.as_chunks::<2>().0 {
+        let high = hex_nibble(*high)?;
+        let low = hex_nibble(*low)?;
         decoded.push((high << 4) | low);
     }
     Ok(decoded)
