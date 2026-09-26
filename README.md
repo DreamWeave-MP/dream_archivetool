@@ -2,7 +2,7 @@
 
 `dream_archivetool` is a Rust CLI and library for inspecting, extracting, creating, and updating Bethesda BSA and BA2 archives.
 
-The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support. See [`docs/architecture.md`](docs/architecture.md) for subsystem ownership, compatibility contracts, and Lua handle semantics.
+The tool is intentionally designed as a reusable library first, with a thin CLI wrapper. It uses the `dream_archive` crate for archive format support. See [`docs/architecture.md`](docs/architecture.md) for subsystem ownership, compatibility contracts, and Luau handle semantics.
 
 ## Goals
 
@@ -11,7 +11,7 @@ The tool is intentionally designed as a reusable library first, with a thin CLI 
 - Create TES3 BSA, TES4 BSA, and BA2/Starfield BA2 archives.
 - Add or update archive entries by rewriting the archive, optionally to a separate output.
 - Keep CLI parsing dependencies behind the default `cli` feature so GUI/library consumers can opt out.
-- Expose an optional Lua embedding API behind the `lua` feature.
+- Expose an optional Luau embedding API behind the `lua` feature.
 
 ## Usage
 
@@ -124,10 +124,10 @@ GUI or embedding projects that do not need the command-line interface should dis
 
 ```toml
 [dependencies]
-dream_archivetool = { version = "0.1", default-features = false }
+dream_archivetool = { version = "0.2", default-features = false }
 ```
 
-The `cli` feature is enabled by default for building the `dream_archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables this crate's Lua module and compatible Lua support in the re-exported `dream_archive` and `dream_path` APIs, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables vendored LuaJIT 5.2 for this crate's tests and docs, not for normal downstream use. The intended Lua stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
+The `cli` feature is enabled by default for building the `dream_archivetool` binary. The binary target requires `cli`, so `cargo build --no-default-features` builds the library without producing a nonfunctional CLI stub. Add `features = ["lua"]` if the embedding API is needed. The `lua` feature enables this crate's Luau module and compatible Luau support in the re-exported `dream_archive` and `dream_path` APIs, but it does not choose a Lua runtime. Embedding applications should select the `mlua` runtime centrally. The `standalone-lua` feature enables `mlua`'s Luau backend for this crate's tests and docs, not for normal downstream use. The intended Luau stack is `dream_path` for virtual path helpers, `dream_archive` for archive mechanics, and `dream_archivetool` for filesystem/rewrite policy; `dream_archive` is re-exported as `dream_archivetool::dream_archive` so downstream users get the same crate and feature set this policy layer was compiled against.
 
 ```rust,no_run
 use dream_archivetool::{
@@ -163,9 +163,9 @@ let updated = ArchiveTool::add(
 # }
 ```
 
-## Lua
+## Luau
 
-Enable the `lua` feature to embed the API in an existing Lua state:
+Enable the `lua` feature to embed the API in an existing Luau state:
 
 ```rust,no_run
 use mlua::Lua;
@@ -173,11 +173,11 @@ use mlua::Lua;
 # fn main() -> mlua::Result<()> {
 let lua = Lua::new();
 lua.globals().set(
-    "dream_path",
+    "dreamPath",
     dream_archivetool::dream_archive::dream_path::lua::create_module(&lua)?,
 )?;
 lua.globals().set(
-    "dream_archive",
+    "dreamArchive",
     dream_archivetool::lua::create_dream_archive_module(&lua)?,
 )?;
 dream_archivetool::lua::register(&lua)?;
@@ -185,57 +185,59 @@ dream_archivetool::lua::register(&lua)?;
 # }
 ```
 
-The registered `dream_archivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Lua API. Use `dream_archivetool::lua::create_dream_archive_module(&lua)` instead of the plain `dream_archive::lua::create_module(&lua)` when you want those policy operations as methods on `dream_archive.open_*` archive userdata. Method registration must happen before creating archive userdata in that Lua state; `mlua` caches metatables by Rust type, because of course it does.
+As of 0.2.0 the bindings target [Luau](https://luau.org) instead of LuaJIT, following `dream_archive` 0.2, and the whole Lua-facing surface uses the same conventions as DreamWeave's other Luau APIs: functions, methods, option keys, report fields, and enum-like string values are camelCase (`extractMany`, `planExtractAll`, `preservePaths`, `pathBytesHex`, `"bsaTes4"`, `"payloadFingerprint"`). The conventional global is `dreamArchivetool`, next to `dreamArchive` and `dreamPath`. `register` sets that global; to use `require("@dreamArchivetool")` instead, pass `dream_archivetool::lua::create_module(&lua)?` to `mlua`'s `Lua::register_module` yourself. Scripts written against 0.1's snake_case names need renaming; nothing else about the behaviour changed.
 
-Lua string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` and `extract_many(path, entries, opts)` accept the raw Lua string bytes returned by `dream_archive` entry listings, while `extract_by_path_hex` / `extract_hex`, `extract_many_by_path_hex`, and `plan_extract_by_path_hex` accept the serialized `path_bytes_hex` lookup key used by archivetool reports. This bridge only applies to entries with a non-`nil` `entry.path`; hash-only or unnameable entries belong to lower-level `dream_archive` APIs and are not safe path-policy extraction targets. Display `path` fields are for people; `path_bytes_hex` is the stable normalized lookup key, not a promise that two raw archive names cannot collide after normalization. If duplicate normalized paths matter, use `verify` to detect them and drop to `dream_archive` raw/index APIs for archaeology. In `dream_archivetool` reports/plans, wide archive sizes (`size`, `compressed_size`) are decimal strings, not Lua numbers, because LuaJIT numbers are not a u64 transport. Counts such as `files`, `added`, and `extracted` remain Lua numbers for practical archive counts, not 64-bit identity values.
+The registered `dreamArchivetool` table exposes tool-policy operations that `dream_archive` does not: safe filesystem extraction, rewrite/create planning, verification, diff reports, temp-output mutation, symlink policy, and durability options. Archive-format primitives such as opening archives, listing entries, reading payload bytes, hash helpers, and builders belong to `dream_archive`'s Luau API. Use `dream_archivetool::lua::create_dream_archive_module(&lua)` instead of the plain `dream_archive::lua::create_module(&lua)` when you want those policy operations as methods on `dreamArchive.open*` archive userdata. Method registration must happen before creating archive userdata in that Lua state; `mlua` caches metatables by Rust type, because of course it does.
 
-The `lua` feature enables compatible Lua support in `dream_archive`, including its re-exported `dream_path` helpers. Embedding applications should register `dream_path`, `dream_archive`, and `dream_archivetool` into the same Lua state when they need the whole stack. `dream_archivetool` does not install those dependency globals behind your back; hidden globals are how APIs become haunted furniture.
+Luau string boundaries are deliberately split. Filesystem paths (`archive`, `output`, `input`, and source paths in `inputs`) are UTF-8 host paths. Archive entry paths are byte strings: `extract(path, entry, opts)` and `extractMany(path, entries, opts)` accept the raw Lua string bytes returned by `dream_archive` entry listings, while `extractByPathHex` / `extractHex`, `extractManyByPathHex`, and `planExtractByPathHex` accept the serialized `pathBytesHex` lookup key used by archivetool reports. This bridge only applies to entries with a non-`nil` `entry.path`; hash-only or unnameable entries belong to lower-level `dream_archive` APIs and are not safe path-policy extraction targets. Display `path` fields are for people; `pathBytesHex` is the stable normalized lookup key, not a promise that two raw archive names cannot collide after normalization. If duplicate normalized paths matter, use `verify` to detect them and drop to `dream_archive` raw/index APIs for archaeology. In `dream_archivetool` reports/plans, wide archive sizes (`size`, `compressedSize`) are decimal strings, not Lua numbers, because Luau numbers are doubles and cannot carry every u64 exactly. Counts such as `files`, `added`, and `extracted` remain Lua numbers for practical archive counts, not 64-bit identity values.
 
-There are two Lua calling styles:
+The `lua` feature enables compatible Lua support in `dream_archive`, including its re-exported `dream_path` helpers. Embedding applications should register `dreamPath`, `dreamArchive`, and `dreamArchivetool` into the same Luau state when they need the whole stack. `dream_archivetool` does not install those dependency globals behind your back; hidden globals are how APIs become haunted furniture.
 
-- `dream_archivetool.extract(path, ...)` is path-based. It opens the archive path for that operation.
+There are two Luau calling styles:
+
+- `dreamArchivetool.extract(path, ...)` is path-based. It opens the archive path for that operation.
 - `archive:extract(...)` is handle-based. It runs policy against the already-opened `dream_archive` userdata.
 
-That distinction matters. If you list entries from `dream_archive.open_path(path)` and then call a top-level `dream_archivetool` function with the same path, the file can change between those two operations. Use userdata methods when the operation should stay attached to the archive handle you already opened.
+That distinction matters. If you list entries from `dreamArchive.openPath(path)` and then call a top-level `dream_archivetool` function with the same path, the file can change between those two operations. Use userdata methods when the operation should stay attached to the archive handle you already opened.
 
 ```lua
-local tool = dream_archivetool
+local tool = dreamArchivetool
 
 local info = tool.info("Morrowind.bsa")
-local verify = tool.verify("Morrowind.bsa", { read_payloads = true })
-local diff = tool.diff("old.bsa", "new.bsa", { fingerprint_payloads = true })
+local verify = tool.verify("Morrowind.bsa", { readPayloads = true })
+local diff = tool.diff("old.bsa", "new.bsa", { fingerprintPayloads = true })
 
 -- Byte-string bridge from dream_archive entry listings.
 -- This top-level call reopens "Morrowind.bsa"; use archive:extract(...) below
 -- when you want to operate on the already-opened handle.
 -- Works for entries with non-nil entry.path.
-local archive = dream_archive.open_path("Morrowind.bsa")
+local archive = dreamArchive.openPath("Morrowind.bsa")
 local entry = archive:entries()[1]
 tool.extract("Morrowind.bsa", entry.path, { output = "out" })
 
 -- If dream_archive was created through create_dream_archive_module, the same
 -- policy can run directly on the already-opened archive userdata.
-local verify_from_userdata = archive:verify({ read_payloads = true })
-local selected_from_userdata = archive:extract_many({ entry.path }, { output = "selected-out" })
-local userdata_plan = archive:plan_extract_by_path_hex({
+local verifyFromUserdata = archive:verify({ readPayloads = true })
+local selectedFromUserdata = archive:extractMany({ entry.path }, { output = "selected-out" })
+local userdataPlan = archive:planExtractByPathHex({
   "69636f6e732f676f6c642e646473",
 }, { output = "selected-out" })
 
 -- Dry run: no files written.
-local selected_plan = tool.plan_extract("Morrowind.bsa", { entry.path }, {
+local selectedPlan = tool.planExtract("Morrowind.bsa", { entry.path }, {
   output = "selected-out",
 })
 
--- Stable report/plan bridge: use hex batch APIs when selecting from path_bytes_hex fields.
-local selected_hex_plan = tool.plan_extract_by_path_hex("Morrowind.bsa", {
+-- Stable report/plan bridge: use hex batch APIs when selecting from pathBytesHex fields.
+local selectedHexPlan = tool.planExtractByPathHex("Morrowind.bsa", {
   "69636f6e732f676f6c642e646473",
 }, { output = "selected-out" })
 
 -- Mutating: writes the selected entries now, opening the archive once for the batch.
-local selected = tool.extract_many("Morrowind.bsa", { entry.path }, {
+local selected = tool.extractMany("Morrowind.bsa", { entry.path }, {
   output = "selected-out",
 })
-local selected_by_hex = tool.extract_many_by_path_hex("Morrowind.bsa", {
+local selectedByHex = tool.extractManyByPathHex("Morrowind.bsa", {
   "69636f6e732f676f6c642e646473",
 }, { output = "selected-out" })
 
@@ -243,117 +245,117 @@ local selected_by_hex = tool.extract_many_by_path_hex("Morrowind.bsa", {
 local extracted = tool.extract("Morrowind.bsa", "icons/gold.dds", {
   output = "out",
   overwrite = "fail", -- fail | overwrite | skip
-  preserve_paths = true,
+  preservePaths = true,
 })
 
-local exact_extracted = tool.extract_by_path_hex("Morrowind.bsa", "69636f6e732f676f6c642e646473", {
+local exactExtracted = tool.extractByPathHex("Morrowind.bsa", "69636f6e732f676f6c642e646473", {
   output = "out",
   overwrite = "fail",
-  preserve_paths = true,
+  preservePaths = true,
 })
 
 -- Dry run: no files written.
-local extract_plan = tool.plan_extract_all("Morrowind.bsa", {
+local extractPlan = tool.planExtractAll("Morrowind.bsa", {
   output = "out",
   overwrite = "skip",
 })
-for _, entry in ipairs(extract_plan.entries) do
+for _, entry in ipairs(extractPlan.entries) do
   if entry.action == "overwrite" then
     error("refusing to overwrite " .. entry.path)
   end
 end
 -- Mutating: writes files now.
-local all = tool.extract_all("Morrowind.bsa", {
+local all = tool.extractAll("Morrowind.bsa", {
   output = "out",
   overwrite = "skip",
 })
 
-local create_plan = tool.plan_create("out.ba2", "input", {
+local createPlan = tool.planCreate("out.ba2", "input", {
   format = "ba2",
-  ba2_kind = "gnrl",
+  ba2Kind = "gnrl",
 })
--- Mutating: writes out.ba2 now. Review create_plan.entries first.
+-- Mutating: writes out.ba2 now. Review createPlan.entries first.
 local created = tool.create("out.ba2", "input", {
-  format = "ba2", -- bsa-tes3 | bsa-tes4 | ba2; tes3/tes4 aliases accepted
-  ba2_kind = "gnrl", -- gnrl | dx10 | gnmf
-  ba2_version = "fallout4", -- fallout4 | starfield | fallout4-next-gen
+  format = "ba2", -- bsaTes3 | bsaTes4 | ba2; tes3/tes4 aliases accepted
+  ba2Kind = "gnrl", -- gnrl | dx10 | gnmf
+  ba2Version = "fallout4", -- fallout4 | starfield | fallout4NextGen
 })
 
-local add_plan = tool.plan_add("out.ba2", {
+local addPlan = tool.planAdd("out.ba2", {
   inputs = { "new_file.txt", "new_dir" },
 })
--- Mutating: rewrites out.ba2 now. Review add_plan.entries first.
+-- Mutating: rewrites out.ba2 now. Review addPlan.entries first.
 local updated = tool.add("out.ba2", {
   inputs = { "new_file.txt", "new_dir" },
 })
 print(created.files, updated.files)
 ```
 
-Lua functions and return values:
+Luau functions and return values:
 
-- `info(path) -> { path, format, file_count, named_entry_count, has_unnameable_entries, rewritable, rewrite_blocker, tes4?, ba2? }`
-- `verify(path, opts?) -> { path, format, file_count, named_entry_count, unnameable_entries, rewritable, rewrite_blocker, duplicate_normalized_paths, unsafe_paths, payloads_read, warnings }`
-- `diff(old, new, opts?) -> { old, new, comparison, fingerprint_payloads, added, removed, changed, unchanged }`
-- `extract(path, entry_bytes, opts?) -> { extracted, skipped }`
-- `extract_many(path, entry_bytes_array, opts?) -> { extracted, skipped }`
-- `plan_extract(path, entry_bytes_array, opts?) -> { operation, archive, output, entries }`
-- `extract_by_path_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }`
-- `extract_hex(path, path_bytes_hex, opts?) -> { extracted, skipped }` compatibility alias
-- `extract_many_by_path_hex(path, path_bytes_hex_array, opts?) -> { extracted, skipped }`
-- `plan_extract_by_path_hex(path, path_bytes_hex_array, opts?) -> { operation, archive, output, entries }`
-- `extract_all(path, opts?) -> { extracted, skipped }`
-- `plan_extract_all(path, opts?) -> { operation, archive, output, entries }`
+- `info(path) -> { path, format, fileCount, namedEntryCount, hasUnnameableEntries, rewritable, rewriteBlocker, tes4?, ba2? }`
+- `verify(path, opts?) -> { path, format, fileCount, namedEntryCount, unnameableEntries, rewritable, rewriteBlocker, duplicateNormalizedPaths, unsafePaths, payloadsRead, warnings }`
+- `diff(old, new, opts?) -> { old, new, comparison, fingerprintPayloads, added, removed, changed, unchanged }`, with `comparison = "metadataOnly" | "payloadFingerprint"`
+- `extract(path, entryBytes, opts?) -> { extracted, skipped }`
+- `extractMany(path, entryBytesArray, opts?) -> { extracted, skipped }`
+- `planExtract(path, entryBytesArray, opts?) -> { operation, archive, output, entries }`
+- `extractByPathHex(path, pathBytesHex, opts?) -> { extracted, skipped }`
+- `extractHex(path, pathBytesHex, opts?) -> { extracted, skipped }` compatibility alias
+- `extractManyByPathHex(path, pathBytesHexArray, opts?) -> { extracted, skipped }`
+- `planExtractByPathHex(path, pathBytesHexArray, opts?) -> { operation, archive, output, entries }`
+- `extractAll(path, opts?) -> { extracted, skipped }`
+- `planExtractAll(path, opts?) -> { operation, archive, output, entries }`
 - `create(output, input, opts?) -> { files }`
-- `plan_create(output, input, opts?) -> { operation, format, output, files, entries }`
+- `planCreate(output, input, opts?) -> { operation, format, output, files, entries }`
 - `add(path, opts) -> { files }`
-- `plan_add(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
+- `planAdd(path, opts) -> { operation, archive, output, format, files, added, replaced, preserved, entries }`
 
-Lua archive userdata methods added by `create_dream_archive_module` / `register_dream_archive_methods`:
+Luau archive userdata methods added by `create_dream_archive_module` / `register_dream_archive_methods`:
 
-- `archive:tool_info() -> { path, format, file_count, named_entry_count, has_unnameable_entries, rewritable, rewrite_blocker, tes4?, ba2? }`
+- `archive:toolInfo() -> { path, format, fileCount, namedEntryCount, hasUnnameableEntries, rewritable, rewriteBlocker, tes4?, ba2? }`
 - `archive:verify(opts?) -> verify report`
-- `archive:diff(other_archive, opts?) -> diff report`
-- `archive:extract(entry_bytes, opts?) -> { extracted, skipped }`
-- `archive:extract_many(entry_bytes_array, opts?) -> { extracted, skipped }`
-- `archive:plan_extract(entry_bytes_array, opts?) -> extract plan`
-- `archive:extract_by_path_hex(path_bytes_hex, opts?) -> { extracted, skipped }`
-- `archive:extract_many_by_path_hex(path_bytes_hex_array, opts?) -> { extracted, skipped }`
-- `archive:plan_extract_by_path_hex(path_bytes_hex_array, opts?) -> extract plan`
-- `archive:extract_all(opts?) -> { extracted, skipped }`
-- `archive:plan_extract_all(opts?) -> extract-all plan`
+- `archive:diff(otherArchive, opts?) -> diff report`
+- `archive:extract(entryBytes, opts?) -> { extracted, skipped }`
+- `archive:extractMany(entryBytesArray, opts?) -> { extracted, skipped }`
+- `archive:planExtract(entryBytesArray, opts?) -> extract plan`
+- `archive:extractByPathHex(pathBytesHex, opts?) -> { extracted, skipped }`
+- `archive:extractManyByPathHex(pathBytesHexArray, opts?) -> { extracted, skipped }`
+- `archive:planExtractByPathHex(pathBytesHexArray, opts?) -> extract plan`
+- `archive:extractAll(opts?) -> { extracted, skipped }`
+- `archive:planExtractAll(opts?) -> extractAll plan`
 
-`tool_info` is deliberately named to avoid colliding with lower-level `dream_archive` userdata methods such as format/list/read operations. It returns archivetool policy metadata, including rewrite eligibility, not just archive-format metadata.
+`toolInfo` is deliberately named to avoid colliding with lower-level `dream_archive` userdata methods such as format/list/read operations. It returns archivetool policy metadata, including rewrite eligibility, not just archive-format metadata.
 
-There are intentionally no `archive:create`, `archive:plan_create`, `archive:add`, or `archive:plan_add` methods. Creation and rewrite policy requires host filesystem paths, output selection, symlink policy, and temp-file replacement semantics, so those remain top-level `dream_archivetool` APIs.
+There are intentionally no `archive:create`, `archive:planCreate`, `archive:add`, or `archive:planAdd` methods. Creation and rewrite policy requires host filesystem paths, output selection, symlink policy, and temp-file replacement semantics, so those remain top-level `dream_archivetool` APIs.
 
-Report and plan `format` values are aligned with `dream_archive`: `bsa-tes3`, `bsa-tes4`, or `ba2`. `create` / `plan_create` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `path_bytes_hex` for normalized lookup. Never feed display `path` back as identity when non-UTF-8 archive names matter; use the `*_by_path_hex` functions or raw byte strings from `dream_archive`. Diff/archive-plan `size` and `compressed_size` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
+Report and plan `format` values are aligned with `dream_archive`: `bsaTes3`, `bsaTes4`, or `ba2`. `create` / `planCreate` also accept the older `tes3` / `tes4` aliases. Entry tables use display `path` for humans and `pathBytesHex` for normalized lookup. Never feed display `path` back as identity when non-UTF-8 archive names matter; use the `*ByPathHex` functions or raw byte strings from `dream_archive`. Diff/archive-plan `size` and `compressedSize` values are decimal strings or `nil`. Unknown option keys are rejected so typos do not silently mutate the wrong thing. `add.output` is optional; omit it to replace the source archive after a successful full rewrite, or set it to write a separate archive. `add.inputs` is required and must be a dense Lua array sequence such as `{ "file", "dir" }`; dictionary keys and holes are errors.
 
 Nested entry table shapes:
 
-- verify path issue: `{ path, path_bytes_hex, raw_path_bytes_hex, colliding_raw_path_bytes_hex? }`
-- info TES4 table: `{ version, archive_types, archive_types_bits, archive_flags, archive_flags_bits, unsupported_archive_flags_bits, name_mode }`
-- info BA2 table: `{ version, payload_format, compression_format, strings }`
-- diff entry: `{ path, path_bytes_hex, size?, compressed_size?, payload_fingerprint? }`
-- diff change: `{ path, path_bytes_hex, old, new }`, where `old` / `new` are diff entry states
-- extract plan entry: `{ action, path, path_bytes_hex, target }`, with `action = "extract" | "skip" | "overwrite"`
-- create/add plan entry: `{ action, source?, path, path_bytes_hex, size? }`, with `action = "add" | "replace" | "preserve"`
+- verify path issue: `{ path, pathBytesHex, rawPathBytesHex, collidingRawPathBytesHex? }`
+- info TES4 table: `{ version, archiveTypes, archiveTypesBits, archiveFlags, archiveFlagsBits, unsupportedArchiveFlagsBits, nameMode }`, with `archiveFlags` drawn from `"directoryStrings" | "fileStrings" | "compressed" | "embeddedFileNames"` and `nameMode = "strings" | "hashOnly" | "embedded" | "stringsAndEmbedded"` (the same spellings as `dreamArchive.bsa.tes4.nameMode`)
+- info BA2 table: `{ version, payloadFormat, compressionFormat, strings }`
+- diff entry: `{ path, pathBytesHex, size?, compressedSize?, payloadFingerprint? }`
+- diff change: `{ path, pathBytesHex, old, new }`, where `old` / `new` are diff entry states
+- extract plan entry: `{ action, path, pathBytesHex, target }`, with `action = "extract" | "skip" | "overwrite"`; the plan's `operation` is `"extract"` or `"extractAll"`
+- create/add plan entry: `{ action, source?, path, pathBytesHex, size? }`, with `action = "add" | "replace" | "preserve"`
 
-Lua option tables:
+Luau option tables:
 
-- `extract`: `output`, `overwrite`, `preserve_paths`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
-- `extract_many`: same options as `extract`; `entries` must be a dense array of archive path byte strings
-- `extract_many_by_path_hex`: same options as `extract`; `entries` must be a dense array of `path_bytes_hex` strings
-- `extract_all`: `output`, `overwrite`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
-- `verify`: `read_payloads`
-- `diff`: `fingerprint_payloads`
-- `create`: `format`, `tes4_version`, `ba2_kind`, `ba2_version`, `fsync`, `follow_symlinks`; `format = "bsa-tes3" | "bsa-tes4" | "ba2"` (`"tes3"` / `"tes4"` aliases accepted); `tes4_version = "oblivion" | "fallout3" | "fallout-3" | "skyrim" | "skyrim-se" | "sse"`; `ba2_kind = "gnrl" | "dx10" | "gnmf"`; `ba2_version = "fallout4" | "fallout-4" | "starfield" | "fallout4-next-gen" | "fallout-4-next-gen"`
-- `add`: `output`, `inputs`, `fsync`, `follow_symlinks`
+- `extract`: `output`, `overwrite`, `preservePaths`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
+- `extractMany`: same options as `extract`; `entries` must be a dense array of archive path byte strings
+- `extractManyByPathHex`: same options as `extract`; `entries` must be a dense array of `pathBytesHex` strings
+- `extractAll`: `output`, `overwrite`, `fsync`; `overwrite = "fail" | "overwrite" | "skip"`
+- `verify`: `readPayloads`
+- `diff`: `fingerprintPayloads`
+- `create`: `format`, `tes4Version`, `ba2Kind`, `ba2Version`, `fsync`, `followSymlinks`; `format = "bsaTes3" | "bsaTes4" | "ba2"` (`"tes3"` / `"tes4"` aliases accepted); `tes4Version = "oblivion" | "fallout3" | "skyrim" | "skyrimSe" | "sse"`; `ba2Kind = "gnrl" | "dx10" | "gnmf"`; `ba2Version = "fallout4" | "starfield" | "fallout4NextGen"`
+- `add`: `output`, `inputs`, `fsync`, `followSymlinks`
 
-`plan_extract`, `plan_extract_by_path_hex`, `plan_extract_all`, `plan_create`, and `plan_add` accept the same options as `extract_many`, `extract_many_by_path_hex`, `extract_all`, `create`, and `add` respectively. Plan results are advisory snapshots: they do not reserve archive contents, input directories, output paths, or symlink state. Mutating calls repeat policy checks and can still fail if the world changed. Yes, the filesystem is still a shared mutable global; c a p i t u l a t e.
+`planExtract`, `planExtractByPathHex`, `planExtractAll`, `planCreate`, and `planAdd` accept the same options as `extractMany`, `extractManyByPathHex`, `extractAll`, `create`, and `add` respectively. Plan results are advisory snapshots: they do not reserve archive contents, input directories, output paths, or symlink state. Mutating calls repeat policy checks and can still fail if the world changed. Yes, the filesystem is still a shared mutable global; c a p i t u l a t e.
 
-Defaults: `format = "bsa-tes3"`, `tes4_version = "oblivion"`, `ba2_kind = "gnrl"`, `ba2_version = "fallout4"`, `overwrite = "fail"`, `preserve_paths = true`, `fsync = false`, `follow_symlinks = false`, omitted extraction `output` writes under the current directory, and omitted add `output` rewrites the source archive.
+Defaults: `format = "bsaTes3"`, `tes4Version = "oblivion"`, `ba2Kind = "gnrl"`, `ba2Version = "fallout4"`, `overwrite = "fail"`, `preservePaths = true`, `fsync = false`, `followSymlinks = false`, omitted extraction `output` writes under the current directory, and omitted add `output` rewrites the source archive.
 
-Path-based `dream_archivetool` Lua calls reopen the archive path passed to them. If you list with `dream_archive.open_path(path):entries()` and then call `dream_archivetool.extract_many(path, ...)`, the extraction is not bound to the already-opened `dream_archive` userdata; replacing the file between those two calls means you selected from one archive state and extracted from another. Userdata methods avoid that extra policy-layer reopen and operate on the supplied `dream_archive` handle. For byte-backed `dream_archive.open_bytes(...)` userdata this is a true immutable snapshot. For path-backed `dream_archive.open_path(...)` userdata, payload reads still follow `dream_archive`'s own source semantics; do not treat it as a magic file-handle pin unless the lower layer promises that. That is not a cache. That is a contract boundary.
+Path-based `dreamArchivetool` calls reopen the archive path passed to them. If you list with `dreamArchive.openPath(path):entries()` and then call `dreamArchivetool.extractMany(path, ...)`, the extraction is not bound to the already-opened `dream_archive` userdata; replacing the file between those two calls means you selected from one archive state and extracted from another. Userdata methods avoid that extra policy-layer reopen and operate on the supplied `dream_archive` handle. For byte-backed `dreamArchive.openBytes(...)` userdata this is a true immutable snapshot. For path-backed `dreamArchive.openPath(...)` userdata, payload reads still follow `dream_archive`'s own source semantics; do not treat it as a magic file-handle pin unless the lower layer promises that. That is not a cache. That is a contract boundary.
 
 ## Safety
 
@@ -365,7 +367,7 @@ Archive creation and update write to a temporary file in the output directory, t
 
 The stateless `ArchiveTool` facade opens archives once per high-level operation; use `ArchiveTool::open` / `OpenArchive` for repeated list/read/extract calls against the same archive. Single-file extraction and `extract-all` stream entry payloads into their output writer through `dream_archive` instead of first materializing whole files in `dream_archivetool`. `extract-all` checks the destination before decoding entry payloads, so `--skip-existing` avoids reading skipped files. Directory inputs for `create` and `add` are stored relative to each directory root; the root directory name itself is not preserved.
 
-Lua report and plan functions materialize their result tables. `verify`, `diff`, `plan_extract_all`, and large selected-entry plans can therefore allocate a lot of Lua objects and put pressure on LuaJIT's GC. Batch extraction opens the archive once for the batch, but selected entry arrays are validated and copied at the Rust boundary. Prefer `extract_many` / `extract_many_by_path_hex` over looping single-entry extraction; prefer `dream_archive` primitives when you only need low-level listing or payload reads.
+Lua report and plan functions materialize their result tables. `verify`, `diff`, `planExtractAll`, and large selected-entry plans can therefore allocate a lot of Lua objects and put pressure on Luau's GC. Batch extraction opens the archive once for the batch, but selected entry arrays are validated and copied at the Rust boundary. Prefer `extractMany` / `extractManyByPathHex` over looping single-entry extraction; prefer `dream_archive` primitives when you only need low-level listing or payload reads.
 
 Archive creation and update preflight archive paths and format policy before adding deferred payload sources to the backend builders. TES3, TES4, and BA2 GNRL creation pass filesystem paths to `dream_archive` rather than preloading payloads in `dream_archivetool`. `add` preserves unchanged TES3, TES4, BA2 GNRL, and BA2 DX10 entries from the source archive through deferred archive-entry sources instead of decoding them into `dream_archivetool` memory. BA2 DX10 still has to parse DDS texture data for new or replaced files, but preserved texture entries are copied as native BA2 chunks.
 

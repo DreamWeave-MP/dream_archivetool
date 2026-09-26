@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! Lua bindings for the `dream_archivetool` policy layer.
+//! Luau bindings for the `dream_archivetool` policy layer.
 //!
 //! This module deliberately does not mirror `dream_archive`'s archive primitives. Use
 //! `dream_archive` to open archives, list entries, read payloads, and use path helpers; use this
@@ -8,17 +8,25 @@
 //! verification, and diffing. Register both modules in the same [`Lua`] state when scripts need the
 //! full stack.
 //!
+//! Version 0.2.0 moved the bindings from `LuaJIT` to Luau, following `dream_archive` 0.2, and
+//! renamed the whole Lua-facing surface to Luau conventions: functions, methods, option keys,
+//! report fields, and enum-like string values are camelCase (`extractMany`, `planExtractAll`,
+//! `preservePaths`, `pathBytesHex`, `"bsaTes4"`, `"payloadFingerprint"`). The conventional global
+//! name is `dreamArchivetool`, next to `dreamArchive` and `dreamPath`. [`register`] sets that
+//! global; to make `require("@dreamArchivetool")` work instead, pass [`create_module`]'s table to
+//! [`mlua::Lua::register_module`] yourself.
+//!
 //! Lua string boundaries are part of the API contract. Filesystem paths are UTF-8 host paths.
-//! Archive entry paths are byte strings, so `dream_archive` entry paths can be passed straight to
-//! [`dream_archivetool.extract`](create_module) without pretending arbitrary archive bytes are text.
-//! Report display `path` fields are for humans; `path_bytes_hex` is the stable normalized lookup
+//! Archive entry paths are byte strings, so `dreamArchive` entry paths can be passed straight to
+//! [`dreamArchivetool.extract`](create_module) without pretending arbitrary archive bytes are text.
+//! Report display `path` fields are for humans; `pathBytesHex` is the stable normalized lookup
 //! key, not raw archive-name identity. Wide archive sizes are exposed as decimal strings because
-//! `LuaJIT` numbers are not a u64 transport.
+//! Luau numbers are doubles and cannot carry every u64 exactly.
 
 use std::path::PathBuf;
 
 use mlua::{
-    AnyUserData, Error as LuaError, Function, Lua, Result as LuaResult, String as LuaString, Table,
+    AnyUserData, Error as LuaError, Function, Lua, LuaString, Result as LuaResult, Table,
     UserDataMethods, UserDataRegistry, Value,
 };
 
@@ -29,16 +37,16 @@ use crate::{
     VerifyOptions,
 };
 
-/// Create a `dream_archive` Lua module with `dream_archivetool` policy methods attached to
-/// `dream_archive.open_*` archive userdata.
+/// Create a `dreamArchive` Luau module with `dream_archivetool` policy methods attached to
+/// `dreamArchive.open*` archive userdata.
 ///
 /// Call this before any `dream_archive::lua::LuaArchive` userdata is created in the same Lua
-/// state. The returned table is the lower-level `dream_archive` module; register
+/// state. The returned table is the lower-level `dreamArchive` module; register
 /// [`create_module`] separately when scripts also need path-based create/add helpers.
 ///
 /// Userdata methods operate on the supplied `dream_archive` handle instead of reopening the
-/// archive path in this policy layer. For `dream_archive.open_bytes(...)`, that handle is an
-/// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
+/// archive path in this policy layer. For `dreamArchive.openBytes(...)`, that handle is an
+/// immutable byte snapshot. For `dreamArchive.openPath(...)`, payload reads follow
 /// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
 /// bytes are pinned after the handle is created.
 ///
@@ -53,12 +61,12 @@ pub fn create_dream_archive_module(lua: &Lua) -> LuaResult<Table> {
 /// Register `dream_archivetool` policy methods on `dream_archive::lua::LuaArchive`.
 ///
 /// This must run before any archive userdata is created in the Lua state. Use
-/// [`create_dream_archive_module`] when possible; it also makes `dream_archive.open_*` create
+/// [`create_dream_archive_module`] when possible; it also makes `dreamArchive.open*` create
 /// userdata through `mlua`'s type registry so the added methods are visible.
 ///
 /// Userdata methods operate on the supplied `dream_archive` handle instead of reopening the
-/// archive path in this policy layer. For `dream_archive.open_bytes(...)`, that handle is an
-/// immutable byte snapshot. For `dream_archive.open_path(...)`, payload reads follow
+/// archive path in this policy layer. For `dreamArchive.openBytes(...)`, that handle is an
+/// immutable byte snapshot. For `dreamArchive.openPath(...)`, payload reads follow
 /// `dream_archive`'s path/source semantics; this policy layer does not promise that path-backed
 /// bytes are pinned after the handle is created.
 ///
@@ -74,7 +82,7 @@ pub fn register_dream_archive_methods(lua: &Lua) -> LuaResult<()> {
     reason = "Lua userdata method registration is a flat API table"
 )]
 fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::LuaArchive>) {
-    methods.add_method("tool_info", |lua, this, ()| {
+    methods.add_method("toolInfo", |lua, this, ()| {
         archive_info_table(
             lua,
             crate::archive::archive_info_ref(&lua_archive_label(this), lua_archive_ref(this)),
@@ -121,10 +129,10 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         },
     );
     methods.add_method(
-        "extract_many",
+        "extractMany",
         |lua, this, (entries, opts): (Table, Option<Table>)| {
-            let entries = lua_byte_string_array(&entries, "archive:extract_many", "entries")?;
-            let options = extract_options(opts, "archive:extract_many")?;
+            let entries = lua_byte_string_array(&entries, "archive:extractMany", "entries")?;
+            let options = extract_options(opts, "archive:extractMany")?;
             let summary = crate::extract::extract_entries_by_path_from_loaded_archive(
                 &lua_archive_label(this),
                 lua_archive_ref(this),
@@ -136,10 +144,10 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         },
     );
     methods.add_method(
-        "plan_extract",
+        "planExtract",
         |lua, this, (entries, opts): (Table, Option<Table>)| {
-            let entries = lua_byte_string_array(&entries, "archive:plan_extract", "entries")?;
-            let options = extract_options(opts, "archive:plan_extract")?;
+            let entries = lua_byte_string_array(&entries, "archive:planExtract", "entries")?;
+            let options = extract_options(opts, "archive:planExtract")?;
             let plan = crate::extract::plan_extract_entries_by_path_from_loaded_archive(
                 &lua_archive_label(this),
                 &entries,
@@ -150,10 +158,10 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         },
     );
     methods.add_method(
-        "extract_by_path_hex",
+        "extractByPathHex",
         |lua, this, (entry_hex, opts): (LuaString, Option<Table>)| {
-            let entry = lua_path_hex(&entry_hex, "archive:extract_by_path_hex")?;
-            let options = extract_options(opts, "archive:extract_by_path_hex")?;
+            let entry = lua_path_hex(&entry_hex, "archive:extractByPathHex")?;
+            let options = extract_options(opts, "archive:extractByPathHex")?;
             let summary = crate::extract::extract_entry_by_path_from_loaded_archive(
                 &lua_archive_label(this),
                 lua_archive_ref(this),
@@ -165,11 +173,11 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         },
     );
     methods.add_method(
-        "extract_many_by_path_hex",
+        "extractManyByPathHex",
         |lua, this, (entries, opts): (Table, Option<Table>)| {
             let entries =
-                lua_hex_string_array(&entries, "archive:extract_many_by_path_hex", "entries")?;
-            let options = extract_options(opts, "archive:extract_many_by_path_hex")?;
+                lua_hex_string_array(&entries, "archive:extractManyByPathHex", "entries")?;
+            let options = extract_options(opts, "archive:extractManyByPathHex")?;
             let summary = crate::extract::extract_entries_by_path_from_loaded_archive(
                 &lua_archive_label(this),
                 lua_archive_ref(this),
@@ -181,11 +189,11 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         },
     );
     methods.add_method(
-        "plan_extract_by_path_hex",
+        "planExtractByPathHex",
         |lua, this, (entries, opts): (Table, Option<Table>)| {
             let entries =
-                lua_hex_string_array(&entries, "archive:plan_extract_by_path_hex", "entries")?;
-            let options = extract_options(opts, "archive:plan_extract_by_path_hex")?;
+                lua_hex_string_array(&entries, "archive:planExtractByPathHex", "entries")?;
+            let options = extract_options(opts, "archive:planExtractByPathHex")?;
             let plan = crate::extract::plan_extract_entries_by_path_from_loaded_archive(
                 &lua_archive_label(this),
                 &entries,
@@ -195,8 +203,8 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
             extract_all_plan_table(lua, plan)
         },
     );
-    methods.add_method("extract_all", |lua, this, opts: Option<Table>| {
-        let options = extract_all_options(opts, "archive:extract_all")?;
+    methods.add_method("extractAll", |lua, this, opts: Option<Table>| {
+        let options = extract_all_options(opts, "archive:extractAll")?;
         let summary = crate::extract::extract_all_from_loaded_archive(
             &lua_archive_label(this),
             lua_archive_ref(this),
@@ -205,8 +213,8 @@ fn add_archive_tool_methods(methods: &mut UserDataRegistry<dream_archive::lua::L
         .map_err(LuaError::external)?;
         summary_table(lua, summary.extracted, summary.skipped)
     });
-    methods.add_method("plan_extract_all", |lua, this, opts: Option<Table>| {
-        let options = extract_all_options(opts, "archive:plan_extract_all")?;
+    methods.add_method("planExtractAll", |lua, this, opts: Option<Table>| {
+        let options = extract_all_options(opts, "archive:planExtractAll")?;
         let plan = crate::extract::plan_extract_all_from_loaded_archive(
             &lua_archive_label(this),
             lua_archive_ref(this),
@@ -231,21 +239,22 @@ fn lua_archive_label(archive: &dream_archive::lua::LuaArchive) -> String {
 
 fn lua_path_hex(entry_hex: &LuaString, context: &str) -> LuaResult<Vec<u8>> {
     let entry_hex = entry_hex.to_str().map_err(|_| {
-        LuaError::external(format!("{context}.path_bytes_hex must be a UTF-8 string"))
+        LuaError::external(format!("{context}.pathBytesHex must be a UTF-8 string"))
     })?;
     crate::path::decode_archive_path_hex(entry_hex.as_ref())
-        .map_err(|err| LuaError::external(format!("{context}: invalid path_bytes_hex: {err}")))
+        .map_err(|err| LuaError::external(format!("{context}: invalid pathBytesHex: {err}")))
 }
 
-/// Create a Lua table for common [`ArchiveTool`] operations.
+/// Create a Luau table for common [`ArchiveTool`] operations.
 ///
 /// The returned table contains tool-policy operations: `info`, `verify`, `diff`, `extract`,
-/// `extract_by_path_hex`, `extract_hex`, `extract_many`, `extract_many_by_path_hex`,
-/// `plan_extract`, `plan_extract_by_path_hex`, `extract_all`, `plan_extract_all`, `create`,
-/// `plan_create`, `add`, and `plan_add`. Archive-format primitives such as listing and payload
-/// reads belong to `dream_archive`'s Lua API instead. Archive entry arguments are Lua byte strings,
-/// so `dream_archive` entry paths can be passed to extraction functions without a UTF-8 boundary.
-/// The table is not registered globally unless [`register`] is called.
+/// `extractByPathHex`, `extractHex`, `extractMany`, `extractManyByPathHex`, `planExtract`,
+/// `planExtractByPathHex`, `extractAll`, `planExtractAll`, `create`, `planCreate`, `add`, and
+/// `planAdd`. Archive-format primitives such as listing and payload reads belong to
+/// `dreamArchive`'s Luau API instead. Archive entry arguments are Lua byte strings, so
+/// `dreamArchive` entry paths can be passed to extraction functions without a UTF-8 boundary.
+/// The table is not registered globally unless [`register`] is called; pass it to
+/// [`mlua::Lua::register_module`] as `"@dreamArchivetool"` to make it `require`-able instead.
 ///
 /// # Errors
 ///
@@ -288,14 +297,14 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "extract_many",
+        "extractMany",
         lua.create_function(
             |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
                 let path = path.to_str().map_err(|_| {
-                    LuaError::external("extract_many.path must be a UTF-8 host path string")
+                    LuaError::external("extractMany.path must be a UTF-8 host path string")
                 })?;
-                let entries = lua_byte_string_array(&entries, "extract_many", "entries")?;
-                let options = extract_options(opts, "extract_many")?;
+                let entries = lua_byte_string_array(&entries, "extractMany", "entries")?;
+                let options = extract_options(opts, "extractMany")?;
                 let summary =
                     ArchiveTool::extract_many_by_path_bytes(path.as_ref(), &entries, &options)
                         .map_err(LuaError::external)?;
@@ -304,14 +313,14 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "plan_extract",
+        "planExtract",
         lua.create_function(
             |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
                 let path = path.to_str().map_err(|_| {
-                    LuaError::external("plan_extract.path must be a UTF-8 host path string")
+                    LuaError::external("planExtract.path must be a UTF-8 host path string")
                 })?;
-                let entries = lua_byte_string_array(&entries, "plan_extract", "entries")?;
-                let options = extract_options(opts, "plan_extract")?;
+                let entries = lua_byte_string_array(&entries, "planExtract", "entries")?;
+                let options = extract_options(opts, "planExtract")?;
                 let plan =
                     ArchiveTool::plan_extract_many_by_path_bytes(path.as_ref(), &entries, &options)
                         .map_err(LuaError::external)?;
@@ -320,17 +329,14 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "extract_many_by_path_hex",
+        "extractManyByPathHex",
         lua.create_function(
             |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
                 let path = path.to_str().map_err(|_| {
-                    LuaError::external(
-                        "extract_many_by_path_hex.path must be a UTF-8 host path string",
-                    )
+                    LuaError::external("extractManyByPathHex.path must be a UTF-8 host path string")
                 })?;
-                let entries =
-                    lua_hex_string_array(&entries, "extract_many_by_path_hex", "entries")?;
-                let options = extract_options(opts, "extract_many_by_path_hex")?;
+                let entries = lua_hex_string_array(&entries, "extractManyByPathHex", "entries")?;
+                let options = extract_options(opts, "extractManyByPathHex")?;
                 let summary =
                     ArchiveTool::extract_many_by_path_bytes(path.as_ref(), &entries, &options)
                         .map_err(LuaError::external)?;
@@ -339,17 +345,14 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "plan_extract_by_path_hex",
+        "planExtractByPathHex",
         lua.create_function(
             |lua, (path, entries, opts): (LuaString, Table, Option<Table>)| {
                 let path = path.to_str().map_err(|_| {
-                    LuaError::external(
-                        "plan_extract_by_path_hex.path must be a UTF-8 host path string",
-                    )
+                    LuaError::external("planExtractByPathHex.path must be a UTF-8 host path string")
                 })?;
-                let entries =
-                    lua_hex_string_array(&entries, "plan_extract_by_path_hex", "entries")?;
-                let options = extract_options(opts, "plan_extract_by_path_hex")?;
+                let entries = lua_hex_string_array(&entries, "planExtractByPathHex", "entries")?;
+                let options = extract_options(opts, "planExtractByPathHex")?;
                 let plan =
                     ArchiveTool::plan_extract_many_by_path_bytes(path.as_ref(), &entries, &options)
                         .map_err(LuaError::external)?;
@@ -358,12 +361,12 @@ fn register_entry_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "extract_hex",
-        extract_by_path_hex_function(lua, "extract_hex")?,
+        "extractHex",
+        extract_by_path_hex_function(lua, "extractHex")?,
     )?;
     module.set(
-        "extract_by_path_hex",
-        extract_by_path_hex_function(lua, "extract_by_path_hex")?,
+        "extractByPathHex",
+        extract_by_path_hex_function(lua, "extractByPathHex")?,
     )?;
     Ok(())
 }
@@ -375,11 +378,11 @@ fn extract_by_path_hex_function(lua: &Lua, context: &'static str) -> LuaResult<F
                 LuaError::external(format!("{context}.path must be a UTF-8 host path string"))
             })?;
             let entry_hex = entry_hex.to_str().map_err(|_| {
-                LuaError::external(format!("{context}.path_bytes_hex must be a UTF-8 string"))
+                LuaError::external(format!("{context}.pathBytesHex must be a UTF-8 string"))
             })?;
             let entry =
                 crate::path::decode_archive_path_hex(entry_hex.as_ref()).map_err(|err| {
-                    LuaError::external(format!("{context}: invalid path_bytes_hex: {err}"))
+                    LuaError::external(format!("{context}: invalid pathBytesHex: {err}"))
                 })?;
             let options = extract_options(opts, context)?;
             let summary = ArchiveTool::extract_by_path_bytes(path.as_ref(), &entry, &options)
@@ -424,24 +427,24 @@ fn register_report_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
 
 fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     module.set(
-        "extract_all",
+        "extractAll",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
             let path = path.to_str().map_err(|_| {
-                LuaError::external("extract_all.path must be a UTF-8 host path string")
+                LuaError::external("extractAll.path must be a UTF-8 host path string")
             })?;
-            let options = extract_all_options(opts, "extract_all")?;
+            let options = extract_all_options(opts, "extractAll")?;
             let summary =
                 ArchiveTool::extract_all(path.as_ref(), &options).map_err(LuaError::external)?;
             summary_table(lua, summary.extracted, summary.skipped)
         })?,
     )?;
     module.set(
-        "plan_extract_all",
+        "planExtractAll",
         lua.create_function(|lua, (path, opts): (LuaString, Option<Table>)| {
             let path = path.to_str().map_err(|_| {
-                LuaError::external("plan_extract_all.path must be a UTF-8 host path string")
+                LuaError::external("planExtractAll.path must be a UTF-8 host path string")
             })?;
-            let options = extract_all_options(opts, "plan_extract_all")?;
+            let options = extract_all_options(opts, "planExtractAll")?;
             let plan = ArchiveTool::plan_extract_all(path.as_ref(), &options)
                 .map_err(LuaError::external)?;
             extract_all_plan_table(lua, plan)
@@ -465,16 +468,16 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         )?,
     )?;
     module.set(
-        "plan_create",
+        "planCreate",
         lua.create_function(
             |lua, (output, input, opts): (LuaString, LuaString, Option<Table>)| {
                 let output = output.to_str().map_err(|_| {
-                    LuaError::external("plan_create.output must be a UTF-8 host path string")
+                    LuaError::external("planCreate.output must be a UTF-8 host path string")
                 })?;
                 let input = input.to_str().map_err(|_| {
-                    LuaError::external("plan_create.input must be a UTF-8 host path string")
+                    LuaError::external("planCreate.input must be a UTF-8 host path string")
                 })?;
-                let options = create_options(opts, "plan_create")?;
+                let options = create_options(opts, "planCreate")?;
                 let plan = ArchiveTool::plan_create(output.as_ref(), input.as_ref(), &options)
                     .map_err(LuaError::external)?;
                 create_plan_table(lua, plan)
@@ -493,12 +496,12 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
         })?,
     )?;
     module.set(
-        "plan_add",
+        "planAdd",
         lua.create_function(|lua, (archive, opts): (LuaString, Table)| {
-            let archive = archive.to_str().map_err(|_| {
-                LuaError::external("plan_add.path must be a UTF-8 host path string")
-            })?;
-            let options = add_options(&opts, "plan_add")?;
+            let archive = archive
+                .to_str()
+                .map_err(|_| LuaError::external("planAdd.path must be a UTF-8 host path string"))?;
+            let options = add_options(&opts, "planAdd")?;
             let plan =
                 ArchiveTool::plan_add(archive.as_ref(), &options).map_err(LuaError::external)?;
             add_plan_table(lua, plan)
@@ -508,20 +511,20 @@ fn register_write_functions(lua: &Lua, module: &Table) -> LuaResult<()> {
     Ok(())
 }
 
-/// Register the Lua API table as the global `dream_archivetool` value.
+/// Register the Luau API table as the global `dreamArchivetool` value.
 ///
 /// # Errors
 ///
 /// Returns a Lua error if the module table cannot be created or assigned to globals.
 pub fn register(lua: &Lua) -> LuaResult<()> {
     let module = create_module(lua)?;
-    lua.globals().set("dream_archivetool", module)
+    lua.globals().set("dreamArchivetool", module)
 }
 
 fn format_name(format: ArchiveFormat) -> &'static str {
     match format {
-        ArchiveFormat::Tes3 => "bsa-tes3",
-        ArchiveFormat::Tes4 => "bsa-tes4",
+        ArchiveFormat::Tes3 => "bsaTes3",
+        ArchiveFormat::Tes4 => "bsaTes4",
         ArchiveFormat::Ba2 => "ba2",
     }
 }
@@ -535,30 +538,30 @@ fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions
         context,
         &[
             "format",
-            "tes4_version",
-            "ba2_kind",
-            "ba2_version",
+            "tes4Version",
+            "ba2Kind",
+            "ba2Version",
             "compress",
             "fsync",
-            "follow_symlinks",
+            "followSymlinks",
         ],
     )?;
     let format = parse_optional_format(optional_string_field(&opts, context, "format")?)?;
-    let tes4_version = optional_string_field(&opts, context, "tes4_version")?;
-    let ba2_kind = optional_string_field(&opts, context, "ba2_kind")?;
-    let ba2_version = optional_string_field(&opts, context, "ba2_version")?;
+    let tes4_version = optional_string_field(&opts, context, "tes4Version")?;
+    let ba2_kind = optional_string_field(&opts, context, "ba2Kind")?;
+    let ba2_version = optional_string_field(&opts, context, "ba2Version")?;
     match format {
         ArchiveFormat::Tes3 => {
-            reject_irrelevant_create_option("tes4_version", tes4_version.is_some(), format)?;
-            reject_irrelevant_create_option("ba2_kind", ba2_kind.is_some(), format)?;
-            reject_irrelevant_create_option("ba2_version", ba2_version.is_some(), format)?;
+            reject_irrelevant_create_option("tes4Version", tes4_version.is_some(), format)?;
+            reject_irrelevant_create_option("ba2Kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("ba2Version", ba2_version.is_some(), format)?;
         }
         ArchiveFormat::Tes4 => {
-            reject_irrelevant_create_option("ba2_kind", ba2_kind.is_some(), format)?;
-            reject_irrelevant_create_option("ba2_version", ba2_version.is_some(), format)?;
+            reject_irrelevant_create_option("ba2Kind", ba2_kind.is_some(), format)?;
+            reject_irrelevant_create_option("ba2Version", ba2_version.is_some(), format)?;
         }
         ArchiveFormat::Ba2 => {
-            reject_irrelevant_create_option("tes4_version", tes4_version.is_some(), format)?;
+            reject_irrelevant_create_option("tes4Version", tes4_version.is_some(), format)?;
         }
     }
     Ok(CreateOptions {
@@ -568,9 +571,7 @@ fn create_options(opts: Option<Table>, context: &str) -> LuaResult<CreateOptions
         ba2_version: parse_optional_ba2_version(ba2_version)?,
         compress: opts.get::<Option<bool>>("compress")?.unwrap_or(false),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
-        follow_symlinks: opts
-            .get::<Option<bool>>("follow_symlinks")?
-            .unwrap_or(false),
+        follow_symlinks: opts.get::<Option<bool>>("followSymlinks")?.unwrap_or(false),
     })
 }
 
@@ -592,7 +593,7 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
     reject_unknown_options(
         opts,
         context,
-        &["output", "inputs", "fsync", "follow_symlinks"],
+        &["output", "inputs", "fsync", "followSymlinks"],
     )?;
     let inputs = required_table_field(opts, context, "inputs")?;
     let len = validate_dense_string_array(&inputs, context, "inputs")?;
@@ -615,9 +616,7 @@ fn add_options(opts: &Table, context: &str) -> LuaResult<AddOptions> {
         inputs: paths,
         output: optional_path_field(opts, context, "output")?,
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
-        follow_symlinks: opts
-            .get::<Option<bool>>("follow_symlinks")?
-            .unwrap_or(false),
+        follow_symlinks: opts.get::<Option<bool>>("followSymlinks")?.unwrap_or(false),
     })
 }
 
@@ -625,9 +624,9 @@ fn verify_options(opts: Option<Table>) -> LuaResult<VerifyOptions> {
     let Some(opts) = opts else {
         return Ok(VerifyOptions::default());
     };
-    reject_unknown_options(&opts, "verify", &["read_payloads"])?;
+    reject_unknown_options(&opts, "verify", &["readPayloads"])?;
     Ok(VerifyOptions {
-        read_payloads: opts.get::<Option<bool>>("read_payloads")?.unwrap_or(false),
+        read_payloads: opts.get::<Option<bool>>("readPayloads")?.unwrap_or(false),
     })
 }
 
@@ -635,10 +634,10 @@ fn diff_options(opts: Option<Table>) -> LuaResult<DiffOptions> {
     let Some(opts) = opts else {
         return Ok(DiffOptions::default());
     };
-    reject_unknown_options(&opts, "diff", &["fingerprint_payloads"])?;
+    reject_unknown_options(&opts, "diff", &["fingerprintPayloads"])?;
     Ok(DiffOptions {
         fingerprint_payloads: opts
-            .get::<Option<bool>>("fingerprint_payloads")?
+            .get::<Option<bool>>("fingerprintPayloads")?
             .unwrap_or(false),
     })
 }
@@ -650,12 +649,12 @@ fn extract_options(opts: Option<Table>, context: &str) -> LuaResult<ExtractOptio
     reject_unknown_options(
         &opts,
         context,
-        &["output", "overwrite", "preserve_paths", "fsync"],
+        &["output", "overwrite", "preservePaths", "fsync"],
     )?;
     Ok(ExtractOptions {
         output: optional_path_field(&opts, context, "output")?,
         overwrite: parse_optional_overwrite(optional_string_field(&opts, context, "overwrite")?)?,
-        preserve_paths: opts.get::<Option<bool>>("preserve_paths")?.unwrap_or(true),
+        preserve_paths: opts.get::<Option<bool>>("preservePaths")?.unwrap_or(true),
         fsync: opts.get::<Option<bool>>("fsync")?.unwrap_or(false),
     })
 }
@@ -785,12 +784,12 @@ fn lua_hex_string_array(entries: &Table, context: &str, field: &str) -> LuaResul
         let value: LuaString = entries.raw_get(index)?;
         let value = value.to_str().map_err(|_| {
             LuaError::external(format!(
-                "{context}.{field}[{index}] must be a UTF-8 path_bytes_hex string"
+                "{context}.{field}[{index}] must be a UTF-8 pathBytesHex string"
             ))
         })?;
         let path = crate::path::decode_archive_path_hex(value.as_ref()).map_err(|err| {
             LuaError::external(format!(
-                "{context}.{field}[{index}]: invalid path_bytes_hex: {err}"
+                "{context}.{field}[{index}]: invalid pathBytesHex: {err}"
             ))
         })?;
         paths.push(path);
@@ -835,8 +834,8 @@ fn parse_optional_overwrite(value: Option<LuaString>) -> LuaResult<OverwriteMode
 
 fn parse_format(value: Option<&str>) -> LuaResult<ArchiveFormat> {
     match value.unwrap_or("tes3") {
-        "tes3" | "bsa-tes3" => Ok(ArchiveFormat::Tes3),
-        "tes4" | "bsa-tes4" => Ok(ArchiveFormat::Tes4),
+        "tes3" | "bsaTes3" => Ok(ArchiveFormat::Tes3),
+        "tes4" | "bsaTes4" => Ok(ArchiveFormat::Tes4),
         "ba2" => Ok(ArchiveFormat::Ba2),
         value => Err(LuaError::external(format!(
             "unknown archive format: {value}"
@@ -847,9 +846,9 @@ fn parse_format(value: Option<&str>) -> LuaResult<ArchiveFormat> {
 fn parse_tes4_version(value: Option<&str>) -> LuaResult<Tes4Version> {
     match value.unwrap_or("oblivion") {
         "oblivion" => Ok(Tes4Version::Oblivion),
-        "fallout3" | "fallout-3" => Ok(Tes4Version::Fallout3),
+        "fallout3" => Ok(Tes4Version::Fallout3),
         "skyrim" => Ok(Tes4Version::Skyrim),
-        "skyrim-se" | "sse" => Ok(Tes4Version::SkyrimSe),
+        "skyrimSe" | "sse" => Ok(Tes4Version::SkyrimSe),
         value => Err(LuaError::external(format!("unknown TES4 version: {value}"))),
     }
 }
@@ -865,9 +864,9 @@ fn parse_ba2_kind(value: Option<&str>) -> LuaResult<Ba2ArchiveKind> {
 
 fn parse_ba2_version(value: Option<&str>) -> LuaResult<Ba2Version> {
     match value.unwrap_or("fallout4") {
-        "fallout4" | "fallout-4" => Ok(Ba2Version::Fallout4),
+        "fallout4" => Ok(Ba2Version::Fallout4),
         "starfield" => Ok(Ba2Version::Starfield),
-        "fallout4-next-gen" | "fallout-4-next-gen" => Ok(Ba2Version::Fallout4NextGen),
+        "fallout4NextGen" => Ok(Ba2Version::Fallout4NextGen),
         value => Err(LuaError::external(format!("unknown BA2 version: {value}"))),
     }
 }
@@ -900,11 +899,11 @@ fn archive_info_table(lua: &Lua, info: crate::ArchiveInfo) -> LuaResult<Table> {
     let table = lua.create_table_with_capacity(0, 9)?;
     table.set("path", info.path)?;
     table.set("format", format_name(info.format))?;
-    table.set("file_count", info.file_count)?;
-    table.set("named_entry_count", info.named_entry_count)?;
-    table.set("has_unnameable_entries", info.has_unnameable_entries)?;
+    table.set("fileCount", info.file_count)?;
+    table.set("namedEntryCount", info.named_entry_count)?;
+    table.set("hasUnnameableEntries", info.has_unnameable_entries)?;
     table.set("rewritable", info.rewritable)?;
-    table.set("rewrite_blocker", info.rewrite_blocker)?;
+    table.set("rewriteBlocker", info.rewrite_blocker)?;
     table.set("tes4", optional_tes4_info_table(lua, info.tes4)?)?;
     table.set("ba2", optional_ba2_info_table(lua, info.ba2)?)?;
     Ok(table)
@@ -914,15 +913,20 @@ fn optional_tes4_info_table(lua: &Lua, info: Option<crate::Tes4Info>) -> LuaResu
     info.map(|info| {
         let table = lua.create_table_with_capacity(0, 7)?;
         table.set("version", info.version)?;
-        table.set("archive_types", info.archive_types)?;
-        table.set("archive_types_bits", info.archive_types_bits)?;
-        table.set("archive_flags", string_array(lua, info.archive_flags)?)?;
-        table.set("archive_flags_bits", info.archive_flags_bits)?;
+        table.set("archiveTypes", info.archive_types)?;
+        table.set("archiveTypesBits", info.archive_types_bits)?;
+        let archive_flags = info
+            .archive_flags
+            .iter()
+            .map(|flag| kebab_to_camel(flag))
+            .collect();
+        table.set("archiveFlags", string_array(lua, archive_flags)?)?;
+        table.set("archiveFlagsBits", info.archive_flags_bits)?;
         table.set(
-            "unsupported_archive_flags_bits",
+            "unsupportedArchiveFlagsBits",
             info.unsupported_archive_flags_bits,
         )?;
-        table.set("name_mode", info.name_mode)?;
+        table.set("nameMode", kebab_to_camel(&info.name_mode))?;
         Ok(table)
     })
     .transpose()
@@ -932,8 +936,8 @@ fn optional_ba2_info_table(lua: &Lua, info: Option<crate::Ba2Info>) -> LuaResult
     info.map(|info| {
         let table = lua.create_table_with_capacity(0, 4)?;
         table.set("version", info.version)?;
-        table.set("payload_format", info.payload_format)?;
-        table.set("compression_format", info.compression_format)?;
+        table.set("payloadFormat", info.payload_format)?;
+        table.set("compressionFormat", info.compression_format)?;
         table.set("strings", info.strings)?;
         Ok(table)
     })
@@ -944,20 +948,20 @@ fn verify_report_table(lua: &Lua, report: crate::VerifyReport) -> LuaResult<Tabl
     let table = lua.create_table_with_capacity(0, 11)?;
     table.set("path", report.path)?;
     table.set("format", format_name(report.format))?;
-    table.set("file_count", report.file_count)?;
-    table.set("named_entry_count", report.named_entry_count)?;
-    table.set("unnameable_entries", report.unnameable_entries)?;
+    table.set("fileCount", report.file_count)?;
+    table.set("namedEntryCount", report.named_entry_count)?;
+    table.set("unnameableEntries", report.unnameable_entries)?;
     table.set("rewritable", report.rewritable)?;
-    table.set("rewrite_blocker", report.rewrite_blocker)?;
+    table.set("rewriteBlocker", report.rewrite_blocker)?;
     table.set(
-        "duplicate_normalized_paths",
+        "duplicateNormalizedPaths",
         verify_path_issue_array(lua, report.duplicate_normalized_paths)?,
     )?;
     table.set(
-        "unsafe_paths",
+        "unsafePaths",
         verify_path_issue_array(lua, report.unsafe_paths)?,
     )?;
-    table.set("payloads_read", report.payloads_read)?;
+    table.set("payloadsRead", report.payloads_read)?;
     table.set("warnings", string_array(lua, report.warnings)?)?;
     Ok(table)
 }
@@ -967,10 +971,10 @@ fn verify_path_issue_array(lua: &Lua, issues: Vec<crate::VerifyPathIssue>) -> Lu
     for (index, issue) in issues.into_iter().enumerate() {
         let issue_table = lua.create_table_with_capacity(0, 4)?;
         issue_table.set("path", issue.path)?;
-        issue_table.set("path_bytes_hex", issue.path_bytes_hex)?;
-        issue_table.set("raw_path_bytes_hex", issue.raw_path_bytes_hex)?;
+        issue_table.set("pathBytesHex", issue.path_bytes_hex)?;
+        issue_table.set("rawPathBytesHex", issue.raw_path_bytes_hex)?;
         issue_table.set(
-            "colliding_raw_path_bytes_hex",
+            "collidingRawPathBytesHex",
             issue.colliding_raw_path_bytes_hex,
         )?;
         table.set(index + 1, issue_table)?;
@@ -983,7 +987,7 @@ fn diff_report_table(lua: &Lua, report: crate::DiffReport) -> LuaResult<Table> {
     table.set("old", report.old)?;
     table.set("new", report.new)?;
     table.set("comparison", diff_comparison_name(report.comparison))?;
-    table.set("fingerprint_payloads", report.fingerprint_payloads)?;
+    table.set("fingerprintPayloads", report.fingerprint_payloads)?;
     table.set("added", diff_entry_array(lua, report.added)?)?;
     table.set("removed", diff_entry_array(lua, report.removed)?)?;
     table.set("changed", diff_change_array(lua, report.changed)?)?;
@@ -1002,13 +1006,13 @@ fn diff_entry_array(lua: &Lua, entries: Vec<crate::DiffEntry>) -> LuaResult<Tabl
 fn diff_entry_table(lua: &Lua, entry: crate::DiffEntry) -> LuaResult<Table> {
     let table = lua.create_table_with_capacity(0, 5)?;
     table.set("path", entry.path)?;
-    table.set("path_bytes_hex", entry.path_bytes_hex)?;
+    table.set("pathBytesHex", entry.path_bytes_hex)?;
     table.set("size", optional_u64_decimal(entry.size))?;
     table.set(
-        "compressed_size",
+        "compressedSize",
         optional_u64_decimal(entry.compressed_size),
     )?;
-    table.set("payload_fingerprint", entry.payload_fingerprint)?;
+    table.set("payloadFingerprint", entry.payload_fingerprint)?;
     Ok(table)
 }
 
@@ -1017,7 +1021,7 @@ fn diff_change_array(lua: &Lua, changes: Vec<crate::DiffChange>) -> LuaResult<Ta
     for (index, change) in changes.into_iter().enumerate() {
         let change_table = lua.create_table_with_capacity(0, 4)?;
         change_table.set("path", change.path)?;
-        change_table.set("path_bytes_hex", change.path_bytes_hex)?;
+        change_table.set("pathBytesHex", change.path_bytes_hex)?;
         change_table.set("old", diff_entry_state_table(lua, change.old)?)?;
         change_table.set("new", diff_entry_state_table(lua, change.new)?)?;
         table.set(index + 1, change_table)?;
@@ -1029,10 +1033,10 @@ fn diff_entry_state_table(lua: &Lua, state: crate::DiffEntryState) -> LuaResult<
     let table = lua.create_table_with_capacity(0, 3)?;
     table.set("size", optional_u64_decimal(state.size))?;
     table.set(
-        "compressed_size",
+        "compressedSize",
         optional_u64_decimal(state.compressed_size),
     )?;
-    table.set("payload_fingerprint", state.payload_fingerprint)?;
+    table.set("payloadFingerprint", state.payload_fingerprint)?;
     Ok(table)
 }
 
@@ -1051,7 +1055,7 @@ fn extract_plan_entry_array(lua: &Lua, entries: Vec<crate::ExtractPlanEntry>) ->
         let entry_table = lua.create_table_with_capacity(0, 4)?;
         entry_table.set("action", extract_plan_action_name(entry.action))?;
         entry_table.set("path", entry.path)?;
-        entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
+        entry_table.set("pathBytesHex", entry.path_bytes_hex)?;
         entry_table.set("target", entry.target)?;
         table.set(index + 1, entry_table)?;
     }
@@ -1089,11 +1093,29 @@ fn archive_plan_entry_array(lua: &Lua, entries: Vec<crate::ArchivePlanEntry>) ->
         entry_table.set("action", archive_plan_action_name(entry.action))?;
         entry_table.set("source", entry.source)?;
         entry_table.set("path", entry.path)?;
-        entry_table.set("path_bytes_hex", entry.path_bytes_hex)?;
+        entry_table.set("pathBytesHex", entry.path_bytes_hex)?;
         entry_table.set("size", optional_u64_decimal(entry.size))?;
         table.set(index + 1, entry_table)?;
     }
     Ok(table)
+}
+
+/// Spell a kebab-case policy name (as the CLI reports it) the Luau way: `"hash-only"` becomes
+/// `"hashOnly"`, matching `dreamArchive`'s own enum strings.
+fn kebab_to_camel(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut upper = false;
+    for ch in value.chars() {
+        if ch == '-' {
+            upper = true;
+        } else if upper {
+            out.push(ch.to_ascii_uppercase());
+            upper = false;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 fn optional_u64_decimal(value: Option<u64>) -> Option<String> {
@@ -1110,8 +1132,8 @@ fn string_array(lua: &Lua, values: Vec<String>) -> LuaResult<Table> {
 
 fn diff_comparison_name(comparison: DiffComparison) -> &'static str {
     match comparison {
-        DiffComparison::MetadataOnly => "metadata-only",
-        DiffComparison::PayloadFingerprint => "payload-fingerprint",
+        DiffComparison::MetadataOnly => "metadataOnly",
+        DiffComparison::PayloadFingerprint => "payloadFingerprint",
     }
 }
 
@@ -1133,7 +1155,7 @@ fn archive_plan_action_name(action: ArchivePlanAction) -> &'static str {
 fn extract_plan_operation_name(operation: ExtractPlanOperation) -> &'static str {
     match operation {
         ExtractPlanOperation::Extract => "extract",
-        ExtractPlanOperation::ExtractAll => "extract-all",
+        ExtractPlanOperation::ExtractAll => "extractAll",
     }
 }
 
@@ -1202,7 +1224,7 @@ mod tests {
         let lua = Lua::new();
         let dream_archive_module = create_dream_archive_module(&lua).unwrap();
         lua.globals()
-            .set("dream_archive", dream_archive_module)
+            .set("dreamArchive", dream_archive_module)
             .unwrap();
         lua.globals()
             .set("old_path", old_archive.to_str().unwrap())
@@ -1214,20 +1236,20 @@ mod tests {
         let (payloads_read, comparison, changed, planned): (usize, String, usize, usize) = lua
             .load(
                 r"
-                local old = dream_archive.open_path(old_path)
-                local new = dream_archive.open_path(new_path)
-                local verify = old:verify({ read_payloads = true })
-                local diff = old:diff(new, { fingerprint_payloads = true })
+                local old = dreamArchive.openPath(old_path)
+                local new = dreamArchive.openPath(new_path)
+                local verify = old:verify({ readPayloads = true })
+                local diff = old:diff(new, { fingerprintPayloads = true })
                 local entry = old:entries()[1]
-                local plan = old:plan_extract({ entry.path }, { preserve_paths = false })
-                return verify.payloads_read, diff.comparison, #diff.changed, #plan.entries
+                local plan = old:planExtract({ entry.path }, { preservePaths = false })
+                return verify.payloadsRead, diff.comparison, #diff.changed, #plan.entries
                 ",
             )
             .eval()
             .unwrap();
 
         assert_eq!(payloads_read, 1);
-        assert_eq!(comparison, "payload-fingerprint");
+        assert_eq!(comparison, "payloadFingerprint");
         assert_eq!(changed, 1);
         assert_eq!(planned, 1);
 
@@ -1245,7 +1267,7 @@ mod tests {
         let lua = Lua::new();
         let dream_archive_module = create_dream_archive_module(&lua).unwrap();
         lua.globals()
-            .set("dream_archive", dream_archive_module)
+            .set("dreamArchive", dream_archive_module)
             .unwrap();
         let archive_bytes = fs::read(&archive).unwrap();
         lua.globals()
@@ -1254,7 +1276,7 @@ mod tests {
         lua.globals()
             .set("out_path", output.to_str().unwrap())
             .unwrap();
-        lua.load("archive = dream_archive.open_bytes(archive_bytes)")
+        lua.load("archive = dreamArchive.openBytes(archive_bytes)")
             .exec()
             .unwrap();
 
@@ -1264,7 +1286,7 @@ mod tests {
             r#"
             archive:extract("textures/example.dds", {
                 output = out_path,
-                preserve_paths = false,
+                preservePaths = false,
             })
             "#,
         )
@@ -1287,7 +1309,7 @@ mod tests {
         let lua = Lua::new();
         let dream_archive_module = create_dream_archive_module(&lua).unwrap();
         lua.globals()
-            .set("dream_archive", dream_archive_module)
+            .set("dreamArchive", dream_archive_module)
             .unwrap();
         lua.globals()
             .set("archive_bytes", lua.create_string(&bytes).unwrap())
@@ -1296,7 +1318,7 @@ mod tests {
         let path: String = lua
             .load(
                 r"
-                local archive = dream_archive.open_bytes(archive_bytes)
+                local archive = dreamArchive.openBytes(archive_bytes)
                 return archive:verify().path
                 ",
             )
@@ -1321,16 +1343,16 @@ mod tests {
         let (format, rewritable, list_is_absent, read_is_absent): (String, bool, bool, bool) = lua
             .load(
                 r"
-                local info = dream_archivetool.info(archive_path)
+                local info = dreamArchivetool.info(archive_path)
                 return info.format, info.rewritable,
-                    dream_archivetool.list == nil,
-                    dream_archivetool.read_entry == nil
+                    dreamArchivetool.list == nil,
+                    dreamArchivetool.readEntry == nil
             ",
             )
             .eval()
             .unwrap();
 
-        assert_eq!(format, "bsa-tes3");
+        assert_eq!(format, "bsaTes3");
         assert!(rewritable);
         assert!(list_is_absent);
         assert!(read_is_absent);
@@ -1354,9 +1376,9 @@ mod tests {
         let extracted: usize = lua
             .load(
                 r"
-                local summary = dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                local summary = dreamArchivetool.extract(archive_path, 'textures/example.dds', {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return summary.extracted
             ",
@@ -1387,9 +1409,9 @@ mod tests {
             .load(
                 r"
                 local entry_hex = '74657874757265732f6578616d706c652e646473'
-                local summary = dream_archivetool.extract_hex(archive_path, entry_hex, {
+                local summary = dreamArchivetool.extractHex(archive_path, entry_hex, {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return summary.extracted
             ",
@@ -1410,7 +1432,7 @@ mod tests {
         let lua = Lua::new();
         lua.globals()
             .set(
-                "dream_archive",
+                "dreamArchive",
                 crate::dream_archive::lua::create_module(&lua).unwrap(),
             )
             .unwrap();
@@ -1424,11 +1446,11 @@ mod tests {
         let raw_extracted: usize = lua
             .load(
                 r"
-                local archive = dream_archive.open_path(archive_path)
+                local archive = dreamArchive.openPath(archive_path)
                 local entry = archive:entries()[1]
-                local raw = dream_archivetool.extract(archive_path, entry.path, {
+                local raw = dreamArchivetool.extract(archive_path, entry.path, {
                     output = raw_output,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return raw.extracted
             ",
@@ -1449,7 +1471,7 @@ mod tests {
         let lua = Lua::new();
         lua.globals()
             .set(
-                "dream_archive",
+                "dreamArchive",
                 crate::dream_archive::lua::create_module(&lua).unwrap(),
             )
             .unwrap();
@@ -1464,15 +1486,15 @@ mod tests {
         let (operation, action, extracted): (String, String, usize) = lua
             .load(
                 r"
-                local archive = dream_archive.open_path(archive_path)
+                local archive = dreamArchive.openPath(archive_path)
                 local entry = archive:entries()[1]
-                local plan = dream_archivetool.plan_extract(archive_path, { entry.path }, {
+                local plan = dreamArchivetool.planExtract(archive_path, { entry.path }, {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
-                local summary = dream_archivetool.extract_many(archive_path, { entry.path }, {
+                local summary = dreamArchivetool.extractMany(archive_path, { entry.path }, {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return plan.operation, plan.entries[1].action, summary.extracted
             ",
@@ -1517,7 +1539,7 @@ mod tests {
         let lua = Lua::new();
         lua.globals()
             .set(
-                "dream_archive",
+                "dreamArchive",
                 crate::dream_archive::lua::create_module(&lua).unwrap(),
             )
             .unwrap();
@@ -1541,19 +1563,19 @@ mod tests {
         let (bridge_extracted, raw_extracted, hex_extracted): (usize, usize, usize) = lua
             .load(
                 r"
-                local archive = dream_archive.open_path(archive_path)
+                local archive = dreamArchive.openPath(archive_path)
                 local entry = archive:entries()[1]
-                local bridge = dream_archivetool.extract(archive_path, entry.path, {
+                local bridge = dreamArchivetool.extract(archive_path, entry.path, {
                     output = bridge_output,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
-                local raw = dream_archivetool.extract(archive_path, entry_bytes, {
+                local raw = dreamArchivetool.extract(archive_path, entry_bytes, {
                     output = raw_output,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
-                local by_hex = dream_archivetool.extract_by_path_hex(archive_path, '6261642dff2e646473', {
+                local by_hex = dreamArchivetool.extractByPathHex(archive_path, '6261642dff2e646473', {
                     output = hex_output,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return bridge.extracted, raw.extracted, by_hex.extracted
             ",
@@ -1590,13 +1612,13 @@ mod tests {
             .load(
                 r"
                 local entries = { '74657874757265732f6578616d706c652e646473' }
-                local plan = dream_archivetool.plan_extract_by_path_hex(archive_path, entries, {
+                local plan = dreamArchivetool.planExtractByPathHex(archive_path, entries, {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
-                local summary = dream_archivetool.extract_many_by_path_hex(archive_path, entries, {
+                local summary = dreamArchivetool.extractManyByPathHex(archive_path, entries, {
                     output = output_path,
-                    preserve_paths = false,
+                    preservePaths = false,
                 })
                 return plan.entries[1].action, summary.extracted
             ",
@@ -1629,7 +1651,7 @@ mod tests {
         let extracted: usize = lua
             .load(
                 r"
-                local summary = dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                local summary = dreamArchivetool.extract(archive_path, 'textures/example.dds', {
                     output = output_path,
                     overwrite = 'overwrite',
                 })
@@ -1666,7 +1688,7 @@ mod tests {
         let skipped: usize = lua
             .load(
                 r"
-                local summary = dream_archivetool.extract_all(archive_path, {
+                local summary = dreamArchivetool.extractAll(archive_path, {
                     output = output_path,
                     overwrite = 'skip',
                 })
@@ -1708,8 +1730,8 @@ mod tests {
         let files: usize = lua
             .load(
                 r"
-                local created = dream_archivetool.create(archive_path, input_path, { format = 'bsa-tes3' })
-                local updated = dream_archivetool.add(archive_path, {
+                local created = dreamArchivetool.create(archive_path, input_path, { format = 'bsaTes3' })
+                local updated = dreamArchivetool.add(archive_path, {
                     inputs = { added_path },
                 })
                 return created.files + updated.files
@@ -1760,14 +1782,14 @@ mod tests {
         ): (usize, String, String, String, String, String, String) = lua
             .load(
                 r"
-                local verify = dream_archivetool.verify(archive_path, { read_payloads = true })
-                local extract_plan = dream_archivetool.plan_extract_all(archive_path, {
+                local verify = dreamArchivetool.verify(archive_path, { readPayloads = true })
+                local extract_plan = dreamArchivetool.planExtractAll(archive_path, {
                     output = output_path,
                 })
-                local create_plan = dream_archivetool.plan_create(updated_path, input_path, {
-                    format = 'bsa-tes3',
+                local create_plan = dreamArchivetool.planCreate(updated_path, input_path, {
+                    format = 'bsaTes3',
                 })
-                local add_plan = dream_archivetool.plan_add(archive_path, {
+                local add_plan = dreamArchivetool.planAdd(archive_path, {
                     output = updated_path,
                     inputs = { input_path },
                 })
@@ -1777,7 +1799,7 @@ mod tests {
                         add_action = entry.action
                     end
                 end
-                return verify.payloads_read, verify.format, create_plan.format, add_plan.format,
+                return verify.payloadsRead, verify.format, create_plan.format, add_plan.format,
                     extract_plan.entries[1].action, create_plan.entries[1].action, add_action
             ",
             )
@@ -1785,9 +1807,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(payloads_read, 1);
-        assert_eq!(verify_format, "bsa-tes3");
-        assert_eq!(create_format, "bsa-tes3");
-        assert_eq!(add_format, "bsa-tes3");
+        assert_eq!(verify_format, "bsaTes3");
+        assert_eq!(create_format, "bsaTes3");
+        assert_eq!(add_format, "bsaTes3");
         assert_eq!(extract_action, "extract");
         assert_eq!(create_action, "add");
         assert_eq!(add_action, "add");
@@ -1807,15 +1829,15 @@ mod tests {
         let comparison: String = lua
             .load(
                 r"
-                local diff = dream_archivetool.diff(archive_path, other_archive_path, {
-                    fingerprint_payloads = true,
+                local diff = dreamArchivetool.diff(archive_path, other_archive_path, {
+                    fingerprintPayloads = true,
                 })
                 return diff.comparison
             ",
             )
             .eval()
             .unwrap();
-        assert_eq!(comparison, "payload-fingerprint");
+        assert_eq!(comparison, "payloadFingerprint");
 
         fs::remove_dir_all(dir).unwrap();
     }
@@ -1834,7 +1856,7 @@ mod tests {
 
         assert_eq!(table.get::<String>("size").unwrap(), u64::MAX.to_string());
         assert_eq!(
-            table.get::<String>("compressed_size").unwrap(),
+            table.get::<String>("compressedSize").unwrap(),
             "9007199254740993"
         );
     }
@@ -1858,15 +1880,15 @@ mod tests {
         let files: usize = lua
             .load(
                 r"
-                local created = dream_archivetool.create(archive_path, input_path, {
+                local created = dreamArchivetool.create(archive_path, input_path, {
                     format = 'ba2',
-                    ba2_kind = 'gnrl',
-                    ba2_version = 'starfield',
+                    ba2Kind = 'gnrl',
+                    ba2Version = 'starfield',
                 })
-                local plan = dream_archivetool.plan_create(archive_path, input_path, {
+                local plan = dreamArchivetool.planCreate(archive_path, input_path, {
                     format = 'ba2',
-                    ba2_kind = 'gnrl',
-                    ba2_version = 'starfield',
+                    ba2Kind = 'gnrl',
+                    ba2Version = 'starfield',
                 })
                 assert(plan.format == 'ba2')
                 return created.files
@@ -1897,7 +1919,7 @@ mod tests {
         let err = lua
             .load(
                 r"
-                return dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                return dreamArchivetool.extract(archive_path, 'textures/example.dds', {
                     overwrite = 'explode',
                 })
             ",
@@ -1907,27 +1929,27 @@ mod tests {
         assert!(err.to_string().contains("unknown overwrite mode"));
 
         let err = lua
-            .load("return dream_archivetool.create('out.bsa', 'input', { format = 'unknown' })")
+            .load("return dreamArchivetool.create('out.bsa', 'input', { format = 'unknown' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("unknown archive format"));
 
         let err = lua
             .load(
-                "return dream_archivetool.create('out.bsa', 'input', { format = 'tes3', ba2_kind = 'gnrl' })",
+                "return dreamArchivetool.create('out.bsa', 'input', { format = 'tes3', ba2Kind = 'gnrl' })",
             )
             .eval::<mlua::Value>()
             .unwrap_err();
-        assert!(err.to_string().contains("ba2_kind is not valid"));
+        assert!(err.to_string().contains("ba2Kind is not valid"));
 
         let err = lua
-            .load("return dream_archivetool.add(archive_path, { inputs = {} })")
+            .load("return dreamArchivetool.add(archive_path, { inputs = {} })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("at least one input path"));
 
         let err = lua
-            .load("return dream_archivetool.add(archive_path, { output = 'out.bsa' })")
+            .load("return dreamArchivetool.add(archive_path, { output = 'out.bsa' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("add requires opts.inputs"));
@@ -1948,7 +1970,7 @@ mod tests {
         let err = lua
             .load(
                 r"
-                return dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                return dreamArchivetool.extract(archive_path, 'textures/example.dds', {
                     overwirte = 'skip',
                 })
             ",
@@ -1963,7 +1985,7 @@ mod tests {
         let err = lua
             .load(
                 r"
-                return dream_archivetool.extract_hex(archive_path, '74657874757265732f6578616d706c652e646473', {
+                return dreamArchivetool.extractHex(archive_path, '74657874757265732f6578616d706c652e646473', {
                     overwirte = 'skip',
                 })
             ",
@@ -1972,31 +1994,28 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("extract_hex: unknown option key: overwirte")
+                .contains("extractHex: unknown option key: overwirte")
         );
 
         let err = lua
-            .load("return dream_archivetool.extract_hex(archive_path, 'not-hex')")
+            .load("return dreamArchivetool.extractHex(archive_path, 'not-hex')")
+            .eval::<mlua::Value>()
+            .unwrap_err();
+        assert!(err.to_string().contains("extractHex: invalid pathBytesHex"));
+
+        let err = lua
+            .load("return dreamArchivetool.extractByPathHex(archive_path, 'not-hex')")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("extract_hex: invalid path_bytes_hex")
-        );
-
-        let err = lua
-            .load("return dream_archivetool.extract_by_path_hex(archive_path, 'not-hex')")
-            .eval::<mlua::Value>()
-            .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("extract_by_path_hex: invalid path_bytes_hex")
+                .contains("extractByPathHex: invalid pathBytesHex")
         );
 
         let err = lua
             .load(
                 r"
-                return dream_archivetool.add(archive_path, {
+                return dreamArchivetool.add(archive_path, {
                     output = 'out.bsa',
                     inputs = { [2] = 'file.txt' },
                 })
@@ -2010,13 +2029,13 @@ mod tests {
         );
 
         let err = lua
-            .load("return dream_archivetool.add(archive_path, { output = 'out.bsa', inputs = 'file.txt' })")
+            .load("return dreamArchivetool.add(archive_path, { output = 'out.bsa', inputs = 'file.txt' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(err.to_string().contains("add.inputs must be a table"));
 
         let err = lua
-            .load("return dream_archivetool.add(archive_path, { output = 12, inputs = { 'file.txt' } })")
+            .load("return dreamArchivetool.add(archive_path, { output = 12, inputs = { 'file.txt' } })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(
@@ -2038,18 +2057,18 @@ mod tests {
             .unwrap();
 
         let err = lua
-            .load("return dream_archivetool.extract_many_by_path_hex(archive_path, { 'not-hex' })")
+            .load("return dreamArchivetool.extractManyByPathHex(archive_path, { 'not-hex' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("extract_many_by_path_hex.entries[1]: invalid path_bytes_hex")
+                .contains("extractManyByPathHex.entries[1]: invalid pathBytesHex")
         );
 
         let err = lua
             .load(
                 r"
-                return dream_archivetool.extract(archive_path, 'textures/example.dds', {
+                return dreamArchivetool.extract(archive_path, 'textures/example.dds', {
                     output = 12,
                 })
             ",
@@ -2064,7 +2083,7 @@ mod tests {
         let err = lua
             .load(
                 r"
-                return dream_archivetool.extract_all(archive_path, {
+                return dreamArchivetool.extractAll(archive_path, {
                     output = 12,
                 })
             ",
@@ -2073,7 +2092,7 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("extract_all.output must be a UTF-8 host path string")
+                .contains("extractAll.output must be a UTF-8 host path string")
         );
 
         fs::remove_dir_all(dir).unwrap();
@@ -2092,7 +2111,7 @@ mod tests {
         let err = lua
             .load(
                 r"
-                return dream_archivetool.plan_extract_all(archive_path, {
+                return dreamArchivetool.planExtractAll(archive_path, {
                     overwirte = 'skip',
                 })
             ",
@@ -2101,15 +2120,15 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("plan_extract_all: unknown option key: overwirte")
+                .contains("planExtractAll: unknown option key: overwirte")
         );
 
         let err = lua
             .load(
                 r"
-                return dream_archivetool.create('out.bsa', 'input', {
-                    format = 'bsa-tes3',
-                    follow_symlink = true,
+                return dreamArchivetool.create('out.bsa', 'input', {
+                    format = 'bsaTes3',
+                    followSymlink = true,
                 })
             ",
             )
@@ -2117,15 +2136,15 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("create: unknown option key: follow_symlink")
+                .contains("create: unknown option key: followSymlink")
         );
 
         let err = lua
             .load(
                 r"
-                return dream_archivetool.plan_create('out.bsa', 'input', {
-                    format = 'bsa-tes3',
-                    follow_symlink = true,
+                return dreamArchivetool.planCreate('out.bsa', 'input', {
+                    format = 'bsaTes3',
+                    followSymlink = true,
                 })
             ",
             )
@@ -2133,17 +2152,76 @@ mod tests {
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("plan_create: unknown option key: follow_symlink")
+                .contains("planCreate: unknown option key: followSymlink")
         );
 
         let err = lua
-            .load("return dream_archivetool.create('out.bsa', 'input', { format = 'bsa-tes4', ba2_kind = 'gnrl' })")
+            .load("return dreamArchivetool.create('out.bsa', 'input', { format = 'bsaTes4', ba2Kind = 'gnrl' })")
             .eval::<mlua::Value>()
             .unwrap_err();
         assert!(
             err.to_string()
-                .contains("ba2_kind is not valid with format bsa-tes4")
+                .contains("ba2Kind is not valid with format bsaTes4")
         );
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn lua_module_can_be_required_and_uses_luau_names() {
+        let dir = unique_dir("require-luau-names");
+        let input = dir.join("input");
+        write_input_tree(&input);
+        let archive = dir.join("out.bsa");
+        ArchiveTool::create(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Tes4,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let lua = Lua::new();
+        lua.register_module("@dreamArchive", create_dream_archive_module(&lua).unwrap())
+            .unwrap();
+        lua.register_module("@dreamArchivetool", create_module(&lua).unwrap())
+            .unwrap();
+        lua.globals()
+            .set("archive_path", archive.to_str().unwrap())
+            .unwrap();
+        lua.globals()
+            .set("output_path", dir.join("output").to_str().unwrap())
+            .unwrap();
+
+        lua.load(
+            r#"
+            local dreamArchive = require("@dreamArchive")
+            local dreamArchivetool = require("@dreamArchivetool")
+            local info = dreamArchivetool.info(archive_path)
+            assert(info.format == "bsaTes4")
+            assert(info.tes4.nameMode == "strings")
+            assert(table.find(info.tes4.archiveFlags, "directoryStrings") ~= nil)
+            assert(table.find(info.tes4.archiveFlags, "fileStrings") ~= nil)
+            assert(dreamArchivetool.extract_many == nil)
+
+            local archive = dreamArchive.openPath(archive_path)
+            assert(archive:toolInfo().fileCount == 1)
+            local plan = archive:planExtractAll({ output = output_path })
+            assert(plan.operation == "extractAll")
+            assert(#plan.entries[1].pathBytesHex > 0)
+
+            local ok, err = pcall(dreamArchivetool.planCreate, "out.bsa", "input", { format = "bsa-tes3" })
+            assert(not ok and string.find(tostring(err), "unknown archive format", 1, true))
+            ok, err = pcall(dreamArchivetool.planCreate, "out.ba2", "input", {
+                format = "ba2",
+                ba2Version = "fallout-4-next-gen",
+            })
+            assert(not ok and string.find(tostring(err), "unknown BA2 version", 1, true))
+            "#,
+        )
+        .exec()
+        .unwrap();
 
         fs::remove_dir_all(dir).unwrap();
     }

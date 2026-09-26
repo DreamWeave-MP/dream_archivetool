@@ -276,7 +276,7 @@ fn ba2_info(archive: crate::loaded::LoadedArchiveRef<'_>) -> Option<Ba2Info> {
 
 /// Stateless facade for archive inspection, extraction, creation, and update operations.
 ///
-/// This type exists to provide a compact public API shared by the CLI and Lua bindings. Each method
+/// This type exists to provide a compact public API shared by the CLI and Luau bindings. Each method
 /// opens the archive it operates on; callers that need repeated list/read/extract operations should
 /// use [`OpenArchive`] to avoid reopening and rebuilding archive indexes.
 #[derive(Debug, Default, Clone, Copy)]

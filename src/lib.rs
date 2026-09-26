@@ -32,16 +32,17 @@
 //! the write. Paths are preflighted before handing file/archive-entry sources to `dream_archive`
 //! builders, including BA2 DX10 texture preservation where the backend can copy native chunks.
 //!
-//! Enable the `lua` feature to compile the Lua module for embedding applications that already
+//! Enable the `lua` feature to compile the Luau module for embedding applications that already
 //! choose an `mlua` runtime. This crate deliberately does not select a Lua runtime for normal
 //! library consumers.
 //!
 //! Enable `standalone-lua` only for this crate's tests, examples, and documentation builds. It
-//! selects vendored `LuaJIT` 5.2 through `mlua`, which is useful here and rude everywhere else.
+//! selects `mlua`'s Luau backend, which is useful here and rude everywhere else. Since 0.2.0 the
+//! bindings target Luau instead of `LuaJIT`, and every Lua-facing name is camelCase.
 //!
 #![cfg_attr(
     feature = "standalone-lua",
-    doc = "With `standalone-lua` enabled, see the [`lua`] module for the embedded Lua table API."
+    doc = "With `standalone-lua` enabled, see the [`lua`] module for the embedded Luau table API."
 )]
 #![cfg_attr(
     all(feature = "lua", not(feature = "standalone-lua")),
