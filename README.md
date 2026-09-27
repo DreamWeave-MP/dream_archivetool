@@ -113,7 +113,7 @@ warning when duplicate normalized paths prevent per-entry coverage.
 
 `create --dry-run`, `add --dry-run`, and
 `extract-all --dry-run` print JSON plans exposing the same normalized paths and policy checks
-the mutating commands use, but stop before writing output. The `--json` flag is accepted with dry-run commands for consistency, but dry-run output is already JSON. Add plans use stable report order grouped
+the mutating commands use, but stop before writing output. Existing extraction targets do not make a plan fail: each entry reports `conflict` (default fail policy), `overwrite`, or `skip`, and only the real extraction errors on conflicts. The `--json` flag is accepted with dry-run commands for consistency, but dry-run output is already JSON. Add plans use stable report order grouped
 by action; they are not a physical archive-order manifest.
 
 ## Library

@@ -127,6 +127,8 @@ pub enum ExtractPlanAction {
     Skip,
     /// Entry would replace an existing target path.
     Overwrite,
+    /// Target already exists and overwrite mode is `Fail`; executing the extraction would fail.
+    Conflict,
 }
 
 /// Read a single archive entry into memory.
@@ -251,12 +253,8 @@ pub(crate) fn extract_entries_by_path_from_loaded_archive(
         extracted: 0,
         skipped: 0,
     };
-    let targets = planned_extract_targets_from_paths(
-        &root,
-        entries,
-        options.preserve_paths,
-        options.overwrite,
-    )?;
+    let targets = planned_extract_targets_from_paths(&root, entries, options.preserve_paths)?;
+    reject_existing_targets(&targets, options.overwrite)?;
     prepare_extract_parent_dirs(&targets, options.fsync)?;
     for target in targets {
         let result = write_target_with_precreated_parent(
@@ -277,6 +275,9 @@ pub(crate) fn extract_entries_by_path_from_loaded_archive(
 
 /// Plan selected archive entry extraction without writing files.
 ///
+/// Existing targets never make planning fail: they are reported as [`ExtractPlanAction::Conflict`]
+/// under [`OverwriteMode::Fail`], [`ExtractPlanAction::Overwrite`], or [`ExtractPlanAction::Skip`].
+///
 /// # Errors
 ///
 /// Returns an error if a requested path is invalid or planned targets are unsafe.
@@ -294,12 +295,7 @@ pub(crate) fn plan_extract_entries_by_path_from_loaded_archive(
     options: &ExtractOptions,
 ) -> Result<ExtractAllPlan> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
-    let targets = planned_extract_targets_from_paths(
-        &root,
-        entries,
-        options.preserve_paths,
-        options.overwrite,
-    )?;
+    let targets = planned_extract_targets_from_paths(&root, entries, options.preserve_paths)?;
     let entries = plan_entries_from_targets(targets, options.overwrite);
     Ok(ExtractAllPlan {
         operation: ExtractPlanOperation::Extract,
@@ -338,7 +334,8 @@ pub(crate) fn extract_all_from_loaded_archive(
                 .to_string(),
         ));
     }
-    let targets = planned_extract_targets(&root, entries, options.overwrite)?;
+    let targets = planned_extract_targets(&root, entries)?;
+    reject_existing_targets(&targets, options.overwrite)?;
     prepare_extract_parent_dirs(&targets, options.fsync)?;
     for target in targets {
         let result = write_target_with_precreated_parent(
@@ -358,6 +355,9 @@ pub(crate) fn extract_all_from_loaded_archive(
 }
 
 /// Plan full archive extraction without writing files.
+///
+/// Existing targets never make planning fail: they are reported as [`ExtractPlanAction::Conflict`]
+/// under [`OverwriteMode::Fail`], [`ExtractPlanAction::Overwrite`], or [`ExtractPlanAction::Skip`].
 ///
 /// # Errors
 ///
@@ -380,7 +380,7 @@ pub(crate) fn plan_extract_all_from_loaded_archive(
                 .to_string(),
         ));
     }
-    let targets = planned_extract_targets(&root, entries, options.overwrite)?;
+    let targets = planned_extract_targets(&root, entries)?;
     let entries = plan_entries_from_targets(targets, options.overwrite);
     Ok(ExtractAllPlan {
         operation: ExtractPlanOperation::ExtractAll,
@@ -397,10 +397,12 @@ fn plan_entries_from_targets(
     targets
         .into_iter()
         .map(|target| {
-            let action = if overwrite == OverwriteMode::Skip && target.path.exists() {
-                ExtractPlanAction::Skip
-            } else if overwrite == OverwriteMode::Overwrite && target.path.exists() {
-                ExtractPlanAction::Overwrite
+            let action = if target.path.exists() {
+                match overwrite {
+                    OverwriteMode::Fail => ExtractPlanAction::Conflict,
+                    OverwriteMode::Overwrite => ExtractPlanAction::Overwrite,
+                    OverwriteMode::Skip => ExtractPlanAction::Skip,
+                }
             } else {
                 ExtractPlanAction::Extract
             };
@@ -423,7 +425,6 @@ struct PlannedExtractTarget {
 fn planned_extract_targets(
     root: &Path,
     entries: Vec<crate::loaded::LoadedEntry>,
-    overwrite: OverwriteMode,
 ) -> Result<Vec<PlannedExtractTarget>> {
     let mut targets = Vec::with_capacity(entries.len());
     let mut seen = BTreeSet::new();
@@ -435,9 +436,6 @@ fn planned_extract_targets(
                 "duplicate extraction target after normalization: {}",
                 path.display()
             )));
-        }
-        if overwrite == OverwriteMode::Fail && path.exists() {
-            return Err(ArchiveError::TargetExists(path.display().to_string()));
         }
         targets.push(PlannedExtractTarget {
             archive_path: entry.path,
@@ -451,7 +449,6 @@ fn planned_extract_targets_from_paths(
     root: &Path,
     entries: &[Vec<u8>],
     preserve_paths: bool,
-    overwrite: OverwriteMode,
 ) -> Result<Vec<PlannedExtractTarget>> {
     let mut targets = Vec::with_capacity(entries.len());
     let mut seen = BTreeSet::new();
@@ -468,12 +465,27 @@ fn planned_extract_targets_from_paths(
                 path.display()
             )));
         }
-        if overwrite == OverwriteMode::Fail && path.exists() {
-            return Err(ArchiveError::TargetExists(path.display().to_string()));
-        }
         targets.push(PlannedExtractTarget { archive_path, path });
     }
     Ok(targets)
+}
+
+/// Fail before writing anything when overwrite mode is `Fail` and any planned target exists.
+///
+/// Plans report these targets as [`ExtractPlanAction::Conflict`] instead of erroring.
+fn reject_existing_targets(
+    targets: &[PlannedExtractTarget],
+    overwrite: OverwriteMode,
+) -> Result<()> {
+    if overwrite != OverwriteMode::Fail {
+        return Ok(());
+    }
+    match targets.iter().find(|target| target.path.exists()) {
+        Some(target) => Err(ArchiveError::TargetExists(
+            target.path.display().to_string(),
+        )),
+        None => Ok(()),
+    }
 }
 
 fn prepare_extract_parent_dirs(targets: &[PlannedExtractTarget], fsync: bool) -> Result<()> {
@@ -942,6 +954,64 @@ mod tests {
     }
 
     #[test]
+    fn plan_extract_all_reports_existing_target_as_conflict_under_fail() {
+        let dir = unique_dir("plan-extract-all-conflict");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("meshes")).unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive_path);
+        fs::write(output_dir.join("meshes/b.nif"), b"existing").unwrap();
+        let options = ExtractAllOptions {
+            output: Some(output_dir.clone()),
+            ..Default::default()
+        };
+
+        let plan = plan_extract_all(&archive_path, &options).unwrap();
+
+        let action = |path: &str| {
+            plan.entries
+                .iter()
+                .find(|entry| entry.path == path)
+                .map(|entry| entry.action)
+        };
+        assert_eq!(action("meshes/b.nif"), Some(ExtractPlanAction::Conflict));
+        assert_eq!(action("textures/a.dds"), Some(ExtractPlanAction::Extract));
+
+        let err = extract_all(&archive_path, &options).unwrap_err();
+        assert!(matches!(err, ArchiveError::TargetExists(_)));
+        assert!(!output_dir.join("textures/a.dds").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn plan_extract_entries_reports_existing_target_as_conflict_under_fail() {
+        let dir = unique_dir("plan-extract-entries-conflict");
+        let output_dir = dir.join("out");
+        fs::create_dir_all(output_dir.join("textures")).unwrap();
+        fs::write(output_dir.join("textures/example.dds"), b"existing").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_tes3_archive(&archive_path);
+        let entries = vec![b"textures/example.dds".to_vec()];
+        let options = ExtractOptions {
+            output: Some(output_dir.clone()),
+            ..Default::default()
+        };
+
+        let plan = plan_extract_entries_by_path(&archive_path, &entries, &options).unwrap();
+
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].action, ExtractPlanAction::Conflict);
+
+        let err = extract_entries_by_path(&archive_path, &entries, &options).unwrap_err();
+        assert!(matches!(err, ArchiveError::TargetExists(_)));
+        assert_eq!(
+            fs::read(output_dir.join("textures/example.dds")).unwrap(),
+            b"existing"
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn extract_all_rejects_duplicate_planned_targets() {
         let dir = unique_dir("extract-all-duplicate-target");
         let entries = vec![
@@ -959,7 +1029,7 @@ mod tests {
             },
         ];
 
-        let err = planned_extract_targets(&dir, entries, OverwriteMode::Overwrite).unwrap_err();
+        let err = planned_extract_targets(&dir, entries).unwrap_err();
 
         assert!(err.to_string().contains("duplicate extraction target"));
     }

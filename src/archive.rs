@@ -454,6 +454,9 @@ impl ArchiveTool {
 
     /// Plan selected archive entry extraction without writing files.
     ///
+    /// Existing targets are reported per entry (`Conflict` under [`OverwriteMode::Fail`](crate::OverwriteMode::Fail))
+    /// rather than failing the plan; only the extraction itself errors on them.
+    ///
     /// # Errors
     ///
     /// Returns an error if the archive cannot be opened, a requested entry cannot be found, or the extraction plan is unsafe.
@@ -478,6 +481,9 @@ impl ArchiveTool {
     }
 
     /// Plan full archive extraction without writing files.
+    ///
+    /// Existing targets are reported per entry (`Conflict` under [`OverwriteMode::Fail`](crate::OverwriteMode::Fail))
+    /// rather than failing the plan; only the extraction itself errors on them.
     ///
     /// # Errors
     ///

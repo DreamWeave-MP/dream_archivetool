@@ -122,3 +122,25 @@ fn add_dry_run_without_json_prints_json_plan() {
     assert_eq!(json["operation"], "add");
     assert!(json["entries"].as_array().is_some());
 }
+
+#[test]
+fn extract_all_dry_run_reports_existing_target_as_conflict() {
+    let dir = TempDir::new().unwrap();
+    let archive = write_test_archive(&dir);
+    let archive = archive.to_str().unwrap();
+    let out = dir.path().join("out");
+    std::fs::create_dir_all(out.join("textures")).unwrap();
+    std::fs::write(out.join("textures/example.dds"), b"existing").unwrap();
+    let out = out.to_str().unwrap();
+
+    let output = run(&["extract-all", archive, "--output", out, "--dry-run"]);
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["entries"][0]["action"], "conflict");
+
+    let output = run(&["extract-all", archive, "--output", out]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("target already exists"));
+}

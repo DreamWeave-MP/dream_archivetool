@@ -1164,6 +1164,7 @@ fn extract_plan_action_name(action: ExtractPlanAction) -> &'static str {
         ExtractPlanAction::Extract => "extract",
         ExtractPlanAction::Skip => "skip",
         ExtractPlanAction::Overwrite => "overwrite",
+        ExtractPlanAction::Conflict => "conflict",
     }
 }
 
