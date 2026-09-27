@@ -286,9 +286,9 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e7837eaef7dd893694b275e94f3e46559514adecdfe503d630332d951ff7a73"
+checksum = "25b1eed987e0302b243cc795cbce18bfc3a1d02db92877edf6bb3784984a149d"
 dependencies = [
  "dream-path",
  "encoding_rs",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "dream_archivetool"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "clap",
  "clap_complete",
