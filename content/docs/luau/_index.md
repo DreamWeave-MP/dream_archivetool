@@ -50,10 +50,9 @@ host setup.
   or `pathBytesHex` keys for the `ByPathHex` forms. See [Archive paths](@/docs/paths.md).
 - **Option tables are strict.** An unknown or misspelled key is an error that lists the known
   ones; a missing table, or `nil`, means every default.
-- **Sizes** (`size`, `compressedSize`) and **fingerprints** (`payloadFingerprint`) are Luau
-  `integer` values: compare them with `==` or the `integer` library, not `<` or `+`, and write
-  a literal as `4096i`. dream_archive's `entry.size` is a number, which never equals an integer;
-  [Sizes are integers](@/docs/luau/results.md#sizes-are-integers) has the conversions. **Counts**
-  (`fileCount`, `extracted`, `files`) are numbers.
+- **Sizes** (`size`, `compressedSize`) and **counts** (`fileCount`, `extracted`, `files`) are
+  numbers, and compare directly with dream_archive's `entry.size`. **Fingerprints**
+  (`payloadFingerprint`) are Luau integers holding all 64 bits, compared with `==`; see
+  [Sizes and fingerprints](@/docs/luau/results.md#sizes-and-fingerprints).
 - **Errors** are raised, never returned. A failed call has written nothing that its checks could
   have prevented.

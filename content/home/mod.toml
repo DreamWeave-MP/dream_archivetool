@@ -142,7 +142,7 @@ summary = "The Luau bindings are an l3i extension that adds dream_archivetool's 
 breaking = [
     "The `luau` feature (`lua` is the old name of the same feature) makes the crate an l3i extension, `luau::ArchivetoolExtension`, providing the module `@dream/archivetool` and requiring dream_archive's `dream.archive`. `dream_archivetool::lua`, `create_dream_archive_module`, `register` and the `standalone-lua` feature are gone with `mlua`.",
     "The archive methods (`toolInfo`, `verify`, `diff`, `extract`, `extractMany`, `planExtract`, the `ByPathHex` forms, `extractAll`, `planExtractAll`) are members of `dream.archive.Archive` itself, on every archive `dreamArchive.open*` returns.",
-    "Reports and plans are userdata: fields are properties, row lists are sequence views that take `#`, `[i]` and `for`, and `:toTable()` gives the 0.2 table. `size` and `compressedSize` are integers instead of decimal strings, and `payloadFingerprint` an integer instead of a hex string.",
+    "Reports and plans are userdata: fields are properties, row lists are sequence views that take `#`, `[i]` and `for`, and `:toTable()` gives the 0.2 table. `size` and `compressedSize` are numbers instead of decimal strings, and `payloadFingerprint` a Luau integer instead of a hex string.",
     "An unknown option is `<context>: unknown option 'key'; known options are ...`, and a wrong option type names the field, as in `add.output: ...`.",
     "Building with `luau` needs l3i's toolchain: clang, lld and cross-language thin LTO.",
 ]
@@ -171,6 +171,6 @@ Compose dream_archive's `ArchiveExtension` and `dream_archivetool::luau::Archive
 into the host's l3i `RuntimePlan`; a host that wants the old globals adds
 `RuntimePolicy::compat_global` for `dreamArchive` and `dreamArchivetool`. Scripts that used
 `ipairs`, `pairs` or `table.insert` on a report's rows iterate them with `for` or call
-`:toTable()` first, and compare sizes and fingerprints as integers.
+`:toTable()` first, read sizes as numbers, and compare fingerprints as integers.
 [Embedding Luau](@/docs/luau-hosts.md) has the setup and every change.
 """

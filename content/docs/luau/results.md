@@ -75,33 +75,25 @@ stored bytes, and for a duplicate `collidingRawPathBytesHex`, the earlier entry'
 
 `DiffEntry` has `path`, `pathBytesHex`, `size`, `compressedSize` and `payloadFingerprint`.
 `DiffChange` has `path`, `pathBytesHex`, and `old` and `new`, each a `DiffState` with `size`,
-`compressedSize` and `payloadFingerprint`. Those three are `integer?`: `nil` for a TES4 file
-whose data lies outside the archive, an entry that is not compressed, or no fingerprint asked for.
-`payloadFingerprint` carries all 64 bits of the FNV-1a hash.
+`compressedSize` and `payloadFingerprint`: `nil` for a TES4 file whose data lies outside the
+archive, an entry that is not compressed, or no fingerprint asked for.
 
-### Sizes are integers
+### Sizes and fingerprints
 
-Sizes and fingerprints are Luau `integer` values, which take `==` and `tostring`, and nothing
-else directly: `<`, `+` and `tonumber` do not apply to them, and raise `attempt to compare
-integer < integer` and the like. Compare, add and convert them with Luau's `integer` library:
+`size` and `compressedSize` are `number?`, as dream_archive's own `entry.size` is, so the two
+compare directly and take `<`, `+` and the rest:
 
 ```lua
 local a, b = diff.added[1], diff.added[2]
-if integer.lt(a.size, b.size) then print(a.path, "is smaller") end
-local total = integer.add(a.size, b.size)
-print(integer.tonumber(total) / 1024, "KiB")
+if a.size < b.size then print(a.path, "is smaller") end
+print((a.size + b.size) / 1024, "KiB")
 ```
 
-An integer never equals a number, so a size to compare against is written `4096i`, not `4096`.
-That includes dream_archive's own `entry.size`, which is a `number`: `entry.size == row.size` is
-false even for the same file. Convert one side, as `integer.create(entry.size) == row.size` or
-`entry.size == integer.tonumber(row.size)`; `integer.tonumber` is exact for any size an archive
-can hold.
+A number holds every size exactly up to 2^53 bytes, eight pebibytes; a larger size a number cannot
+hold exactly raises an error rather than round.
 
-Integers are this extension's choice, not a rule of Luau or l3i. l3i hands Rust integers to Luau
-as numbers unless an extension asks for `integer`, and dream_archive asks for it only for hashes,
-so its `entry.size` is a number. dream_archivetool asks for it so that sizes and fingerprints
-share one exact 64-bit type; the cost is the `integer` library above.
+`payloadFingerprint` is `integer?`, a Luau integer carrying all 64 bits of the FNV-1a hash, which
+a number cannot hold. Compare fingerprints with `==`; an integer never equals a number.
 
 ## ExtractPlan
 
@@ -131,7 +123,7 @@ share one exact 64-bit type; the cost is the `integer` library above.
 | `action` | `string` | `"add"`, `"replace"` or `"preserve"` |
 | `source` | `string?` | The file it comes from; `nil` for a kept entry |
 | `path`, `pathBytesHex` | `string` | Its name in the archive |
-| `size` | `integer?` | The source file's size; `nil` for a kept entry |
+| `size` | `number?` | The source file's size; `nil` for a kept entry |
 
 The counts mean what they do in [the update plan](@/docs/json.md#update-plan).
 
@@ -139,7 +131,7 @@ The counts mean what they do in [the update plan](@/docs/json.md#update-plan).
 
 `report:toTable()` and `plan:toTable()` return the whole result as nested plain tables, the
 shape 0.2 returned: the same field names, rows as tables instead of handles, absent fields left
-out. Sizes and fingerprints are integers there too. It costs a table per row; use it to hand a
+out. Sizes are numbers and fingerprints integers there too. It costs a table per row; use it to hand a
 result to code that expects tables, or to keep one after changing it.
 
 ```lua
@@ -148,7 +140,7 @@ local tool = require("@dream/archivetool")
 local plan = tool.planCreate("New.bsa", "MyMod", { format = "tes3" })
 local t = plan:toTable()
 assert(t.operation == "create" and t.files == #t.entries)
-table.sort(t.entries, function(a, b) return integer.gt(a.size, b.size) end)
+table.sort(t.entries, function(a, b) return a.size > b.size end)
 print("largest:", t.entries[1].path)
 ```
 

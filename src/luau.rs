@@ -42,16 +42,11 @@
 //!
 //! Reports and plans are userdata whose scalar fields are getters and whose row lists are
 //! sequence views of row handles (`#`, `[i]`, `for`); every one has `:toTable()` for the old
-//! nested-table shape. Sizes (`size`, `compressedSize`) are Luau integers, payload fingerprints
-//! are Luau integers carrying all 64 FNV-1a bits, and counts (`fileCount`, `extracted`, `files`,
-//! ...) stay plain numbers.
-//!
-//! Integers are this extension's choice (through [`l3i::convert::Integer`] and
-//! [`l3i::convert::Bits64`]); l3i pushes plain Rust integers as numbers, and `dream_archive`'s
-//! own `Entry.size` is a number. Luau integers take `==` and `tostring` but not `<`, `+` or
-//! `tonumber`, and never equal a number: scripts compare and convert them with the `integer`
-//! library (`integer.lt`, `integer.add`, `integer.tonumber`, `integer.create`) and write literals
-//! as `5i`.
+//! nested-table shape. Sizes (`size`, `compressedSize`) and counts (`fileCount`, `extracted`,
+//! `files`, ...) are plain numbers, as `dream_archive`'s own `Entry.size` is, so the two compare
+//! directly; a number holds every size exactly up to 2^53 bytes, and l3i raises an error rather
+//! than round a larger one it cannot hold. Payload fingerprints are Luau integers carrying all 64 FNV-1a bits
+//! (through [`l3i::convert::Bits64`]), compared with `==`.
 //!
 //! # Bytes and paths
 //!
@@ -65,7 +60,7 @@ use std::rc::Rc;
 
 use dream_archive::luau::{ARCHIVE_KEY, Archive, Entries, Entry};
 use l3i::bind::Call;
-use l3i::convert::{Bits64, Integer, Push};
+use l3i::convert::{Bits64, Push};
 use l3i::extension::{Extension, ExtensionDescriptor, TagPolicy};
 use l3i::options::Options;
 use l3i::sequence::{Sequence, SequenceSource};
@@ -467,11 +462,6 @@ fn format_name(format: ArchiveFormat) -> &'static str {
         ArchiveFormat::Tes4 => "bsaTes4",
         ArchiveFormat::Ba2 => "ba2",
     }
-}
-
-/// A byte count as a Luau integer (a size is an exact 64-bit quantity).
-fn size(value: u64) -> Integer {
-    Integer(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
 /// A count as an exact Luau number.
@@ -1028,10 +1018,10 @@ fn state_fields(
     print: Option<&str>,
 ) -> Result<()> {
     if let Some(value) = size_ {
-        table.set(scope, "size", &size(value))?;
+        table.set(scope, "size", &value)?;
     }
     if let Some(value) = compressed {
-        table.set(scope, "compressedSize", &size(value))?;
+        table.set(scope, "compressedSize", &value)?;
     }
     if let Some(value) = fingerprint(print) {
         table.set(scope, "payloadFingerprint", &value)?;
@@ -1124,7 +1114,7 @@ fn archive_plan_rows_table(scope: &impl Scope, rows: &[ArchivePlanEntry]) -> Res
         t.set(f, "path", &row.path)?;
         t.set(f, "pathBytesHex", &row.path_bytes_hex)?;
         if let Some(value) = row.size {
-            t.set(f, "size", &size(value))?;
+            t.set(f, "size", &value)?;
         }
         Ok(())
     })
@@ -1266,7 +1256,7 @@ fn describe_reports(d: &mut ExtensionDescriptor) {
             verify_table(call, &r.0)
         })
         .signature("(self): { [string]: any }")
-        .doc("The report as the nested table 0.2 returned (sizes and fingerprints as integers).");
+        .doc("The report as the nested table 0.2 returned (fingerprints as integers).");
     verify.metamethod("__tostring", |r: &VerifyReport| {
         format!(
             "dream.archivetool.VerifyReport({}, {} entries)",
@@ -1488,13 +1478,11 @@ fn describe_rows(d: &mut ExtensionDescriptor) {
         })
         .signature("string");
     entry
-        .getter("size", |e: &DiffEntry| e.row().size.map(size))
-        .signature("integer?");
+        .getter("size", |e: &DiffEntry| e.row().size)
+        .signature("number?");
     entry
-        .getter("compressedSize", |e: &DiffEntry| {
-            e.row().compressed_size.map(size)
-        })
-        .signature("integer?");
+        .getter("compressedSize", |e: &DiffEntry| e.row().compressed_size)
+        .signature("number?");
     entry
         .getter("payloadFingerprint", |e: &DiffEntry| {
             fingerprint(e.row().payload_fingerprint.as_deref())
@@ -1537,13 +1525,11 @@ fn describe_rows(d: &mut ExtensionDescriptor) {
         .tag(TagPolicy::Never)
         .doc("One side's metadata for a changed entry.");
     state
-        .getter("size", |s: &DiffState| s.state().size.map(size))
-        .signature("integer?");
+        .getter("size", |s: &DiffState| s.state().size)
+        .signature("number?");
     state
-        .getter("compressedSize", |s: &DiffState| {
-            s.state().compressed_size.map(size)
-        })
-        .signature("integer?");
+        .getter("compressedSize", |s: &DiffState| s.state().compressed_size)
+        .signature("number?");
     state
         .getter("payloadFingerprint", |s: &DiffState| {
             fingerprint(s.state().payload_fingerprint.as_deref())
@@ -1581,8 +1567,8 @@ fn describe_rows(d: &mut ExtensionDescriptor) {
         r.row().path_bytes_hex.clone()
     })
     .signature("string");
-    row.getter("size", |r: &ArchivePlanRow| r.row().size.map(size))
-        .signature("integer?");
+    row.getter("size", |r: &ArchivePlanRow| r.row().size)
+        .signature("number?");
 }
 
 /// The policy operations on `dream.archive.Archive`, running against the opened handle.

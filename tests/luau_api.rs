@@ -148,7 +148,7 @@ end
 local summary = archive:extractMany({ 'textures/a.dds', 'textures/b.dds' }, { overwrite = 'skip' })
 local n: number = summary.extracted + summary.skipped + report.fileCount + diff.unchanged + warnings + planned
 if firstIssue and change and row then
-    local size: integer? = change.old.size
+    local size: number? = change.old.size
     local fp: integer? = change.new.payloadFingerprint
     print(firstIssue.path, size, fp, row.action, row.target)
 end
@@ -280,13 +280,13 @@ fn archive_methods_verify_diff_and_plan() {
             assert(#diff.changed == 1 and #diff.added == 0 and #diff.removed == 0 and diff.unchanged == 0)
             local change = diff.changed[1]
             assert(change.path == "textures/example.dds" and #change.pathBytesHex == 40)
-            assert(change.old.size == 3i and change.new.size == 3i, "sizes are integers")
+            assert(change.old.size == 3 and change.new.size == 3, "sizes are numbers")
             assert(type(change.old.payloadFingerprint) == "integer", "fingerprints are integers")
             assert(change.old.payloadFingerprint ~= change.new.payloadFingerprint)
             assert(change.old.compressedSize == nil)
             for i, c in diff.changed do assert(i == 1 and c.path == change.path) end
             local d = diff:toTable()
-            assert(d.changed[1].old.size == 3i and type(d.changed[1].new.payloadFingerprint) == "integer")
+            assert(d.changed[1].old.size == 3 and type(d.changed[1].new.payloadFingerprint) == "integer")
             assert(d.old == old_path and d.new == new_path and #d.added == 0)
             assert(tostring(diff):find("dream.archivetool.DiffReport", 1, true))
 
@@ -511,10 +511,10 @@ fn create_and_add_use_option_tables_and_plans() {
             r"
             local plan = dreamArchivetool.planCreate(archive_path, input_path, { format = 'bsaTes3' })
             assert(plan.operation == 'create' and plan.format == 'bsaTes3' and plan.files == 1)
-            assert(plan.entries[1].action == 'add' and plan.entries[1].path == 'base.txt' and plan.entries[1].size == 4i)
+            assert(plan.entries[1].action == 'add' and plan.entries[1].path == 'base.txt' and plan.entries[1].size == 4)
             assert(plan.entries[1].source ~= nil and #plan.entries[1].pathBytesHex == 16)
             local t = plan:toTable()
-            assert(t.entries[1].size == 4i and t.files == 1 and t.output == archive_path)
+            assert(t.entries[1].size == 4 and t.files == 1 and t.output == archive_path)
             local created = dreamArchivetool.create(archive_path, input_path, { format = 'bsaTes3' })
             local addPlan = dreamArchivetool.planAdd(archive_path, { inputs = { added_path } })
             assert(addPlan.operation == 'add' and addPlan.added == 1 and addPlan.preserved == 1 and addPlan.files == 2)
@@ -685,7 +685,7 @@ fn tes4_info_uses_luau_spellings() {
 }
 
 #[test]
-fn wide_sizes_are_integers() {
+fn sizes_are_numbers_that_match_dream_archive() {
     let runtime = runtime(&[]);
     runtime
         .exec(
@@ -698,27 +698,21 @@ fn wide_sizes_are_integers() {
             other:addBytes('b.txt', 'added')
             local b = dreamArchive.openBytes(other:toBytes())
             local diff = a:diff(b)
-            assert(diff.changed[1].old.size == 70000i and diff.changed[1].new.size == 5i)
-            assert(diff.added[1].path == 'b.txt' and diff.added[1].size == 5i and diff.added[1].payloadFingerprint == nil)
+            assert(diff.changed[1].old.size == 70000 and diff.changed[1].new.size == 5)
+            assert(diff.added[1].path == 'b.txt' and diff.added[1].size == 5 and diff.added[1].payloadFingerprint == nil)
             assert(#diff.removed == 0)
             local t = diff:toTable()
-            assert(t.added[1].size == 5i and t.changed[1].old.size == 70000i)
+            assert(t.added[1].size == 5 and t.changed[1].old.size == 70000)
 
-            -- What the documentation promises about integer sizes, which are Luau 0.740 integers.
+            -- Sizes are plain numbers: arithmetic and ordering apply, and dream.archive's own
+            -- Entry.size, also a number, equals the report's size for the same file.
             local size = diff.added[1].size
-            assert(typeof(size) == 'integer' and tostring(size) == '5')
-            assert(size ~= 5, 'an integer never equals a number')
-            assert(not pcall(function() return size < 6i end), '< does not apply')
-            assert(not pcall(function() return size + 1i end), '+ does not apply')
-            assert(integer.lt(size, 6i) and integer.add(size, 1i) == 6i)
-            assert(integer.tonumber(size) + 1 == 6 and integer.create(5) == size)
-            -- dream.archive's own Entry.size is a number, so convert before comparing the two.
+            assert(typeof(size) == 'number' and size < 6 and size + 1 == 6)
             local entry
             for _, candidate in b:entries() do
                 if candidate.path == 'b.txt' then entry = candidate end
             end
-            assert(typeof(entry.size) == 'number' and entry.size ~= size)
-            assert(integer.create(entry.size) == size and entry.size == integer.tonumber(size))
+            assert(typeof(entry.size) == 'number' and entry.size == size)
             ",
         )
         .unwrap();

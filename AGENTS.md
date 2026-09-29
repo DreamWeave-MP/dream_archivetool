@@ -11,7 +11,7 @@
   are an augmentation of `dream.archive.Archive` (`ExtensionDescriptor::augment_userdata`), never a
   second wrapper type. Reports and plans are userdata over one `Rc` of the DTO with sequence views
   of row handles; `:toTable()` gives the old table shape. Never create a VM in library code, never
-  pick tags or atoms, keep every member `.signature(..)`d (sizes and fingerprints are `integer`,
+  pick tags or atoms, keep every member `.signature(..)`d (fingerprints are `integer`, sizes and
   counts `number`), and keep member names distinct from dream_archive's (a clash fails the plan).
 - `dream_archive` and `l3i` are path dependencies (`../dream_archive`, `../dream-binder`) during the
   migration campaign; the `luau-analysis` feature (`luau` plus `l3i/analysis`) turns on the
