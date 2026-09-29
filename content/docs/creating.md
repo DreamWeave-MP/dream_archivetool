@@ -179,6 +179,5 @@ you trust, and that will not change while the archive is being written.
 macOS flushes its folder afterwards, so the rename survives a power cut. Without it, the rename
 still happens in one step, and the system writes the data back when it pleases.
 
-On Linux and macOS the new archive is readable and writable by you alone (mode `0600`), because
-it starts as a private temporary file. That includes an archive `add` replaces in place: one that
-others could read before is yours alone after. `chmod` it back if that matters.
+On Linux and macOS a new archive gets the mode any new file gets, `0666` less your umask: `0644`
+under the usual umask `022`. An archive `add` replaces in place keeps the mode it had.

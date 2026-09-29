@@ -19,7 +19,7 @@ use crate::ArchiveFormat;
 pub use crate::archive_plan::{
     AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreatePlan,
 };
-use crate::host_file::parent_directory;
+use crate::host_file::{keep_permissions, parent_directory};
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path_bytes,
 };
@@ -70,7 +70,8 @@ impl Default for CreateOptions {
 pub struct AddOptions {
     /// Files or directories to add. Directory entries are stored relative to the directory root.
     pub inputs: Vec<PathBuf>,
-    /// Output archive path. When omitted, the source archive is replaced after a successful rewrite.
+    /// Output archive path. When omitted, the source archive is replaced after a successful rewrite,
+    /// and the new archive keeps the old one's permissions.
     pub output: Option<PathBuf>,
     /// Sync file contents and parent directory after writing the archive.
     pub fsync: bool,
@@ -212,6 +213,9 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
         options.fsync,
     )?;
     drop(archive);
+    if options.output.is_none() {
+        keep_permissions(&temp, archive_path)?;
+    }
     persist_temp_output(temp, output, options.fsync)?;
     Ok(count)
 }
@@ -1516,6 +1520,51 @@ mod tests {
         let entries = collect_input_entry_paths(&input, true).unwrap();
 
         assert!(entries.contains_key(b"linked.txt".as_slice()));
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn written_archives_get_the_default_mode_and_add_in_place_keeps_the_old_one() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = unique_dir("archive-modes");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.txt"), b"base").unwrap();
+        let reference = dir.join("reference");
+        fs::write(&reference, b"").unwrap();
+        let archive = dir.join("base.bsa");
+        create_archive(&archive, &input, &CreateOptions::default()).unwrap();
+        assert_eq!(mode(&archive), mode(&reference));
+
+        let added = dir.join("added.txt");
+        fs::write(&added, b"added").unwrap();
+        let output = dir.join("updated.bsa");
+        let options = AddOptions {
+            inputs: vec![added],
+            output: Some(output.clone()),
+            ..AddOptions::default()
+        };
+        add_to_archive(&archive, &options).unwrap();
+        assert_eq!(mode(&output), mode(&reference));
+
+        fs::set_permissions(&archive, fs::Permissions::from_mode(0o640)).unwrap();
+        add_to_archive(
+            &archive,
+            &AddOptions {
+                output: None,
+                ..options
+            },
+        )
+        .unwrap();
+        assert_eq!(mode(&archive), 0o640);
         fs::remove_dir_all(dir).unwrap();
     }
 

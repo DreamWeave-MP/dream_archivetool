@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
-use crate::host_file::parent_directory;
+use crate::host_file::{output_temp_file, parent_directory};
 use crate::paths::{flat_target_path_normalized, safe_target_path_normalized};
 use crate::{ArchiveError, Result};
 
@@ -600,7 +600,7 @@ fn write_target_with_parent_mode(
     if create_parent {
         fs::create_dir_all(parent)?;
     }
-    let mut temp = NamedTempFile::new_in(parent)?;
+    let mut temp = output_temp_file(parent)?;
     write(temp.as_file_mut())?;
     if fsync {
         temp.as_file_mut().sync_all()?;
@@ -1132,6 +1132,45 @@ mod tests {
             fs::read(output.join("textures/example.dds")).unwrap(),
             b"payload"
         );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracted_files_get_the_default_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+        let dir = unique_dir("extract-modes");
+        fs::create_dir_all(&dir).unwrap();
+        let reference = dir.join("reference");
+        fs::write(&reference, b"").unwrap();
+        let archive_path = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive_path);
+        let output = dir.join("out");
+
+        extract_all(
+            &archive_path,
+            &ExtractAllOptions {
+                output: Some(output.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        extract_entry(
+            &archive_path,
+            "textures/a.dds",
+            &ExtractOptions {
+                output: Some(output.clone()),
+                preserve_paths: false,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(mode(&output.join("textures/a.dds")), mode(&reference));
+        assert_eq!(mode(&output.join("meshes/b.nif")), mode(&reference));
+        assert_eq!(mode(&output.join("a.dds")), mode(&reference));
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -136,9 +136,9 @@ folders are created first. `--fsync` then flushes the file, and on Linux and mac
 created or changed, so the result survives a power cut; without it, the system writes them back
 when it pleases, which is faster.
 
-On Linux and macOS every extracted file is readable and writable by you alone (mode `0600`),
-whatever your umask: it starts life as a private temporary file and keeps that mode. Run
-`chmod -R a+r` on the output if other users or a server need to read it.
+On Linux and macOS every extracted file gets the mode any new file gets, `0666` less your umask:
+`0644` under the usual umask `022`. A file that replaces an existing one under `--overwrite` gets
+that mode too, not the old file's.
 
 ## What the checks do not do
 
