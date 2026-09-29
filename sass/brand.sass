@@ -18,3 +18,37 @@
 @media (max-width: 760px)
   .dw-hero__figure
     width: min(60%, 12rem)
+
+// The hero's art is static/js/archivetool-hero.js: extract-all staged as a machine, drawn live. It
+// takes the icon's place: once the script runs the icon steps aside, and a still of the machine
+// stands in until the first frame, or for good without WebGL. Without JavaScript the icon stays.
+.dw-hero--art.dat-hero-on .dw-hero__figure
+  display: none
+
+.dw-hero__art
+  > .dat-hero__canvas
+    opacity: 0
+    transition: opacity .6s var(--dw-ease)
+
+  > .dat-hero__still
+    position: absolute
+    width: auto
+    height: auto
+    object-fit: contain
+    opacity: 0
+    transition: opacity .6s var(--dw-ease)
+    pointer-events: none
+
+  &.is-placed > .dat-hero__still
+    opacity: 1
+
+  &.is-live > .dat-hero__canvas
+    opacity: 1
+
+  &.is-live > .dat-hero__still
+    opacity: 0
+
+// Where the text takes the full width, the machine stands above it.
+@media (max-width: 1000px)
+  .dw-hero--art.dat-hero-on .dw-hero__text
+    padding-top: clamp(10.5rem, 50vw, 17rem)
