@@ -115,16 +115,33 @@ local tool = require('@dream/archivetool')
 local archive = dreamArchive.openPath('a.bsa')
 local other = dreamArchive.openPath('b.bsa')
 local report = archive:verify({ readPayloads = true })
-local issues = report.duplicateNormalizedPaths:toTable()
-local firstIssue: dream_archivetool_PathIssue? = issues[1]
+-- Every view declares its element type: `#`, `[i]`, and `for` type check without `:toTable()`.
+local firstIssue: dream_archivetool_PathIssue? = report.duplicateNormalizedPaths[1]
+local warnings: number = #report.warnings
+for _, warning in report.warnings do
+    local text: string = warning
+    warnings += #text
+end
+for _, unsafe in report.unsafePaths do
+    local path: string = unsafe.path
+    warnings += #path
+end
 local diff = archive:diff(other, { fingerprintPayloads = true })
-local changes = diff.changed:toTable()
-local change: dream_archivetool_DiffChange? = changes[1]
+local change: dream_archivetool_DiffChange? = diff.changed[1]
+for i, added in diff.added do
+    local position: number = i
+    local path: string = added.path
+    warnings += position + #path
+end
 local plan = archive:planExtract(archive:entries(), { output = 'out', preservePaths = false })
-local rows = plan.entries:toTable()
-local row: dream_archivetool_ExtractPlanRow? = rows[1]
+local row: dream_archivetool_ExtractPlanRow? = plan.entries[1]
+local planned: number = #plan.entries + #diff.removed
+for _, planRow in plan.entries do
+    local action: string = planRow.action
+    planned += #action
+end
 local summary = archive:extractMany({ 'textures/a.dds', 'textures/b.dds' }, { overwrite = 'skip' })
-local n: number = summary.extracted + summary.skipped + report.fileCount + diff.unchanged
+local n: number = summary.extracted + summary.skipped + report.fileCount + diff.unchanged + warnings + planned
 if firstIssue and change and row then
     local size: integer? = change.old.size
     local fp: integer? = change.new.payloadFingerprint
@@ -133,8 +150,12 @@ end
 local info = tool.info('a.bsa')
 local created = tool.create('c.bsa', 'input', { format = 'tes3' })
 local addPlan = tool.planAdd('c.bsa', { inputs = { 'more' } })
-local addRows = addPlan.entries:toTable()
-local addRow: dream_archivetool_ArchivePlanRow? = addRows[1]
+local addRow: dream_archivetool_ArchivePlanRow? = addPlan.entries[1]
+for _, member in addPlan.entries do
+    local source: string? = member.source
+    local memberPath: string = member.path
+    n += #memberPath
+end
 local all = tool.planExtractAll('a.bsa', { output = 'out' })
 print(n, info.fileCount, created.files, addPlan.added, addRow, all.operation, archive:toolInfo().rewritable)
 print(plan:toTable(), diff:toTable(), report:toTable(), addPlan:toTable())

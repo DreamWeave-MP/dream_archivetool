@@ -1422,16 +1422,22 @@ fn describe_reports(d: &mut ExtensionDescriptor) {
 #[allow(clippy::too_many_lines)]
 fn describe_rows(d: &mut ExtensionDescriptor) {
     d.sequence::<PathIssues>("dream.archivetool.PathIssues")
+        .item_type("dream_archivetool_PathIssue")
         .tag(TagPolicy::Never);
     d.sequence::<Warnings>("dream.archivetool.Warnings")
+        .item_type("string")
         .tag(TagPolicy::Never);
     d.sequence::<DiffEntries>("dream.archivetool.DiffEntries")
+        .item_type("dream_archivetool_DiffEntry")
         .tag(TagPolicy::Never);
     d.sequence::<DiffChanges>("dream.archivetool.DiffChanges")
+        .item_type("dream_archivetool_DiffChange")
         .tag(TagPolicy::Never);
     d.sequence::<ExtractPlanRows>("dream.archivetool.ExtractPlanRows")
+        .item_type("dream_archivetool_ExtractPlanRow")
         .tag(TagPolicy::Never);
     d.sequence::<ArchivePlanRows>("dream.archivetool.ArchivePlanRows")
+        .item_type("dream_archivetool_ArchivePlanRow")
         .tag(TagPolicy::Never);
 
     let mut issue = d.userdata::<PathIssue>("dream.archivetool.PathIssue");
