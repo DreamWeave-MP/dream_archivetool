@@ -1509,6 +1509,11 @@ async function mount(root) {
 
   const canvas = document.createElement('canvas');
   canvas.className = 'dat-hero__canvas';
+  // Ask for WebGL 2 before three.js does, so a browser without it gets the still and no console noise.
+  if (!document.createElement('canvas').getContext('webgl2')) {
+    placeStill();
+    return;
+  }
   let renderer;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: false, powerPreference: 'high-performance' });
