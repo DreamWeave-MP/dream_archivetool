@@ -186,7 +186,6 @@ pub struct PathIssues {
 }
 
 /// One path issue row (`dream.archivetool.PathIssue`).
-#[derive(Clone)]
 pub struct PathIssue {
     report: Rc<crate::VerifyReport>,
     list: IssueList,
@@ -256,7 +255,6 @@ pub struct DiffEntries {
 }
 
 /// One added or removed entry (`dream.archivetool.DiffEntry`).
-#[derive(Clone)]
 pub struct DiffEntry {
     report: Rc<crate::DiffReport>,
     side: DiffSide,
@@ -297,7 +295,6 @@ impl SequenceSource for DiffEntries {
 pub struct DiffChanges(Rc<crate::DiffReport>);
 
 /// One changed entry (`dream.archivetool.DiffChange`) with its `old` and `new` states.
-#[derive(Clone)]
 pub struct DiffChange {
     report: Rc<crate::DiffReport>,
     index: usize,
@@ -344,7 +341,6 @@ impl SequenceSource for DiffChanges {
 pub struct ExtractPlanRows(Rc<crate::ExtractAllPlan>);
 
 /// One planned extraction (`dream.archivetool.ExtractPlanRow`).
-#[derive(Clone)]
 pub struct ExtractPlanRow {
     plan: Rc<crate::ExtractAllPlan>,
     index: usize,
@@ -392,7 +388,6 @@ impl ArchivePlan {
 pub struct ArchivePlanRows(ArchivePlan);
 
 /// One planned archive member (`dream.archivetool.ArchivePlanRow`).
-#[derive(Clone)]
 pub struct ArchivePlanRow {
     plan: ArchivePlan,
     index: usize,
