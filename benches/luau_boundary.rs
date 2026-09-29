@@ -11,6 +11,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use criterion::{Criterion, criterion_group, criterion_main};
+use dream_archivetool::luau::ArchivetoolExtension;
+use l3i::Runtime;
+use l3i::extension::{RuntimePlan, RuntimePolicy};
 use tempfile::TempDir;
 
 const PLAN_ENTRIES: usize = 2000;
@@ -98,23 +101,33 @@ fn luau_boundary(c: &mut Criterion) {
     write_archive(&archive, false);
     write_archive(&other, true);
 
-    let lua = mlua::Lua::new();
-    let module = dream_archivetool::lua::create_dream_archive_module(&lua).unwrap();
-    lua.globals().set("dreamArchive", module).unwrap();
-    dream_archivetool::lua::register(&lua).unwrap();
+    let plan = RuntimePlan::builder()
+        .policy(
+            RuntimePolicy::new()
+                .compat_global("@dream/archive", "dreamArchive")
+                .compat_global("@dream/archivetool", "dreamArchivetool"),
+        )
+        .extension(dream_archive::luau::ArchiveExtension)
+        .extension(ArchivetoolExtension)
+        .finalize()
+        .unwrap();
+    let runtime = Runtime::from_plan(&plan).unwrap();
     for (name, value) in [
         ("archivePath", &archive),
         ("otherPath", &other),
         ("out", &out),
     ] {
-        lua.globals()
-            .set(name, value.to_string_lossy().as_ref())
+        runtime
+            .set_global(name, value.to_string_lossy().as_ref())
             .unwrap();
     }
     let mut group = c.benchmark_group("archivetool");
     for (name, body) in SCRIPTS {
-        let function: mlua::Function = lua.load(chunk(body)).eval().unwrap();
-        group.bench_function(*name, |b| b.iter(|| function.call::<f64>(()).unwrap()));
+        let function = runtime.load_function(&chunk(body)).unwrap();
+        let stack = runtime.stack();
+        group.bench_function(*name, |b| {
+            b.iter(|| function.invoke::<f64, _>(&stack, ()).unwrap())
+        });
     }
     group.finish();
 }

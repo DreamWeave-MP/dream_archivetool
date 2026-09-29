@@ -203,7 +203,7 @@ impl LoadedArchive {
 }
 
 impl<'a> LoadedArchiveRef<'a> {
-    #[cfg(feature = "lua")]
+    #[cfg(feature = "luau")]
     pub(crate) fn from_archive(archive: &'a Archive) -> Self {
         Self { archive }
     }

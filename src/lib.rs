@@ -32,22 +32,11 @@
 //! the write. Paths are preflighted before handing file/archive-entry sources to `dream_archive`
 //! builders, including BA2 DX10 texture preservation where the backend can copy native chunks.
 //!
-//! Enable the `lua` feature to compile the Luau module for embedding applications that already
-//! choose an `mlua` runtime. This crate deliberately does not select a Lua runtime for normal
-//! library consumers.
+//! Enable the `luau` feature for the Luau bindings: an [l3i](https://github.com/DreamWeave-MP/l3i)
+//! extension (`dream.archivetool`, module `@dream/archivetool`) that requires `dream.archive`
+//! and adds the policy operations to `dream.archive.Archive` itself. The crate never creates
+//! a VM; see the [`luau`] module. `lua` is the old name of the same feature.
 //!
-//! Enable `standalone-lua` only for this crate's tests, examples, and documentation builds. It
-//! selects `mlua`'s Luau backend, which is useful here and rude everywhere else. Since 0.2.0 the
-//! bindings target Luau instead of `LuaJIT`, and every Lua-facing name is camelCase.
-//!
-#![cfg_attr(
-    feature = "standalone-lua",
-    doc = "With `standalone-lua` enabled, see the [`lua`] module for the embedded Luau table API."
-)]
-#![cfg_attr(
-    all(feature = "lua", not(feature = "standalone-lua")),
-    doc = "With `lua` enabled, see the [`lua`] module. The embedding application must provide the `mlua` runtime feature."
-)]
 
 pub mod archive;
 mod archive_plan;
@@ -63,8 +52,8 @@ mod paths;
 mod rewrite_policy;
 pub mod verify;
 
-#[cfg(feature = "lua")]
-pub mod lua;
+#[cfg(feature = "luau")]
+pub mod luau;
 
 pub use dream_archive;
 
