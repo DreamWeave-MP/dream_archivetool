@@ -10,13 +10,17 @@ on:
 jobs:
   build:
     permissions:
+      actions: write
       contents: write
       pages: write
       id-token: write
-    uses: DreamWeave-MP/StroggForge/.github/workflows/rustGlobalBuild.yml@v42
+    uses: DreamWeave-MP/StroggForge/.github/workflows/rustGlobalBuild.yml@v51
     secrets: inherit
     with:
       binary_names: '["dream_archivetool"]'
       generate_benchmarks: true
       enable_android: true
       enable_portmaster: true
+      # StroggForge records each release in content/home/mod.lock and deploys the documentation
+      # site in content/, in place of rustdoc Pages.
+      mod_template: true
