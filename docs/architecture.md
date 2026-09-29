@@ -8,7 +8,7 @@
 - `dream_archive` owns BSA/BA2 parsing, writing, entry lookup, payload extraction, and lower-level Luau archive userdata.
 - `dream_archivetool` owns policy: safe extraction targets, JSON/CLI/Luau DTOs, create/add planning, rewrite blockers, symlink policy, temp-output replacement, and durability options.
 - `src/cli` owns argument parsing and presentation only. It should translate command-line options into library option structs, then get out of the way.
-- `src/lua.rs` owns Luau embedding ergonomics and converts between Luau values and the same library policy APIs used by the CLI.
+- `src/luau.rs` owns Luau embedding ergonomics and converts between Luau values and the same library policy APIs used by the CLI.
 
 If a change needs to understand archive record layout, it probably belongs in `dream_archive`. If a change decides whether writing to the host filesystem is safe or user-friendly, it belongs here.
 
@@ -69,6 +69,6 @@ Before changing public behavior, check:
 - Rust public DTO fields and serde names.
 - Archive rewrite blockers and unsupported-format diagnostics.
 - `path_bytes_hex` / `pathBytesHex` normalized lookup semantics.
-- Feature matrix: default CLI, no-default library, standalone Luau tests/docs, and all-feature clippy.
+- Feature matrix: default CLI, no-default library, the `luau` and `luau-analysis` tests, and all-feature clippy.
 
 The fixed limit is ugly, but it is at least a number. Replacing explicit contracts with vague convenience is how tools start corrupting user data politely.
