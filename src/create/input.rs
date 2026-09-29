@@ -51,10 +51,7 @@ fn reject_symlink(path: &Path, follow_symlinks: bool) -> Result<()> {
         return Ok(());
     }
     if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(ArchiveError::Archive(format!(
-            "refusing to follow symlink input path: {}; pass follow_symlinks to opt in",
-            path.display()
-        )));
+        return Err(ArchiveError::SymlinkInput(path.display().to_string()));
     }
     Ok(())
 }

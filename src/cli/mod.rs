@@ -7,8 +7,9 @@ use std::path::PathBuf;
 
 use clap::{CommandFactory, Parser};
 use dream_archivetool::{
-    AddOptions, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version, CreateOptions, DiffOptions,
-    ExtractAllOptions, ExtractOptions, OverwriteMode, Result, Tes4Version, VerifyOptions,
+    AddOptions, ArchiveError, ArchiveFormat, ArchiveTool, Ba2ArchiveKind, Ba2Version,
+    CreateOptions, DiffOptions, ExtractAllOptions, ExtractOptions, OverwriteMode, Result,
+    Tes4Version, VerifyOptions,
 };
 
 mod args;
@@ -17,6 +18,16 @@ use args::{Cli, CliArchiveFormat, CliBa2ArchiveKind, CliBa2Version, CliTes4Versi
 
 pub(crate) fn run_from_env(stdout: &mut dyn Write) -> Result<()> {
     run(Cli::parse(), stdout)
+}
+
+/// An error in the command line's words: the library names its options by their Rust fields.
+pub(crate) fn error_message(err: &ArchiveError) -> String {
+    match err {
+        ArchiveError::SymlinkInput(path) => format!(
+            "refusing to follow symlink input path: {path}; pass --follow-symlinks to opt in"
+        ),
+        err => err.to_string(),
+    }
 }
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
@@ -228,6 +239,7 @@ fn create_options(
     let format = ArchiveFormat::from(format);
     match format {
         ArchiveFormat::Tes3 => {
+            reject_irrelevant_create_option("--compress", compress, format)?;
             reject_irrelevant_create_option("--tes4-version", tes4_version.is_some(), format)?;
             reject_irrelevant_create_option("--ba2-kind", ba2_kind.is_some(), format)?;
             reject_irrelevant_create_option("--ba2-version", ba2_version.is_some(), format)?;

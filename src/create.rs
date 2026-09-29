@@ -171,7 +171,7 @@ pub fn plan_create_archive(
 fn reject_unsupported_create_options(options: &CreateOptions) -> Result<()> {
     if options.format == ArchiveFormat::Tes3 && options.compress {
         return Err(ArchiveError::Archive(
-            "--compress is not valid with TES3 BSA archives".to_string(),
+            "compress is not valid with TES3 BSA archives".to_string(),
         ));
     }
     if options.format == ArchiveFormat::Ba2 && options.ba2_kind == Ba2ArchiveKind::Gnmf {
@@ -1026,7 +1026,10 @@ mod tests {
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("--compress"));
+        assert_eq!(
+            err.to_string(),
+            "archive error: compress is not valid with TES3 BSA archives"
+        );
         assert!(!archive.exists());
         fs::remove_dir_all(dir).unwrap();
     }
@@ -1634,7 +1637,9 @@ mod tests {
 
         let err = collect_input_entry_paths(&input, false).unwrap_err();
 
+        assert!(matches!(err, ArchiveError::SymlinkInput(_)), "{err}");
         assert!(err.to_string().contains("refusing to follow symlink"));
+        assert!(err.to_string().contains("set follow_symlinks"));
         fs::remove_dir_all(dir).unwrap();
     }
 

@@ -13,7 +13,7 @@ fn main() -> ExitCode {
         // The reader went away, as `| head` does: the output is no longer wanted.
         Err(ArchiveError::Io(err)) if err.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("ERROR: {err}");
+            eprintln!("ERROR: {}", cli::error_message(&err));
             ExitCode::from(1)
         }
     }

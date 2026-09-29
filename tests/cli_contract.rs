@@ -234,3 +234,44 @@ fn a_closed_stdout_ends_the_program_quietly() {
         );
     }
 }
+
+#[test]
+fn errors_name_the_command_line_options() {
+    let dir = TempDir::new().unwrap();
+    let input = dir.path().join("input");
+    std::fs::create_dir_all(&input).unwrap();
+    std::fs::write(input.join("readme.txt"), b"payload").unwrap();
+    let archive = dir.path().join("out.bsa");
+    let (archive, input_path) = (archive.to_str().unwrap(), input.to_str().unwrap());
+
+    let output = run(&[
+        "create",
+        archive,
+        input_path,
+        "--format",
+        "tes3",
+        "--compress",
+    ]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "ERROR: archive error: --compress is not valid with --format tes3\n"
+    );
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(input.join("readme.txt"), input.join("link.txt")).unwrap();
+        let output = run(&["create", archive, input_path, "--format", "tes3"]);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(
+            stderr.contains("refusing to follow symlink input path"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("pass --follow-symlinks to opt in"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains("follow_symlinks"), "{stderr}");
+    }
+}

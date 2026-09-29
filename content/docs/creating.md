@@ -167,7 +167,7 @@ changes nothing: a plan is always JSON.
 A symbolic link among the inputs, or an input that is one, is refused by default:
 
 ```text
-ERROR: archive error: refusing to follow symlink input path: Links/link.txt; pass follow_symlinks to opt in
+ERROR: refusing to follow symlink input path: Links/link.txt; pass --follow-symlinks to opt in
 ```
 
 `--follow-symlinks` packs what each link points to, under the link's name. Use it only on a tree

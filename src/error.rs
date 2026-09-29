@@ -20,6 +20,9 @@ pub enum ArchiveError {
     /// An archive or filesystem path was rejected as unsafe.
     #[error("unsafe archive path: {0}")]
     UnsafePath(String),
+    /// An input to `create` or `add` is a symbolic link, and `follow_symlinks` is off.
+    #[error("refusing to follow symlink input path: {0}; set follow_symlinks to opt in")]
+    SymlinkInput(String),
     /// Extraction would overwrite an existing target while overwrite mode is `Fail`.
     #[error("target already exists: {0}")]
     TargetExists(String),

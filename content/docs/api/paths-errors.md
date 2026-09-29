@@ -58,12 +58,14 @@ Every error the crate returns. `Debug`, `Display`, `std::error::Error`, and `Fro
 | `UnknownFormat` | `unsupported or unrecognized archive format` | `guess_format` found no BSA or BA2 header |
 | `EntryNotFound(String)` | `archive entry not found: <name>` | No entry has that normalized name |
 | `UnsafePath(String)` | `unsafe archive path: <name>` | A name extraction or packing refuses |
+| `SymlinkInput(String)` | `refusing to follow symlink input path: <path>; set follow_symlinks to opt in` | An input to `create` or `add` is a symbolic link, and `follow_symlinks` is off |
 | `TargetExists(String)` | `target already exists: <path>` | A target exists under `OverwriteMode::Fail` |
 | `Io(io::Error)` | `I/O error: <error>` | Reading or writing a file failed |
 | `Archive(String)` | `archive error: <message>` | Everything else: an archive that cannot be opened or parsed, a refused rewrite or option, a duplicate name, dream_archive's own errors |
 
 `Archive` carries a message rather than a structured cause; its text is what the command line
-prints after `ERROR:`.
+prints after `ERROR:`. The command line and Luau word `SymlinkInput` with their own option,
+`--follow-symlinks` or `followSymlinks`.
 
 {{ api_signature(value="type Result<T> = std::result::Result<T, ArchiveError>") }}
 

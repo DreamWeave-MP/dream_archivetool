@@ -587,6 +587,34 @@ fn reports_invalid_and_unknown_options() {
 }
 
 #[test]
+fn errors_name_the_luau_options() {
+    let dir = unique_dir("luau-option-names");
+    let input = dir.join("input");
+    write_input_tree(&input);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(input.join("textures/example.dds"), input.join("link.dds")).unwrap();
+    let archive = dir.join("out.bsa");
+    let runtime = runtime(&[("input_path", &input), ("archive_path", &archive)]);
+    runtime
+        .exec(&format!(
+            r"
+            {FAILS_WITH}
+            fails_with('compress is not valid with format bsaTes3', dreamArchivetool.create, archive_path, input_path, {{ format = 'bsaTes3', compress = true }})
+            fails_with('compress is not valid with format bsaTes3', dreamArchivetool.planCreate, archive_path, input_path, {{ compress = true }})
+            local ok, err = pcall(dreamArchivetool.create, archive_path, input_path, {{ format = 'tes3' }})
+            if not ok then
+                assert(string.find(err, 'set followSymlinks to opt in', 1, true), err)
+                assert(not string.find(err, 'follow_symlinks', 1, true), err)
+            end
+            ",
+        ))
+        .unwrap();
+    #[cfg(unix)]
+    assert!(!archive.exists());
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn hash_only_entries_are_refused_as_extraction_targets() {
     let dir = unique_dir("hash-only");
     let output = dir.join("out");

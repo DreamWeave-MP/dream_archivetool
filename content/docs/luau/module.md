@@ -135,7 +135,9 @@ Packs the folder or file `input` into a new archive at `output`, as
 | `followSymlinks` | `false` | Pack what symbolic links point to, instead of refusing them |
 
 Unlike the command line, `format` has a default. An option that belongs to another format is an
-error, as `ba2Kind is not valid with format bsaTes3`.
+error, as `ba2Kind is not valid with format bsaTes3`, and so is `compress` with TES3. A symbolic
+link among the inputs is refused with `refusing to follow symlink input path: <path>; set
+followSymlinks to opt in`.
 
 {{ api_signature(value="add(archive: string, options: AddOptions) -> { files: number }") }}
 
@@ -161,7 +163,7 @@ the function:
 | An unknown option | `extract: unknown option 'overwirte'; known options are fsync, output, overwrite, preservePaths` |
 | An option of the wrong type | `extract.output: expected string, got number` |
 | An unknown value | `extract.overwrite: unknown overwrite mode: explode` |
-| An option for another format | `ba2Kind is not valid with format bsaTes3` |
+| An option for another format | `ba2Kind is not valid with format bsaTes3`, `compress is not valid with format bsaTes3` |
 | A bad `pathBytesHex` | `extractByPathHex: invalid pathBytesHex: archive error: archive path hex contains a non-hexadecimal digit` |
 | An entries array with holes | `planExtract.entries must be a dense 1-based array` |
 | A wrong entry | `extractMany.entries[1]: expected an archive path or an entry handle, got number` |

@@ -444,8 +444,14 @@ unsafe impl Userdata for ArchivePlanRow {
 // Value helpers
 // ---------------------------------------------------------------------------------------------
 
-fn tool_error(error: impl std::fmt::Display) -> Error {
-    Error::runtime(error.to_string())
+/// A tool error in Luau's words: the library names its options by their Rust fields.
+fn tool_error(error: crate::ArchiveError) -> Error {
+    match error {
+        crate::ArchiveError::SymlinkInput(path) => Error::runtime(format!(
+            "refusing to follow symlink input path: {path}; set followSymlinks to opt in"
+        )),
+        error => Error::runtime(error.to_string()),
+    }
 }
 
 fn format_name(format: ArchiveFormat) -> &'static str {
@@ -716,6 +722,7 @@ fn create_options(
         let tes4_version = optional_enum(o, "tes4Version", tes4_version)?;
         let ba2_kind = optional_enum(o, "ba2Kind", ba2_kind)?;
         let ba2_version = optional_enum(o, "ba2Version", ba2_version)?;
+        let compress = o.or("compress", false)?;
         let irrelevant = |option: &str, supplied: bool| {
             if supplied {
                 Err(Error::runtime(format!(
@@ -728,6 +735,7 @@ fn create_options(
         };
         match format {
             ArchiveFormat::Tes3 => {
+                irrelevant("compress", compress)?;
                 irrelevant("tes4Version", tes4_version.is_some())?;
                 irrelevant("ba2Kind", ba2_kind.is_some())?;
                 irrelevant("ba2Version", ba2_version.is_some())?;
@@ -743,7 +751,7 @@ fn create_options(
             tes4_version: tes4_version.transpose()?.unwrap_or(Tes4Version::Oblivion),
             ba2_kind: ba2_kind.transpose()?.unwrap_or(Ba2ArchiveKind::Gnrl),
             ba2_version: ba2_version.transpose()?.unwrap_or(Ba2Version::Fallout4),
-            compress: o.or("compress", false)?,
+            compress,
             fsync: o.or("fsync", false)?,
             follow_symlinks: o.or("followSymlinks", false)?,
         })

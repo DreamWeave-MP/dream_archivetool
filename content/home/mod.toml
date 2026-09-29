@@ -155,8 +155,10 @@ fixed = [
     "`add` to a compressed BA2 keeps it compressed: each kept file stays compressed or stored as it was, and new files and textures are compressed when anything in the archive is. Before, an update of a general BA2 stored every file uncompressed, kept ones included, and an update of a zlib texture BA2 stored the new textures uncompressed.",
     "`verify` reports each of `unsafe_paths` (Luau `unsafePaths`) by its normalized key, as `list` and the duplicate rows do, with the stored bytes in `raw_path_bytes_hex`. Before, `path` and `path_bytes_hex` there were the stored bytes, backslashes and case included.",
     "Output piped into a program that stops reading early, such as `head`, ends quietly with exit code 0. Before, it ended with `ERROR: I/O error: Broken pipe` (`archive error:` for JSON and `extract --stdout`) and exit code 1, and `--generate-completion` panicked.",
+    "Errors name the options of the interface in use. A symbolic link among the inputs says `pass --follow-symlinks to opt in` on the command line and `set followSymlinks to opt in` in Luau, where both said Rust's `follow_symlinks`. `compress` with TES3 is `--compress is not valid with --format tes3` on the command line, `compress is not valid with format bsaTes3` in Luau and `compress is not valid with TES3 BSA archives` from Rust, where all three said `--compress`.",
 ]
 changed = [
+    "An input that is a symbolic link while `follow_symlinks` is off fails with the new `ArchiveError::SymlinkInput`, which Rust code can match, instead of an `ArchiveError::Archive` message.",
     "`verify` and extraction plans no longer copy every entry path into a set to find duplicates.",
     "Built on dream_archive 1.0.0.",
 ]
