@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-//! The `dream.archivetool` extension composed with `dream.archive`: the plan's types check,
-//! a strict script requiring both modules type checks, the augmentation puts the policy
-//! methods on `dream.archive.Archive`, and the behaviour contracts ported from the mlua
-//! bindings hold.
+//! The `dream.archivetool` extension composed with `dream.archive`: the plan's types check
+//! and a strict script requiring both modules type checks (under the `luau-analysis`
+//! feature), the augmentation puts the policy methods on `dream.archive.Archive`, and the
+//! behaviour contracts ported from the mlua bindings hold.
 
+#[cfg(feature = "luau-analysis")]
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,6 +15,7 @@ use dream_archive::luau::{ARCHIVE_KEY, ArchiveExtension};
 use dream_archivetool::luau::ArchivetoolExtension;
 use dream_archivetool::{ArchiveFormat, ArchiveTool, CreateOptions};
 use l3i::Runtime;
+#[cfg(feature = "luau-analysis")]
 use l3i::analysis::{Mode, ModuleConfig, SourceCode, SourceProvider};
 use l3i::extension::{RuntimePlan, RuntimePolicy};
 
@@ -89,8 +91,10 @@ const FAILS_WITH: &str = r"
     end
 ";
 
+#[cfg(feature = "luau-analysis")]
 struct Scripts(HashMap<&'static str, &'static str>);
 
+#[cfg(feature = "luau-analysis")]
 impl SourceProvider for Scripts {
     fn read_source(&self, name: &str) -> Option<SourceCode> {
         self.0.get(name).map(|text| SourceCode {
@@ -109,6 +113,7 @@ impl SourceProvider for Scripts {
     }
 }
 
+#[cfg(feature = "luau-analysis")]
 const STRICT_SCRIPT: &str = "--!strict
 local dreamArchive = require('@dream/archive')
 local tool = require('@dream/archivetool')
@@ -162,9 +167,8 @@ print(plan:toTable(), diff:toTable(), report:toTable(), addPlan:toTable())
 ";
 
 #[test]
-fn the_composition_type_checks_and_augments_the_archive_type() {
+fn the_composition_augments_the_archive_type() {
     let plan = plan();
-    plan.check_definitions().unwrap();
     assert_eq!(
         plan.installation_order(),
         ["dream.archive", "dream.archivetool", "dream.net"]
@@ -218,6 +222,14 @@ fn the_composition_type_checks_and_augments_the_archive_type() {
             "{fallback:?} in:\n{definitions}"
         );
     }
+}
+
+#[cfg(feature = "luau-analysis")]
+#[test]
+fn the_definitions_and_the_strict_script_type_check() {
+    let plan = plan();
+    plan.check_definitions().unwrap();
+    let definitions = plan.type_definitions();
     let options = l3i::analysis::AnalysisOptions {
         definitions: vec![l3i::analysis::Definitions {
             name: "dream.d.luau".to_owned(),

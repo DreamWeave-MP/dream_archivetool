@@ -14,7 +14,8 @@
   pick tags or atoms, keep every member `.signature(..)`d (sizes and fingerprints are `integer`,
   counts `number`), and keep member names distinct from dream_archive's (a clash fails the plan).
 - `dream_archive` and `l3i` are path dependencies (`../dream_archive`, `../dream-binder`) during the
-  migration campaign; the dev-dependency turns on l3i's `analysis` feature for the definitions gate.
+  migration campaign; the `luau-analysis` feature (`luau` plus `l3i/analysis`) turns on the
+  definitions gate for the typed tests, since Cargo has no optional dev-dependencies.
 - `.cargo/config.toml` is l3i's toolchain policy (clang++, lld, cross-language thin LTO); copy it
   from l3i verbatim when it changes. Build inside the toolchain that has clang
   (`toolbox run -c l3i-tools44 ...` on the maintainer's machine).
@@ -26,8 +27,9 @@
   - `cargo test --all-features`
   - `cargo clippy --all-targets --all-features -- -W clippy::pedantic -D warnings`
   - `cargo doc --no-deps --all-features`
-- The Luau surface is `cargo test --features luau --test luau_api`; the CLI contract is
-  `cargo test --test cli_contract`.
+- The Luau surface is `cargo test --features luau --test luau_api` (behaviour) or
+  `--features luau-analysis` (plus the definitions gate and the strict script); the CLI contract
+  is `cargo test --test cli_contract`.
 - Benches: `cargo bench --bench archive_ops` (Rust policy operations) and
   `cargo bench --bench luau_boundary --features luau` (frozen Luau scripts; the README's
   before/after table). `cargo clean` after a bench session: the l3i release build is several

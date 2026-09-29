@@ -309,6 +309,7 @@ cargo test --workspace
 cargo test --workspace --all-features
 cargo test --workspace --no-default-features
 cargo test --workspace --no-default-features --features luau
+cargo test --features luau-analysis --test luau_api
 cargo check --no-default-features
 cargo clippy --workspace --all-targets --all-features -- -W clippy::pedantic -D warnings
 cargo build --release
@@ -318,7 +319,9 @@ cargo bench --bench luau_boundary --features luau
 ```
 
 The `luau` feature builds l3i, which needs clang++, lld, and the cross-language LTO flags in
-`.cargo/config.toml` (copied from l3i).
+`.cargo/config.toml` (copied from l3i). The `luau-analysis` feature (`luau` plus `l3i/analysis`)
+adds the definitions gate and the strict script to the Luau tests; `--all-features` includes it,
+and plain `--features luau` never builds the analysis frontend.
 
 Use `cargo bench --bench archive_ops` to profile generated synthetic archives for listing, single-entry lookup, opened-archive reads, whole-archive extraction, skip-existing extraction, large-payload streaming, many-entry scans, creation, update, verify, and diff paths. The bench binary installs a tracking allocator and prints peak allocator deltas for one representative run of each operation before Criterion times it. Those numbers are not a replacement for OS-level RSS measurements, but they catch surprise heap growth inside the policy layer. On Linux, `/usr/bin/time -v cargo bench --bench archive_ops` is still useful for checking peak resident memory while tuning large archive operations.
 

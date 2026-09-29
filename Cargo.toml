@@ -29,13 +29,17 @@ cli = ["dep:clap", "dep:clap_complete", "dep:clap_mangen", "dep:serde_json"]
 # The l3i extension (`dream_archivetool::luau`); `lua` is the old name of the same feature.
 luau = ["dep:l3i", "dream_archive/luau"]
 lua = ["luau"]
+# The definitions gate (`RuntimePlan::check_definitions`, l3i feature `analysis`) for the typed
+# tests: `cargo test --features luau-analysis --test luau_api`. Cargo has no optional
+# dev-dependencies, so this keeps plain `cargo test --features luau` from building Luau's
+# analysis frontend.
+luau-analysis = ["luau", "l3i/analysis"]
 
 [package.metadata.docs.rs]
 features = ["luau"]
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false }
-l3i = { path = "../dream-binder", features = ["analysis"] }
 
 [[bench]]
 name = "archive_ops"
