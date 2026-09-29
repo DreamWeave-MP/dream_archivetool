@@ -1,0 +1,165 @@
+# dream_archivetool. Structured facts only: the name and summary are `title` and `description` in
+# index.md. Every key is explained at
+# https://dreamweave-mp.github.io/DreamWeave-Mod-Template/guide/mod-toml/
+
+# Permanent identity. Never changes, whatever the program is called or wherever it is hosted.
+id = "e33a86c1-bc17-4f55-a72b-1ded0e58523b"
+
+# The slug names the project on this site. Release tags are bare versions, like Cargo's: 1.0.0.
+slug = "dream_archivetool"
+type = "tool"
+status = "active"
+license = "GPL-3.0-or-later"
+
+[[maintainers]]
+name = "DreamWeave"
+url = "https://github.com/DreamWeave-MP"
+
+[links]
+documentation = "@/docs/_index.md"
+donate = "https://ko-fi.com/magicaldave"
+
+# A program: StroggForge's Rust workflow (.github/workflows/build.yml) builds it once per
+# [[platforms]] entry and publishes each release. It is also on crates.io, so the page offers
+# cargo install.
+[package]
+format = "binary"
+binary = "dream_archivetool"
+crate = "dream_archivetool"
+
+[[platforms]]
+os = "windows"
+arch = "x86_64"
+
+[[platforms]]
+os = "macos"
+arch = "aarch64"
+
+[[platforms]]
+os = "macos"
+arch = "x86_64"
+
+[[platforms]]
+os = "linux"
+arch = "x86_64"
+
+# The command line for a terminal such as Termux, not an app.
+[[platforms]]
+os = "android"
+arch = "aarch64"
+
+# The same command line for ARM64 Linux handhelds.
+[[platforms]]
+os = "linux"
+arch = "aarch64"
+variant = "portmaster"
+
+[install]
+notes = """
+Unzip the archive anywhere and run `dream_archivetool` from a terminal. It is one program with no
+installer and no settings; `dream_archivetool --help` lists its commands.
+
+[Start here](@/docs/start-here.md) walks through inspecting, extracting and building an archive.
+"""
+post_install = """
+`dream_archivetool --generate-completion bash` prints tab completion for your shell, and
+`--generate-manpage` a manual page. [Command line](@/docs/cli.md#completions-and-the-manual-page)
+says where to put them.
+"""
+
+# The icon: crossed wrenches on the DreamWeave disc. It is the program's own art, shown in the
+# page's header.
+[[media]]
+file = "media/triad_tools.webp"
+alt = "Two crossed wrenches on the purple DreamWeave disc."
+featured = true
+
+# Every published version, oldest first. To release, add the next one here with the day you
+# publish it, set the same version in Cargo.toml, commit, and push its tag: git tag 1.0.0.
+# StroggForge builds and publishes it, then records it in mod.lock beside this file.
+
+[[releases]]
+version = "0.1.0"
+date = 2026-04-28
+summary = "First release: inspect, extract, create and update TES3 and TES4 BSAs and BA2s from the command line, a Rust library and Lua."
+added = [
+    "`info`, `list`, `verify` and `diff`, each with JSON for scripts: a display path beside `path_bytes_hex`, the normalized lookup key.",
+    "`extract` and `extract-all`, which refuse absolute paths, `..`, NUL bytes and colons before writing, and fail, overwrite or skip when a target exists. `extract --stdout` and `--entry-hex`.",
+    "`create` for TES3 and TES4 BSAs and GNRL and DX10 BA2s, and `add`, which rewrites an archive with new and replaced entries through a temporary file and refuses archives it cannot rewrite without loss.",
+    "`--dry-run` plans for `extract-all`, `create` and `add`; `--fsync`; `--follow-symlinks`; shell completions and a manual page.",
+    "The library, `ArchiveTool` and `OpenArchive`, with the command line behind the default `cli` feature, and Lua bindings through `mlua` and LuaJIT behind the `lua` feature.",
+    "Builds for Windows, Linux, and macOS on Apple silicon and Intel.",
+]
+
+[[releases]]
+version = "0.1.1"
+date = 2026-05-28
+summary = "`create --compress`, and builds for Android and PortMaster handhelds."
+added = [
+    "`create --compress` writes compressed TES4 BSAs and BA2s; `--compress` with `--format tes3` is an error.",
+    "Command-line builds for Android on ARM64 and for PortMaster handhelds.",
+]
+breaking = [
+    "`CreateOptions` has a `compress` field: Rust code that builds it without `..Default::default()` must set it.",
+]
+
+[[releases]]
+version = "0.2.0"
+date = 2026-09-26
+summary = "The Lua bindings run on Luau, and every Lua name is camelCase."
+breaking = [
+    "The `lua` feature targets Luau through `mlua` 0.12 instead of LuaJIT, and `standalone-lua` builds `mlua`'s Luau.",
+    "Every Lua name is camelCase: functions, methods, option keys, report fields and string values (`extractMany`, `archive:toolInfo`, `preservePaths`, `pathBytesHex`, `\"bsaTes4\"`, `\"skyrimSe\"`, `\"metadataOnly\"`). The conventional global is `dreamArchivetool`.",
+    "Rust 1.88 or newer.",
+]
+changed = ["Built on dream_archive 0.2.2, with dependencies updated, `clap_mangen` 0.3 among them."]
+migration = """
+Rename each Lua call, option and report field to its camelCase spelling, and the
+`dream_archivetool` global to `dreamArchivetool`. Nothing else about the behavior changed.
+"""
+
+[[releases]]
+version = "0.2.1"
+date = 2026-09-27
+summary = "A dry run reports an existing target as a conflict instead of failing."
+fixed = [
+    "`extract-all --dry-run` and every extraction plan list a target that already exists as `conflict` under the default policy, instead of failing the whole plan; only the extraction itself refuses it.",
+]
+changed = ["Built on dream_archive 0.2.3."]
+
+# 0.3.0, 0.3.1 and 0.3.2 were versions in Cargo.toml on the way to 1.0.0, never tagged or
+# published; their changes are 1.0.0's.
+
+# Declared ahead of its tag: the page lists it as unreleased until 1.0.0 is pushed. Set the date
+# to the day you publish it.
+[[releases]]
+version = "1.0.0"
+date = 2026-09-29
+summary = "The Luau bindings are an l3i extension that adds dream_archivetool's policy to dream_archive's own archive type. The Rust, command-line and Luau APIs are now under semver."
+breaking = [
+    "The `luau` feature (`lua` is the old name of the same feature) makes the crate an l3i extension, `luau::ArchivetoolExtension`, providing the module `@dream/archivetool` and requiring dream_archive's `dream.archive`. `dream_archivetool::lua`, `create_dream_archive_module`, `register` and the `standalone-lua` feature are gone with `mlua`.",
+    "The archive methods (`toolInfo`, `verify`, `diff`, `extract`, `extractMany`, `planExtract`, the `ByPathHex` forms, `extractAll`, `planExtractAll`) are members of `dream.archive.Archive` itself, on every archive `dreamArchive.open*` returns.",
+    "Reports and plans are userdata: fields are properties, row lists are sequence views that take `#`, `[i]` and `for`, and `:toTable()` gives the 0.2 table. `size` and `compressedSize` are integers instead of decimal strings, and `payloadFingerprint` an integer instead of a hex string.",
+    "An unknown option is `<context>: unknown option 'key'; known options are ...`, and a wrong option type names the field, as in `add.output: ...`.",
+    "Building with `luau` needs l3i's toolchain: clang, lld and cross-language thin LTO.",
+]
+added = [
+    "`extractMany` and `planExtract` take entry handles from `archive:entries()`, and the whole entries view.",
+    "Every function, method and report field has a Luau type in the plan's generated definitions, and every report and plan view declares its row type, so strict scripts index and iterate them without `:toTable()`.",
+]
+fixed = [
+    "An extraction plan or batch that names an entry the archive does not have fails with `archive entry not found` before anything is written, in Rust and Luau. Before, a batch wrote the entries ahead of the missing one, and a plan listed it.",
+    "`extract` of an entry the archive does not have no longer creates the target's directories first.",
+]
+changed = [
+    "`verify` and extraction plans no longer copy every entry path into a set to find duplicates.",
+    "Built on dream_archive 1.0.0.",
+]
+migration = """
+Compose dream_archive's `ArchiveExtension` and `dream_archivetool::luau::ArchivetoolExtension`
+into the host's l3i `RuntimePlan`; a host that wants the old globals adds
+`RuntimePolicy::compat_global` for `dreamArchive` and `dreamArchivetool`. Scripts that used
+`ipairs`, `pairs` or `table.insert` on a report's rows iterate them with `for` or call
+`:toTable()` first, and compare sizes and fingerprints as integers.
+[Embedding Luau](@/docs/luau-hosts.md) has the setup and every change.
+"""

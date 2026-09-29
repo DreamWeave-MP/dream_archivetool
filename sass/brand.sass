@@ -1,0 +1,20 @@
+// dream_archivetool. This file belongs to dream_archivetool: the template never changes it, and it
+// loads last. The crimson palette does the heavy lifting; this makes room for the program's icon.
+
+// The header image is the icon, not a screenshot: a disc drawn on transparency. Show it whole,
+// square and without the screenshot frame, centered in the hero's right column.
+.dw-hero__figure
+  justify-self: center
+  align-self: center
+  width: min(100%, 17rem)
+  aspect-ratio: 1 / 1
+  border: 0
+  background: none
+
+  img
+    object-fit: contain
+    filter: drop-shadow(0 .6rem 1.4rem color-mix(in oklab, var(--dw-accent) 30%, transparent))
+
+@media (max-width: 760px)
+  .dw-hero__figure
+    width: min(60%, 12rem)

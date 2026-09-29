@@ -1,0 +1,20 @@
+{
+  "id": "policy",
+  "title": "Checked before anything is written",
+  "description": "dream_archive reads and writes the formats. dream_archivetool decides what is safe to do with them, and does all of its deciding before the first byte lands on disk.",
+  "mode": "flow",
+  "direction": "horizontal",
+  "nodes": [
+    { "id": "in", "kind": "source", "title": "An archive, or a folder", "detail": "A .bsa or .ba2 to inspect or extract, or files to pack into one." },
+    { "id": "policy", "kind": "tool", "title": "dream_archivetool", "detail": "Checks every entry path and every target, finds what already exists, refuses what it cannot rewrite without loss, and writes through a temporary file." },
+    { "id": "out", "kind": "result", "title": "Files, or an archive", "detail": "Extracted files that replace nothing you did not ask to replace, or a new archive that appears in one rename." },
+    { "id": "formats", "kind": "service", "role": "support", "title": "dream_archive", "detail": "Parses and writes TES3 and TES4 BSAs and BA2s. dream_archivetool never reads an archive's bytes itself.", "url": "https://DreamWeave-MP.github.io/dream_archive/" },
+    { "id": "plan", "kind": "service", "role": "support", "title": "Dry runs", "detail": "The same checks, reported per entry as JSON, and nothing written." }
+  ],
+  "edges": [
+    { "from": "in", "to": "policy" },
+    { "from": "policy", "to": "out" },
+    { "from": "formats", "to": "policy", "kind": "support", "label": "reads, writes" },
+    { "from": "policy", "to": "plan", "kind": "support", "label": "--dry-run" }
+  ]
+}
