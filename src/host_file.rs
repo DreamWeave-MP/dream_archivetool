@@ -38,7 +38,9 @@ pub(crate) fn keep_permissions(temp: &NamedTempFile, replaced: &Path) -> io::Res
 }
 
 /// Windows has only a read-only attribute, and a read-only archive cannot be replaced at all.
+/// The signature stays the Unix one so callers read the same on every platform.
 #[cfg(not(unix))]
+#[allow(clippy::unnecessary_wraps)]
 pub(crate) fn keep_permissions(_temp: &NamedTempFile, _replaced: &Path) -> io::Result<()> {
     Ok(())
 }
