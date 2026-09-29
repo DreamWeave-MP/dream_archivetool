@@ -211,6 +211,7 @@ pub(crate) fn extract_entry_by_path_from_loaded_archive(
 ) -> Result<ExtractSummary> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let archive_path = crate::paths::normalize_safe_archive_path_bytes(entry)?;
+    require_entries(archive, std::slice::from_ref(&archive_path))?;
     let target = if options.preserve_paths {
         safe_target_path_normalized(&root, &archive_path)?
     } else {
@@ -254,6 +255,7 @@ pub(crate) fn extract_entries_by_path_from_loaded_archive(
         skipped: 0,
     };
     let targets = planned_extract_targets_from_paths(&root, entries, options.preserve_paths)?;
+    require_targets(archive, &targets)?;
     reject_existing_targets(&targets, options.overwrite)?;
     prepare_extract_parent_dirs(&targets, options.fsync)?;
     for target in targets {
@@ -273,6 +275,35 @@ pub(crate) fn extract_entries_by_path_from_loaded_archive(
     Ok(summary)
 }
 
+/// Fails with [`ArchiveError::EntryNotFound`] for the first normalized path the archive lacks,
+/// so a batch never writes half its targets before discovering a missing member.
+fn require_entries(
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    entries: &[Vec<u8>],
+) -> Result<()> {
+    match entries.iter().find(|entry| !archive.contains(entry)) {
+        Some(missing) => Err(ArchiveError::EntryNotFound(
+            crate::paths::archive_path_bytes_to_display(missing),
+        )),
+        None => Ok(()),
+    }
+}
+
+fn require_targets(
+    archive: crate::loaded::LoadedArchiveRef<'_>,
+    targets: &[PlannedExtractTarget],
+) -> Result<()> {
+    match targets
+        .iter()
+        .find(|target| !archive.contains(&target.archive_path))
+    {
+        Some(missing) => Err(ArchiveError::EntryNotFound(
+            crate::paths::archive_path_bytes_to_display(&missing.archive_path),
+        )),
+        None => Ok(()),
+    }
+}
+
 /// Plan selected archive entry extraction without writing files.
 ///
 /// Existing targets never make planning fail: they are reported as [`ExtractPlanAction::Conflict`]
@@ -286,16 +317,24 @@ pub fn plan_extract_entries_by_path(
     entries: &[Vec<u8>],
     options: &ExtractOptions,
 ) -> Result<ExtractAllPlan> {
-    plan_extract_entries_by_path_from_loaded_archive(&path.display().to_string(), entries, options)
+    let archive = crate::loaded::LoadedArchive::open(path)?;
+    plan_extract_entries_by_path_from_loaded_archive(
+        &path.display().to_string(),
+        archive.as_ref(),
+        entries,
+        options,
+    )
 }
 
 pub(crate) fn plan_extract_entries_by_path_from_loaded_archive(
     label: &str,
+    archive: crate::loaded::LoadedArchiveRef<'_>,
     entries: &[Vec<u8>],
     options: &ExtractOptions,
 ) -> Result<ExtractAllPlan> {
     let root = options.output.clone().unwrap_or_else(|| PathBuf::from("."));
     let targets = planned_extract_targets_from_paths(&root, entries, options.preserve_paths)?;
+    require_targets(archive, &targets)?;
     let entries = plan_entries_from_targets(targets, options.overwrite);
     Ok(ExtractAllPlan {
         operation: ExtractPlanOperation::Extract,
@@ -679,6 +718,46 @@ mod tests {
         builder.add_bytes("textures/a.dds", b"a").unwrap();
         builder.add_bytes("meshes/b.nif", b"b").unwrap();
         builder.write_path(path).unwrap();
+    }
+
+    #[test]
+    fn plans_and_batches_refuse_missing_entries_before_writing() {
+        let dir = unique_dir("missing-entries");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("test.bsa");
+        write_multi_tes3_archive(&archive);
+        let output = dir.join("out");
+        let options = ExtractOptions {
+            output: Some(output.clone()),
+            ..ExtractOptions::default()
+        };
+        let entries = vec![b"textures/a.dds".to_vec(), b"missing.dds".to_vec()];
+
+        let error = plan_extract_entries_by_path(&archive, &entries, &options).unwrap_err();
+        assert!(
+            matches!(error, ArchiveError::EntryNotFound(ref path) if path == "missing.dds"),
+            "{error}"
+        );
+        let error = extract_entries_by_path(&archive, &entries, &options).unwrap_err();
+        assert!(matches!(error, ArchiveError::EntryNotFound(_)), "{error}");
+        assert!(
+            !output.exists(),
+            "nothing was written for a batch with a missing member"
+        );
+        let error = extract_entry_by_path(&archive, b"Missing.DDS", &options).unwrap_err();
+        assert!(
+            matches!(error, ArchiveError::EntryNotFound(ref path) if path == "missing.dds"),
+            "{error}"
+        );
+        assert!(
+            !output.exists(),
+            "no directories were created for a missing member"
+        );
+
+        let plan = plan_extract_entries_by_path(&archive, &entries[..1], &options).unwrap();
+        assert_eq!(plan.entries.len(), 1);
+        assert_eq!(plan.entries[0].action, ExtractPlanAction::Extract);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

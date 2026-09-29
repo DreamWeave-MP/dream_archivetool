@@ -1657,6 +1657,7 @@ fn describe_archive_methods(d: &mut ExtensionDescriptor) {
                 let options = extract_options(call, options, "archive:planExtract")?;
                 crate::extract::plan_extract_entries_by_path_from_loaded_archive(
                     &archive_label(a),
+                    loaded(a),
                     &entries,
                     &options,
                 )
@@ -1713,6 +1714,7 @@ fn describe_archive_methods(d: &mut ExtensionDescriptor) {
                 let options = extract_options(call, options, "archive:planExtractByPathHex")?;
                 crate::extract::plan_extract_entries_by_path_from_loaded_archive(
                     &archive_label(a),
+                    loaded(a),
                     &entries,
                     &options,
                 )

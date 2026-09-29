@@ -544,6 +544,9 @@ fn reports_invalid_and_unknown_options() {
             fails_with('dense 1-based array', archive.planExtract, archive, {{ [2] = 'x' }})
             fails_with('archive:extract: expected an archive path or an entry handle', archive.extract, archive, 7)
             fails_with('not found', archive.extract, archive, 'missing.dds', {{ output = 'x' }})
+            fails_with('not found', archive.planExtract, archive, {{ 'textures/example.dds', 'missing.dds' }})
+            fails_with('not found', archive.extractMany, archive, {{ 'textures/example.dds', 'missing.dds' }}, {{ output = 'x' }})
+            fails_with('not found', dreamArchivetool.planExtract, archive_path, {{ 'missing.dds' }})
             "#,
         ))
         .unwrap();

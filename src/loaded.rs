@@ -291,6 +291,15 @@ impl<'a> LoadedArchiveRef<'a> {
         })
     }
 
+    /// Whether the archive has a member at this normalized path.
+    pub(crate) fn contains(self, normalized: &[u8]) -> bool {
+        match self.archive {
+            Archive::Tes3Bsa(archive) => archive.contains(normalized),
+            Archive::Tes4Bsa(archive) => archive.contains(normalized),
+            Archive::BA2(archive) => archive.contains(normalized),
+        }
+    }
+
     pub(crate) fn named_entry_count(self) -> usize {
         match self.archive {
             Archive::Tes3Bsa(archive) => archive.len(),
