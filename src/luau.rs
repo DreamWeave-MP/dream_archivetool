@@ -752,23 +752,16 @@ fn create_options(
 
 fn add_options(scope: &impl Scope, view: ValueView<'_>, context: &str) -> Result<AddOptions> {
     Options::read(scope, view, context, |o| {
-        let inputs: Table = o.required("inputs")?;
-        let inputs = o.frame().with_frame(|frame| {
-            let view = inputs.push_to(frame)?;
-            let len = dense_len(frame, &view, context, "inputs")?;
+        let inputs = o.required_table("inputs", |frame, inputs| {
+            let len = dense_len(frame, &inputs, "inputs")?;
             let mut paths = Vec::with_capacity(len);
-            for index in 1..=count(len) {
-                frame.with_frame(|step| {
-                    let value = view.raw_get_index(step, index)?;
-                    let Ok(text) = value.read::<&str>() else {
-                        return Err(Error::runtime(format!(
-                            "{context}.inputs[{index}] must be a UTF-8 host path string"
-                        )));
-                    };
-                    paths.push(PathBuf::from(text));
-                    Ok(())
+            inputs.for_each_array(frame, |_, index, value| {
+                let text = value.read::<&str>().map_err(|_| {
+                    value.field_type_error(&format!("inputs[{index}]"), "a UTF-8 host path string")
                 })?;
-            }
+                paths.push(PathBuf::from(text));
+                Ok(())
+            })?;
             Ok(paths)
         })?;
         if inputs.is_empty() {
@@ -806,10 +799,7 @@ fn entry_bytes(value: ValueView<'_>, context: &str) -> Result<Vec<u8>> {
     if value.is_string() {
         return Ok(value.read::<&[u8]>()?.to_vec());
     }
-    Err(Error::runtime(format!(
-        "{context}: expected an archive path or an entry handle, got {}",
-        value.type_of().name()
-    )))
+    Err(value.field_type_error(context, "an archive path or an entry handle"))
 }
 
 /// The archive path bytes of an `entries` argument: an array of byte strings or entry handles,
@@ -837,32 +827,22 @@ fn entry_list(scope: &impl Scope, value: ValueView<'_>, context: &str) -> Result
             value.type_of().name()
         )));
     };
-    let index = table.index();
     scope.with_frame(|frame| {
-        let view = frame.at(index).as_table()?;
-        let len = dense_len(frame, &view, context, "entries")?;
+        let path = format!("{context}.entries");
+        let len = dense_len(frame, &table, &path)?;
         let mut paths = Vec::with_capacity(len);
-        for position in 1..=count(len) {
-            frame.with_frame(|step| {
-                let item = view.raw_get_index(step, position)?;
-                paths.push(entry_bytes(
-                    item,
-                    &format!("{context}.entries[{position}]"),
-                )?);
-                Ok(())
-            })?;
-        }
+        table.for_each_array(frame, |_, position, item| {
+            paths.push(entry_bytes(item, &format!("{path}[{position}]"))?);
+            Ok(())
+        })?;
         Ok(paths)
     })
 }
 
-/// The length of `view` as a dense 1-based array; any other key is an error naming `field`.
-fn dense_len(
-    frame: &Frame<'_>,
-    view: &l3i::stack::TableView<'_>,
-    context: &str,
-    field: &str,
-) -> Result<usize> {
+/// The length of `view` as a dense 1-based array; any other key is an error naming `path`, the
+/// field path the caller's context gives the array (`archive:extractMany.entries`, or `inputs`
+/// under an option reader that prefixes its own context).
+fn dense_len(frame: &Frame<'_>, view: &l3i::stack::TableView<'_>, path: &str) -> Result<usize> {
     let len = view.raw_len();
     let mut seen = 0usize;
     view.for_each(frame, |_, key, _| {
@@ -876,14 +856,12 @@ fn dense_len(
                 Ok(())
             }
             _ => Err(Error::runtime(format!(
-                "{context}.{field} must be a dense 1-based array"
+                "{path} must be a dense 1-based array"
             ))),
         }
     })?;
     if seen != len {
-        return Err(Error::runtime(format!(
-            "{context}.{field} must not contain holes"
-        )));
+        return Err(Error::runtime(format!("{path} must not contain holes")));
     }
     Ok(len)
 }
@@ -893,23 +871,21 @@ fn hex_entry(value: &str, context: &str) -> Result<Vec<u8>> {
         .map_err(|error| Error::runtime(format!("{context}: invalid pathBytesHex: {error}")))
 }
 
-fn hex_entry_list(scope: &impl Scope, table: &Table, context: &str) -> Result<Vec<Vec<u8>>> {
+/// The archive path bytes of a `pathBytesHex` array argument, read from its slot.
+fn hex_entry_list(scope: &impl Scope, value: ValueView<'_>, context: &str) -> Result<Vec<Vec<u8>>> {
+    let table = value.as_table()?;
     scope.with_frame(|frame| {
-        let view = table.push_to(frame)?;
-        let len = dense_len(frame, &view, context, "entries")?;
+        let path = format!("{context}.entries");
+        let len = dense_len(frame, &table, &path)?;
         let mut paths = Vec::with_capacity(len);
-        for position in 1..=count(len) {
-            frame.with_frame(|step| {
-                let item = view.raw_get_index(step, position)?;
-                let Ok(text) = item.read::<&str>() else {
-                    return Err(Error::runtime(format!(
-                        "{context}.entries[{position}] must be a UTF-8 pathBytesHex string"
-                    )));
-                };
-                paths.push(hex_entry(text, &format!("{context}.entries[{position}]"))?);
-                Ok(())
-            })?;
-        }
+        table.for_each_array(frame, |_, position, item| {
+            let path = format!("{path}[{position}]");
+            let text = item
+                .read::<&str>()
+                .map_err(|_| item.field_type_error(&path, "a UTF-8 pathBytesHex string"))?;
+            paths.push(hex_entry(text, &path)?);
+            Ok(())
+        })?;
         Ok(paths)
     })
 }
@@ -1717,8 +1693,8 @@ fn describe_archive_methods(d: &mut ExtensionDescriptor) {
     archive
         .method(
             "extractManyByPathHex",
-            |a: &Archive, call: &Call, entries: Table, options: Option<ValueView>| {
-                let entries = hex_entry_list(call, &entries, "archive:extractManyByPathHex")?;
+            |a: &Archive, call: &Call, entries: ValueView, options: Option<ValueView>| {
+                let entries = hex_entry_list(call, entries, "archive:extractManyByPathHex")?;
                 let options = extract_options(call, options, "archive:extractManyByPathHex")?;
                 let summary = crate::extract::extract_entries_by_path_from_loaded_archive(
                     &archive_label(a),
@@ -1736,8 +1712,8 @@ fn describe_archive_methods(d: &mut ExtensionDescriptor) {
     archive
         .method(
             "planExtractByPathHex",
-            |a: &Archive, call: &Call, entries: Table, options: Option<ValueView>| {
-                let entries = hex_entry_list(call, &entries, "archive:planExtractByPathHex")?;
+            |a: &Archive, call: &Call, entries: ValueView, options: Option<ValueView>| {
+                let entries = hex_entry_list(call, entries, "archive:planExtractByPathHex")?;
                 let options = extract_options(call, options, "archive:planExtractByPathHex")?;
                 crate::extract::plan_extract_entries_by_path_from_loaded_archive(
                     &archive_label(a),
@@ -1837,8 +1813,8 @@ fn describe_module(d: &mut ExtensionDescriptor) {
             summary_table(call, &summary)
         })
         .signature(format!("(path: string, entries: {ENTRIES}, options: {EXTRACT_OPTIONS}) -> {SUMMARY}"))
-        .function("extractManyByPathHex", |call: &Call, path: &str, entries: Table, options: Option<ValueView>| {
-            let entries = hex_entry_list(call, &entries, "extractManyByPathHex")?;
+        .function("extractManyByPathHex", |call: &Call, path: &str, entries: ValueView, options: Option<ValueView>| {
+            let entries = hex_entry_list(call, entries, "extractManyByPathHex")?;
             let options = extract_options(call, options, "extractManyByPathHex")?;
             let summary = ArchiveTool::extract_many_by_path_bytes(path, &entries, &options).map_err(tool_error)?;
             summary_table(call, &summary)
@@ -1852,8 +1828,8 @@ fn describe_module(d: &mut ExtensionDescriptor) {
                 .map_err(tool_error)
         })
         .signature(format!("(path: string, entries: {ENTRIES}, options: {EXTRACT_OPTIONS}) -> dream_archivetool_ExtractPlan"))
-        .function("planExtractByPathHex", |call: &Call, path: &str, entries: Table, options: Option<ValueView>| {
-            let entries = hex_entry_list(call, &entries, "planExtractByPathHex")?;
+        .function("planExtractByPathHex", |call: &Call, path: &str, entries: ValueView, options: Option<ValueView>| {
+            let entries = hex_entry_list(call, entries, "planExtractByPathHex")?;
             let options = extract_options(call, options, "planExtractByPathHex")?;
             ArchiveTool::plan_extract_many_by_path_bytes(path, &entries, &options)
                 .map(|plan| Owned(ExtractPlan(Rc::new(plan))))
