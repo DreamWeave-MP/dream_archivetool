@@ -46,6 +46,7 @@ pub mod entry;
 pub mod error;
 pub mod extract;
 pub mod format;
+mod host_file;
 mod loaded;
 pub mod path;
 mod paths;

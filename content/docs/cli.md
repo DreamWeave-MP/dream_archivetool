@@ -132,7 +132,7 @@ whole count.
 |---|---|
 | `<ARCHIVE>` | The archive to update |
 | `<INPUTS>...` | One or more folders or files, laid out as for `create` |
-| `-o`, `--output <FILE>` | Write the new archive to `FILE` and leave `<ARCHIVE>` alone. Not `<ARCHIVE>` itself. Give it with a folder, as `./new.bsa`: a bare name that does not exist yet fails |
+| `-o`, `--output <FILE>` | Write the new archive to `FILE` and leave `<ARCHIVE>` alone. Not `<ARCHIVE>` itself |
 | `--follow-symlinks` | Pack what symbolic links point to, instead of refusing them |
 | `--fsync` | Flush the archive and its folder to disk |
 | `--json` | Print `{ "files": N }` |
@@ -204,6 +204,6 @@ dream_archivetool create MyMod.bsa MyMod --format tes4 --tes4-version skyrim-se 
 dream_archivetool create "MyMod - Textures.ba2" MyModTextures --format ba2 --ba2-kind dx10
 
 # New files into a copy, after reading the plan.
-dream_archivetool add MyMod.bsa Update --output ./MyMod-new.bsa --dry-run
-dream_archivetool add MyMod.bsa Update --output ./MyMod-new.bsa
+dream_archivetool add MyMod.bsa Update --output MyMod-new.bsa --dry-run
+dream_archivetool add MyMod.bsa Update --output MyMod-new.bsa
 ```

@@ -70,7 +70,7 @@ ERROR: archive error: --ba2-kind is not valid with --format tes3
 
 ```sh
 dream_archivetool add MyMod.bsa MyModUpdate
-dream_archivetool add MyMod.bsa new_icon.dds --output ./MyMod-2.bsa
+dream_archivetool add MyMod.bsa new_icon.dds --output MyMod-2.bsa
 ```
 
 Any number of files and folders, each laid out as for `create`: a folder's contents relative to
@@ -85,10 +85,6 @@ then:
   at all;
 - with `--output FILE`, renames it to `FILE` and leaves the original alone. `FILE` may not be the
   original itself: leave `--output` out for that.
-
-Give `--output` with a folder in it, even if that is `./`: a bare `--output MyMod-2.bsa` that
-does not exist yet fails with `I/O error: No such file or directory (os error 2)`. This is a bug,
-and the workaround is the `./`.
 
 The new archive has the old one's format, version and settings, as far as dream_archive exposes
 them; [Formats](@/docs/formats.md#what-an-update-keeps) lists what is kept. The number printed
@@ -118,14 +114,14 @@ with the file it comes from and its size. For `add`, a row for every entry the n
 would hold, kept entries first, then the inputs, each in name order:
 
 ```sh
-dream_archivetool add MyMod.bsa Update --output ./MyMod-2.bsa --dry-run
+dream_archivetool add MyMod.bsa Update --output MyMod-2.bsa --dry-run
 ```
 
 ```json
 {
   "operation": "add",
   "archive": "MyMod.bsa",
-  "output": "./MyMod-2.bsa",
+  "output": "MyMod-2.bsa",
   "format": "tes3",
   "files": 4,
   "added": 1,

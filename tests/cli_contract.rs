@@ -144,3 +144,55 @@ fn extract_all_dry_run_reports_existing_target_as_conflict() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("target already exists"));
 }
+
+#[test]
+fn bare_archive_names_resolve_in_the_working_directory() {
+    let dir = TempDir::new().unwrap();
+    write_input_file(&dir, "input.txt");
+    write_input_file(&dir, "extra.txt");
+    let run_here = |args: &[&str]| {
+        let output = Command::new(bin())
+            .args(args)
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    };
+
+    run_here(&[
+        "create",
+        "MyMod.bsa",
+        "input.txt",
+        "--format",
+        "tes3",
+        "--fsync",
+    ]);
+    let plan = run_here(&[
+        "add",
+        "MyMod.bsa",
+        "extra.txt",
+        "--output",
+        "MyMod-2.bsa",
+        "--dry-run",
+    ]);
+    let plan: serde_json::Value = serde_json::from_slice(&plan.stdout).unwrap();
+    assert_eq!(plan["output"], "MyMod-2.bsa");
+    run_here(&[
+        "add",
+        "MyMod.bsa",
+        "extra.txt",
+        "--output",
+        "MyMod-2.bsa",
+        "--fsync",
+    ]);
+    run_here(&["add", "MyMod.bsa", "extra.txt", "--fsync"]);
+
+    assert!(dir.path().join("MyMod-2.bsa").is_file());
+    let listed = run_here(&["list", "MyMod.bsa"]);
+    assert_eq!(listed.stdout, b"extra.txt\ninput.txt\n");
+}

@@ -38,7 +38,7 @@ ignored.
 | Field | Default | Is |
 |---|---|---|
 | `inputs: Vec<PathBuf>` | empty | Folders and files to add; at least one, or `add` fails with `no input files supplied` |
-| `output: Option<PathBuf>` | `None` | Where to write the new archive; `None` replaces the source. Not the source itself. A bare file name that does not exist yet fails with an I/O error: give it a folder, as `./new.bsa` |
+| `output: Option<PathBuf>` | `None` | Where to write the new archive; `None` replaces the source. Not the source itself |
 | `fsync: bool` | `false` | Flush the archive, and on Unix its folder, before returning |
 | `follow_symlinks: bool` | `false` | Pack what symbolic links point to, instead of refusing them |
 
@@ -111,7 +111,7 @@ use dream_archivetool::{AddOptions, ArchiveTool};
 fn main() -> dream_archivetool::Result<()> {
     let options = AddOptions {
         inputs: vec!["Update".into()],
-        output: Some("./MyMod-2.bsa".into()),
+        output: Some("MyMod-2.bsa".into()),
         ..AddOptions::default()
     };
     let plan = ArchiveTool::plan_add("MyMod.bsa", &options)?;

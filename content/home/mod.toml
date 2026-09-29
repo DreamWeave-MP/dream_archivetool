@@ -150,6 +150,7 @@ added = [
 fixed = [
     "An extraction plan or batch that names an entry the archive does not have fails with `archive entry not found` before anything is written, in Rust and Luau. Before, a batch wrote the entries ahead of the missing one, and a plan listed it.",
     "`extract` of an entry the archive does not have no longer creates the target's directories first.",
+    "`add --output NAME` with a bare file name that does not exist yet writes `NAME` in the current folder, in Rust and Luau alike, and so do `create` and `add` of a bare archive name with `--fsync`. Before, all of them failed with `No such file or directory`.",
 ]
 changed = [
     "`verify` and extraction plans no longer copy every entry path into a set to find duplicates.",

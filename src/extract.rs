@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tempfile::NamedTempFile;
 
+use crate::host_file::parent_directory;
 use crate::paths::{flat_target_path_normalized, safe_target_path_normalized};
 use crate::{ArchiveError, Result};
 
@@ -532,13 +533,7 @@ fn reject_existing_targets(
 fn prepare_extract_parent_dirs(targets: &[PlannedExtractTarget], fsync: bool) -> Result<()> {
     let mut parents = BTreeSet::new();
     for target in targets {
-        parents.insert(
-            target
-                .path
-                .parent()
-                .unwrap_or_else(|| Path::new("."))
-                .to_path_buf(),
-        );
+        parents.insert(parent_directory(&target.path).to_path_buf());
     }
     for parent in parents {
         let directory_sync_targets = if fsync {
@@ -596,7 +591,7 @@ fn write_target_with_parent_mode(
         }
     }
 
-    let parent = target.parent().unwrap_or_else(|| Path::new("."));
+    let parent = parent_directory(target);
     let directory_sync_targets = if fsync {
         directory_sync_targets_for_create(parent)
     } else {

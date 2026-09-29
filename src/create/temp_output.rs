@@ -5,6 +5,7 @@ use std::path::Path;
 
 use tempfile::NamedTempFile;
 
+use crate::host_file::parent_directory;
 use crate::{ArchiveError, Result};
 
 pub(super) fn with_temp_output(
@@ -12,7 +13,7 @@ pub(super) fn with_temp_output(
     fsync: bool,
     write: impl FnOnce(&mut fs::File) -> Result<()>,
 ) -> Result<()> {
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let parent = parent_directory(output);
     let temp = write_temp_output(parent, fsync, write)?;
     persist_temp_output(temp, output, fsync)
 }
@@ -31,7 +32,7 @@ pub(super) fn write_temp_output(
 }
 
 pub(super) fn persist_temp_output(temp: NamedTempFile, output: &Path, fsync: bool) -> Result<()> {
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
+    let parent = parent_directory(output);
     temp.persist(output)
         .map_err(|err| ArchiveError::Io(err.error))?;
     if fsync {

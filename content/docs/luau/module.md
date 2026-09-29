@@ -147,7 +147,7 @@ Writes `archive` again with the inputs added or replacing entries, as
 | Option | Default | Is |
 |---|---|---|
 | `inputs` | required | An array of one or more host paths, folders or files |
-| `output` | the archive | Where to write the new archive. Not `archive` itself; give it with a folder, as `"./new.bsa"`, since a bare name that does not exist yet fails |
+| `output` | the archive | Where to write the new archive. Not `archive` itself |
 | `fsync` | `false` | Flush the archive and its folder to disk |
 | `followSymlinks` | `false` | Pack what symbolic links point to, instead of refusing them |
 

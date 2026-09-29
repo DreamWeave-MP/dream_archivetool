@@ -19,6 +19,7 @@ use crate::ArchiveFormat;
 pub use crate::archive_plan::{
     AddPlan, ArchivePlanAction, ArchivePlanEntry, ArchivePlanOperation, CreatePlan,
 };
+use crate::host_file::parent_directory;
 use crate::paths::{
     archive_path_bytes_to_display, archive_path_bytes_to_hex, normalize_archive_path_bytes,
 };
@@ -204,8 +205,12 @@ pub fn add_to_archive(archive_path: &Path, options: &AddOptions) -> Result<usize
         }
     }
     preflight_add_paths(input_entries.keys(), &archive)?;
-    let parent = output.parent().unwrap_or_else(|| Path::new("."));
-    let (temp, count) = write_entries_like_temp(parent, input_entries, &archive, options.fsync)?;
+    let (temp, count) = write_entries_like_temp(
+        parent_directory(output),
+        input_entries,
+        &archive,
+        options.fsync,
+    )?;
     drop(archive);
     persist_temp_output(temp, output, options.fsync)?;
     Ok(count)
@@ -288,8 +293,7 @@ fn comparable_path(path: &Path) -> Result<PathBuf> {
     if path.exists() {
         return Ok(path.canonicalize()?);
     }
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let parent = parent.canonicalize()?;
+    let parent = parent_directory(path).canonicalize()?;
     Ok(path
         .file_name()
         .map_or(parent.clone(), |name| parent.join(name)))
