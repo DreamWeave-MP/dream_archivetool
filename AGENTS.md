@@ -13,7 +13,7 @@
   of row handles; `:toTable()` gives the old table shape. Never create a VM in library code, never
   pick tags or atoms, keep every member `.signature(..)`d (fingerprints are `integer`, sizes and
   counts `number`), and keep member names distinct from dream_archive's (a clash fails the plan).
-- `dream_archive` and `l3i` are path dependencies (`../dream_archive`, `../dream-binder`) during the
+- `l3i` comes from crates.io; `dream_archive` is a path override (`../dream_archive`) during the
   migration campaign; the `luau-analysis` feature (`luau` plus `l3i/analysis`) turns on the
   definitions gate for the typed tests, since Cargo has no optional dev-dependencies.
 - `.cargo/config.toml` is l3i's toolchain policy (clang++, lld, cross-language thin LTO); copy it
