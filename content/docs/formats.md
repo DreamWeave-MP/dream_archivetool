@@ -61,8 +61,8 @@ read back:
 |---|---|---|
 | TES3 | Everything; the format has no settings | |
 | TES4 | Version, content types, the compressed flag (new files are compressed when the archive is), where names are stored | |
-| BA2, general | Version, name table | Compression: every file in the new archive, kept ones included, is stored uncompressed |
-| BA2, textures | Version, name table; kept textures are copied as their stored chunks, compression and all | New textures are stored uncompressed, unless the archive's compression format is LZ4 |
+| BA2, general | Version, name table, compression: each kept file stays compressed or stored, and new files are compressed with the archive's method when any file in it is | |
+| BA2, textures | Version, name table; kept textures are copied as their stored chunks, compression and all; new textures are compressed when any texture is, or when the archive's method is LZ4 | |
 
 The files kept from the old archive are not loaded into memory first: each is read from the old
 archive while the new one is written. An update refuses what it cannot carry over;

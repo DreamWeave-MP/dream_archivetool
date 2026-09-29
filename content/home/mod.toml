@@ -152,6 +152,7 @@ fixed = [
     "`extract` of an entry the archive does not have no longer creates the target's directories first.",
     "`add --output NAME` with a bare file name that does not exist yet writes `NAME` in the current folder, in Rust and Luau alike, and so do `create` and `add` of a bare archive name with `--fsync`. Before, all of them failed with `No such file or directory`.",
     "On Linux and macOS, extracted files and new archives get `0666` less the umask, as any new file does, and an archive `add` replaces in place keeps its mode. Before, every file written was `0600`, and `add` took other users' read access away from an archive.",
+    "`add` to a compressed BA2 keeps it compressed: each kept file stays compressed or stored as it was, and new files and textures are compressed when anything in the archive is. Before, an update of a general BA2 stored every file uncompressed, kept ones included, and an update of a zlib texture BA2 stored the new textures uncompressed.",
 ]
 changed = [
     "`verify` and extraction plans no longer copy every entry path into a set to find duplicates.",

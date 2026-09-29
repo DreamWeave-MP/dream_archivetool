@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dream_archive::ByteSlice as _;
+use dream_archive::CompressionOverride;
 use dream_archive::ba2::{
     ArchiveVersion as Ba2ArchiveVersion, Ba2CompressionFormat, PayloadFormat,
 };
@@ -654,6 +655,7 @@ fn write_ba2_like(
     crate::rewrite_policy::ensure_ba2_payload_format_writable(info.format)?;
     let mut builder = dream_archive::Ba2Builder::new();
     builder.set_version(info.version);
+    builder.set_compression(ba2_rewrite_compression(archive));
     let source_archive = Arc::new(archive.clone());
     let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
@@ -665,8 +667,18 @@ fn write_ba2_like(
         insert_existing_archive_path(&mut existing_keys, &key, raw_path)?;
         if !entries.contains_key(&key) {
             preserved += 1;
+            let compression = if ba2_entry_is_compressed(entry) {
+                CompressionOverride::Compress
+            } else {
+                CompressionOverride::Store
+            };
             builder
-                .add_archive_entry(&key, Arc::clone(&source_archive), id)
+                .add_archive_entry_with_compression(
+                    &key,
+                    Arc::clone(&source_archive),
+                    id,
+                    compression,
+                )
                 .map_err(archive_error)?;
         }
     }
@@ -675,6 +687,24 @@ fn write_ba2_like(
     }
     builder.write_seek(output).map_err(archive_error)?;
     Ok(preserved + input_count)
+}
+
+/// The compression a rewrite gives the entries it writes afresh: the archive's own, if it has
+/// any. The header names zip whether or not anything is compressed, so for zip the chunks decide.
+/// An LZ4 header is kept regardless: DX10 textures are copied only under the compression their
+/// archive names.
+fn ba2_rewrite_compression(archive: &dream_archive::ba2::Archive) -> Option<Ba2CompressionFormat> {
+    let format = archive.info().compression_format;
+    let compressed = archive.entries().iter().any(ba2_entry_is_compressed);
+    (compressed || format == Ba2CompressionFormat::LZ4).then_some(format)
+}
+
+fn ba2_entry_is_compressed(entry: &dream_archive::ba2::Entry) -> bool {
+    entry
+        .file()
+        .chunks()
+        .iter()
+        .any(dream_archive::ba2::Chunk::is_compressed)
 }
 
 fn write_ba2_with_format(
@@ -727,9 +757,7 @@ fn write_dx10_ba2_like(
     let mut preserved = 0;
     let mut builder = dream_archive::Ba2Dx10Builder::new();
     builder.set_version(version);
-    if archive.info().compression_format == Ba2CompressionFormat::LZ4 {
-        builder.set_compression(Some(Ba2CompressionFormat::LZ4));
-    }
+    builder.set_compression(ba2_rewrite_compression(archive));
     let source_archive = Arc::new(archive.clone());
     let mut existing_keys = BTreeMap::new();
     for (id, entry) in archive.entries_with_ids() {
@@ -1097,6 +1125,110 @@ mod tests {
             ArchiveTool::read_entry(&output, "added.dds")
                 .unwrap()
                 .ends_with(&[0x33; 16])
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn compressed_entries(archive: &Path) -> BTreeMap<String, bool> {
+        ArchiveTool::list(archive)
+            .unwrap()
+            .into_iter()
+            .map(|entry| (entry.path, entry.compressed_size.is_some()))
+            .collect()
+    }
+
+    #[test]
+    fn add_keeps_each_ba2_entry_compressed_or_stored_and_compresses_new_ones() {
+        let dir = unique_dir("add-ba2-compression");
+        fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("base.ba2");
+        let mut builder = dream_archive::Ba2Builder::new();
+        builder.set_compression(Some(Ba2CompressionFormat::Zip));
+        builder
+            .add_bytes_with_compression(
+                b"packed.txt",
+                [b'a'; 1024],
+                dream_archive::CompressionOverride::Compress,
+            )
+            .unwrap();
+        builder
+            .add_bytes_with_compression(
+                b"stored.wav",
+                [b'w'; 1024],
+                dream_archive::CompressionOverride::Store,
+            )
+            .unwrap();
+        with_temp_output(&archive, false, |file| {
+            builder.write_seek(file).map_err(archive_error)
+        })
+        .unwrap();
+        let added = dir.join("added.txt");
+        fs::write(&added, [b'b'; 1024]).unwrap();
+        let output = dir.join("updated.ba2");
+
+        add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: Some(output.clone()),
+                ..AddOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            compressed_entries(&output),
+            BTreeMap::from([
+                ("added.txt".to_string(), true),
+                ("packed.txt".to_string(), true),
+                ("stored.wav".to_string(), false),
+            ])
+        );
+        assert_eq!(
+            ArchiveTool::read_entry(&output, "packed.txt").unwrap(),
+            [b'a'; 1024]
+        );
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn add_to_a_zlib_dx10_ba2_compresses_new_textures() {
+        let dir = unique_dir("add-dx10-compression");
+        let input = dir.join("input");
+        fs::create_dir_all(&input).unwrap();
+        fs::write(input.join("base.dds"), dx10_dds(&[0x11; 16])).unwrap();
+        let archive = dir.join("base.ba2");
+        create_archive(
+            &archive,
+            &input,
+            &CreateOptions {
+                format: ArchiveFormat::Ba2,
+                ba2_kind: Ba2ArchiveKind::Dx10,
+                compress: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let added = dir.join("added.dds");
+        fs::write(&added, dx10_dds(&[0x33; 16])).unwrap();
+        let output = dir.join("updated.ba2");
+
+        add_to_archive(
+            &archive,
+            &AddOptions {
+                inputs: vec![added],
+                output: Some(output.clone()),
+                ..AddOptions::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            compressed_entries(&output),
+            BTreeMap::from([
+                ("added.dds".to_string(), true),
+                ("base.dds".to_string(), true)
+            ])
         );
         fs::remove_dir_all(dir).unwrap();
     }
