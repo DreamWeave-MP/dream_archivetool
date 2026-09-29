@@ -79,9 +79,29 @@ stored bytes, and for a duplicate `collidingRawPathBytesHex`, the earlier entry'
 whose data lies outside the archive, an entry that is not compressed, or no fingerprint asked for.
 `payloadFingerprint` carries all 64 bits of the FNV-1a hash.
 
+### Sizes are integers
+
 Sizes and fingerprints are Luau `integer` values, which take `==` and `tostring`, and nothing
-else directly: `<`, `+` and `tonumber` do not apply to them. Compare and convert them with Luau's
-`integer` library, as `integer.lt(a.size, b.size)` or `integer.tonumber(a.size)`.
+else directly: `<`, `+` and `tonumber` do not apply to them, and raise `attempt to compare
+integer < integer` and the like. Compare, add and convert them with Luau's `integer` library:
+
+```lua
+local a, b = diff.added[1], diff.added[2]
+if integer.lt(a.size, b.size) then print(a.path, "is smaller") end
+local total = integer.add(a.size, b.size)
+print(integer.tonumber(total) / 1024, "KiB")
+```
+
+An integer never equals a number, so a size to compare against is written `4096i`, not `4096`.
+That includes dream_archive's own `entry.size`, which is a `number`: `entry.size == row.size` is
+false even for the same file. Convert one side, as `integer.create(entry.size) == row.size` or
+`entry.size == integer.tonumber(row.size)`; `integer.tonumber` is exact for any size an archive
+can hold.
+
+Integers are this extension's choice, not a rule of Luau or l3i. l3i hands Rust integers to Luau
+as numbers unless an extension asks for `integer`, and dream_archive asks for it only for hashes,
+so its `entry.size` is a number. dream_archivetool asks for it so that sizes and fingerprints
+share one exact 64-bit type; the cost is the `integer` library above.
 
 ## ExtractPlan
 

@@ -43,8 +43,15 @@
 //! Reports and plans are userdata whose scalar fields are getters and whose row lists are
 //! sequence views of row handles (`#`, `[i]`, `for`); every one has `:toTable()` for the old
 //! nested-table shape. Sizes (`size`, `compressedSize`) are Luau integers, payload fingerprints
-//! are Luau integers carrying all 64 FNV-1a bits (compare with `==`), and counts (`fileCount`,
-//! `extracted`, `files`, ...) stay plain numbers.
+//! are Luau integers carrying all 64 FNV-1a bits, and counts (`fileCount`, `extracted`, `files`,
+//! ...) stay plain numbers.
+//!
+//! Integers are this extension's choice (through [`l3i::convert::Integer`] and
+//! [`l3i::convert::Bits64`]); l3i pushes plain Rust integers as numbers, and `dream_archive`'s
+//! own `Entry.size` is a number. Luau integers take `==` and `tostring` but not `<`, `+` or
+//! `tonumber`, and never equal a number: scripts compare and convert them with the `integer`
+//! library (`integer.lt`, `integer.add`, `integer.tonumber`, `integer.create`) and write literals
+//! as `5i`.
 //!
 //! # Bytes and paths
 //!

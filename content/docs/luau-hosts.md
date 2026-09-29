@@ -158,7 +158,8 @@ names and option keys are the same. What scripts see differently:
 - Reports and plans are userdata. Their fields read as before, and their lists take `#`, `[i]`
   and `for`, but not `ipairs`, `pairs` or `table.insert`; `:toTable()` gives the 0.2 table.
 - `size` and `compressedSize` are integers, not decimal strings, and `payloadFingerprint` is an
-  integer, not a hex string, in `:toTable()` too.
+  integer, not a hex string, in `:toTable()` too. They take `==` and the `integer` library, not
+  `<`, `+` or `tonumber`; see [Sizes are integers](@/docs/luau/results.md#sizes-are-integers).
 - An unknown option reads `extract: unknown option 'overwirte'; known options are ...`, and a
   wrong option type names the field: `add.output: expected string, got number`.
 - `extract`, `extractMany`, `planExtract` and their `ByPathHex` forms fail with

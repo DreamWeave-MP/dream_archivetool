@@ -703,6 +703,22 @@ fn wide_sizes_are_integers() {
             assert(#diff.removed == 0)
             local t = diff:toTable()
             assert(t.added[1].size == 5i and t.changed[1].old.size == 70000i)
+
+            -- What the documentation promises about integer sizes, which are Luau 0.740 integers.
+            local size = diff.added[1].size
+            assert(typeof(size) == 'integer' and tostring(size) == '5')
+            assert(size ~= 5, 'an integer never equals a number')
+            assert(not pcall(function() return size < 6i end), '< does not apply')
+            assert(not pcall(function() return size + 1i end), '+ does not apply')
+            assert(integer.lt(size, 6i) and integer.add(size, 1i) == 6i)
+            assert(integer.tonumber(size) + 1 == 6 and integer.create(5) == size)
+            -- dream.archive's own Entry.size is a number, so convert before comparing the two.
+            local entry
+            for _, candidate in b:entries() do
+                if candidate.path == 'b.txt' then entry = candidate end
+            end
+            assert(typeof(entry.size) == 'number' and entry.size ~= size)
+            assert(integer.create(entry.size) == size and entry.size == integer.tonumber(size))
             ",
         )
         .unwrap();

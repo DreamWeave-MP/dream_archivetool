@@ -51,7 +51,9 @@ host setup.
 - **Option tables are strict.** An unknown or misspelled key is an error that lists the known
   ones; a missing table, or `nil`, means every default.
 - **Sizes** (`size`, `compressedSize`) and **fingerprints** (`payloadFingerprint`) are Luau
-  `integer` values: compare them with `==` or the `integer` library, not `<` or `+`. **Counts**
+  `integer` values: compare them with `==` or the `integer` library, not `<` or `+`, and write
+  a literal as `4096i`. dream_archive's `entry.size` is a number, which never equals an integer;
+  [Sizes are integers](@/docs/luau/results.md#sizes-are-integers) has the conversions. **Counts**
   (`fileCount`, `extracted`, `files`) are numbers.
 - **Errors** are raised, never returned. A failed call has written nothing that its checks could
   have prevented.
