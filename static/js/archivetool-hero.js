@@ -2282,9 +2282,8 @@ async function mount(root) {
     }
     if (kind === 'unsafe') {
       const hostile = run.cards.find((card) => card.hostile);
-      terminal.print('ERROR: unsafe archive', 'bad', hostile.scanAt + 0.15);
-      terminal.print(`path: ${hostile.entry.path.slice(0, 19)}`, 'bad', hostile.scanAt + 0.2);
-      if (hostile.entry.path.length > 19) terminal.print(`  ${hostile.entry.path.slice(19)}`, 'bad', hostile.scanAt + 0.25);
+      terminal.print('ERROR: unsafe archive path:', 'bad', hostile.scanAt + 0.15);
+      terminal.print(hostile.entry.path, 'bad', hostile.scanAt + 0.2);
     } else if (kind === 'dry') {
       terminal.print(']}', 'dim', run.flowUntil);
     } else {
