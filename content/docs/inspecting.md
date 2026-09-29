@@ -101,9 +101,10 @@ payloads read: 11090
 | `payloads read: N` | With `--read-payloads`: every named file was decompressed and read to the end, and none failed |
 | `warning: ...` | Something to know, one line each |
 
-`verify` without `--read-payloads` reads only the index, which is fast; with it, it reads every
-file, which is how you find a corrupt one. A file that cannot be read stops `verify` with an
-error and exit code 1. Everything else is a report, and the exit code is 0.
+`verify` without `--read-payloads` reads only the index, and the four bytes that give a
+compressed TES4 file's size, which is fast; with it, it reads every file, which is how you find a
+corrupt one. A file that cannot be read stops `verify` with an error and exit code 1. Everything
+else is a report, and the exit code is 0.
 
 The warnings, and what `--json` lists for each:
 
