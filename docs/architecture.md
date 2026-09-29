@@ -34,20 +34,29 @@ Rewriting must fail before output is touched when the tool cannot preserve known
 
 There are two Luau policy surfaces:
 
-- top-level `dreamArchivetool.*` functions take host paths and open archives for that operation;
-- userdata methods attached through `create_dream_archive_module` / `register_dream_archive_methods` operate on supplied `dreamArchive.open*` archive userdata.
+- top-level `@dream/archivetool` functions take host paths and open archives for that operation;
+- methods on `dream.archive.Archive` operate on the supplied `dreamArchive.open*` handle.
 
-Registration of userdata methods must happen before any `dream_archive::lua::LuaArchive` userdata is created in the same Lua state. `mlua` caches userdata metatables by Rust type; late registration is not a thing to build policy on.
+The methods are an l3i augmentation: `dream.archivetool` declares `requires("dream.archive")`
+and adds its members to the type `dream.archive` owns. The planner merges the two declarations
+into one metatable before any runtime exists, so there is no registration order to get right and
+no second wrapper type. A member name both extensions declare fails the plan; coordinate names
+with dream_archive.
 
-`dreamArchive.openBytes(...)` userdata is an immutable byte snapshot. `dreamArchive.openPath(...)` avoids a policy-layer reopen, but payload reads still follow `dream_archive` source semantics; this layer does not promise that path-backed file bytes are pinned after handle creation.
+`dreamArchive.openBytes(...)` userdata is an immutable byte snapshot. `dreamArchive.openPath(...)`
+avoids a policy-layer reopen, but payload reads still follow `dream_archive` source semantics; this
+layer does not promise that path-backed file bytes are pinned after handle creation.
 
-There are intentionally no `archive:add`, `archive:planAdd`, `archive:create`, or `archive:planCreate` userdata methods. Creation and rewrite are host-filesystem operations with output selection, symlink policy, and temp-file replacement semantics. They remain top-level path APIs.
+There are intentionally no `archive:add`, `archive:planAdd`, `archive:create`, or `archive:planCreate`
+methods. Creation and rewrite are host-filesystem operations with output selection, symlink policy,
+and temp-file replacement semantics. They remain top-level path APIs.
 
 ## Lifetime and memory shape
 
 `LoadedArchive` owns a `dream_archive::Archive`. `LoadedArchiveRef` is a borrowed view used so policy code can run against already-opened archives, especially Lua userdata. Keep this ownership visible. A clever trait hierarchy that hides whether an archive is owned or borrowed is not an improvement unless it also removes a real bug.
 
-Extraction streams payloads to writers through `dream_archive`; it should not materialize whole payloads in this crate unless a public API explicitly asks for bytes in memory. Planning and reporting APIs do materialize DTO tables/vectors by design. Large Luau plans allocate many Lua objects and should be treated as inspection tools, not free telemetry.
+Extraction streams payloads to writers through `dream_archive`; it should not materialize whole payloads in this crate unless a public API explicitly asks for bytes in memory. Planning and reporting APIs do materialize DTO vectors by design. Their Luau forms are userdata over
+one `Rc` of the DTO: rows are handles into it, and only `:toTable()` materializes Lua tables.
 
 ## Compatibility checklist
 
@@ -56,7 +65,7 @@ Before changing public behavior, check:
 - CLI JSON fields and names; additive fields are minor-version compatible, removals or renames are not.
 - Future public DTO fields that matter for deserializing saved JSON should be optional or
   `serde(default)` so older data does not fail just because a newer tool knows more facts.
-- Luau function names, option keys, return table keys, enum-like string values (all camelCase), and decimal-string size fields.
+- Luau function names, option keys, report and plan members, enum-like string values (all camelCase), integer `size`/`compressedSize`/`payloadFingerprint` fields, and the `:toTable()` shapes.
 - Rust public DTO fields and serde names.
 - Archive rewrite blockers and unsupported-format diagnostics.
 - `path_bytes_hex` / `pathBytesHex` normalized lookup semantics.
