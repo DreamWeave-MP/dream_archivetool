@@ -42,7 +42,8 @@ pub struct VerifyReport {
     pub rewrite_blocker: Option<String>,
     /// Duplicate normalized lookup paths found in the archive.
     pub duplicate_normalized_paths: Vec<VerifyPathIssue>,
-    /// Paths rejected by safe extraction target validation.
+    /// Paths rejected by safe extraction target validation, by normalized key, with the stored
+    /// bytes in `raw_path_bytes_hex`.
     pub unsafe_paths: Vec<VerifyPathIssue>,
     /// Number of payloads streamed when payload verification was requested and possible.
     pub payloads_read: Option<usize>,
@@ -101,7 +102,7 @@ pub(crate) fn verify_loaded_archive(
         if crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path).is_err()
             || validate_target_components(&entry.path).is_err()
         {
-            unsafe_paths.push(path_issue(&entry.raw_path));
+            unsafe_paths.push(unsafe_path_issue(&entry.path, &entry.raw_path));
         }
     }
 
@@ -146,11 +147,11 @@ pub(crate) fn verify_loaded_archive(
     })
 }
 
-fn path_issue(path: &[u8]) -> VerifyPathIssue {
+fn unsafe_path_issue(path: &[u8], raw_path: &[u8]) -> VerifyPathIssue {
     VerifyPathIssue {
         path: archive_path_bytes_to_display(path),
         path_bytes_hex: archive_path_bytes_to_hex(path),
-        raw_path_bytes_hex: None,
+        raw_path_bytes_hex: Some(archive_path_bytes_to_hex(raw_path)),
         colliding_raw_path_bytes_hex: None,
     }
 }
@@ -171,6 +172,41 @@ fn duplicate_path_issue(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsafe_paths_report_the_normalized_key_beside_the_stored_bytes() {
+        let dir = std::env::temp_dir().join(format!(
+            "dream_archivetool-verify-unsafe-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("unsafe.bsa");
+        let mut builder = dream_archive::Tes3BsaBuilder::new();
+        builder.add_bytes(br"ab\cd\C.dds", b"payload").unwrap();
+        let mut bytes = builder.to_vec().unwrap();
+        let name = bytes
+            .windows(11)
+            .position(|window| window.eq_ignore_ascii_case(br"ab\cd\c.dds"))
+            .unwrap();
+        bytes[name..name + 11].copy_from_slice(br"..\..\C.dds");
+        std::fs::write(&archive, bytes).unwrap();
+
+        let report = verify_archive(&archive, &VerifyOptions::default()).unwrap();
+
+        assert_eq!(
+            report.unsafe_paths,
+            vec![VerifyPathIssue {
+                path: "../../c.dds".to_string(),
+                path_bytes_hex: archive_path_bytes_to_hex(b"../../c.dds"),
+                raw_path_bytes_hex: Some(archive_path_bytes_to_hex(br"..\..\C.dds")),
+                colliding_raw_path_bytes_hex: None,
+            }]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn duplicate_path_issue_reports_duplicate_then_previous_raw_path() {

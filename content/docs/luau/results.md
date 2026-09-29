@@ -57,9 +57,8 @@ into the report it came from and keeps that report alive; its fields are read fr
 | `payloadsRead` | `number?` | With `readPayloads`, how many files were read; `nil` without it or when duplicates made reading by name ambiguous |
 | `warnings` | view of `string` | The warnings, in the command line's words |
 
-`PathIssue` has `path`, `pathBytesHex`, and for a duplicate, `rawPathBytesHex` (this entry's
-stored bytes) and `collidingRawPathBytesHex` (the earlier entry's). In `unsafePaths`, `path` and
-`pathBytesHex` are the name as stored, not normalized.
+`PathIssue` has `path` and `pathBytesHex`, the normalized key, `rawPathBytesHex`, this entry's
+stored bytes, and for a duplicate `collidingRawPathBytesHex`, the earlier entry's.
 
 ## DiffReport
 

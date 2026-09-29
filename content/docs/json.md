@@ -126,8 +126,9 @@ An array, one object per named entry, in the archive's order:
   ],
   "unsafe_paths": [
     {
-      "path": "..\\..\\..\\c.dds",
-      "path_bytes_hex": "2e2e5c2e2e5c2e2e5c632e646473"
+      "path": "../../../c.dds",
+      "path_bytes_hex": "2e2e2f2e2e2f2e2e2f632e646473",
+      "raw_path_bytes_hex": "2e2e5c2e2e5c2e2e5c632e646473"
     }
   ],
   "payloads_read": null,
@@ -144,12 +145,12 @@ An array, one object per named entry, in the archive's order:
 | `path`, `format`, `file_count`, `named_entry_count`, `rewritable`, `rewrite_blocker` | As in `info` |
 | `unnameable_entries` | How many entries have only a hash |
 | `duplicate_normalized_paths` | One object for each entry whose normalized name an earlier entry already has: the shared key, this entry's stored bytes in `raw_path_bytes_hex`, and the earlier one's in `colliding_raw_path_bytes_hex` |
-| `unsafe_paths` | One object for each name extraction would refuse |
+| `unsafe_paths` | One object for each name extraction would refuse: its normalized key, and its stored bytes in `raw_path_bytes_hex` |
 | `payloads_read` | With `--read-payloads`, how many files were read to the end. `null` without it, or when duplicates made reading by name ambiguous |
 | `warnings` | The lines `verify` prints as `warning:` |
 
-In `unsafe_paths`, `path` and `path_bytes_hex` are the name as stored, not normalized: above,
-`..\..\..\c.dds` and its backslashes. Everywhere else they are the normalized key.
+`path` and `path_bytes_hex` are the normalized key here as everywhere else: above, the stored
+`..\..\..\c.dds` is listed as `../../../c.dds`, as `list` shows it.
 
 ## diff
 

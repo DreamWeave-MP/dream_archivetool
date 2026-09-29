@@ -112,11 +112,11 @@ the report.
 |---|---|
 | `path: String` | The name as text |
 | `path_bytes_hex: String` | The name's bytes as hex |
-| `raw_path_bytes_hex: Option<String>` | For a duplicate, this entry's stored bytes |
+| `raw_path_bytes_hex: Option<String>` | This entry's stored bytes; `Some` in both lists |
 | `colliding_raw_path_bytes_hex: Option<String>` | For a duplicate, the earlier entry's stored bytes |
 
-For a duplicate, `path` and `path_bytes_hex` are the shared normalized key. For an unsafe path,
-they are the name as stored, and the raw fields are `None`.
+`path` and `path_bytes_hex` are the normalized key: for a duplicate, the key both entries share.
+`colliding_raw_path_bytes_hex` is `None` for an unsafe path.
 
 ## Comparing
 
