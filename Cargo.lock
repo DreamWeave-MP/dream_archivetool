@@ -374,9 +374,9 @@ dependencies = [
 
 [[package]]
 name = "dream-net"
-version = "1.0.0"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe667f5bd1256bcebe4fef2143ad2a09e84ed73301405437856ea17e5fd03c87"
+checksum = "2df0cb5ee602184918adad25df359efd364166568947e03e73c747144ba4d51d"
 dependencies = [
  "netcode-official",
  "reliable",
@@ -386,9 +386,7 @@ dependencies = [
 
 [[package]]
 name = "dream-path"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e583db715c69f57e21a9a6583a5eef99b707582dff189842a3cd595fa18cac31"
+version = "1.0.0"
 dependencies = [
  "bstr",
 ]
