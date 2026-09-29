@@ -577,8 +577,8 @@ fn array_of<R>(
 // Option tables
 // ---------------------------------------------------------------------------------------------
 
-fn overwrite_mode(value: Option<&str>) -> Result<OverwriteMode> {
-    match value.unwrap_or("fail") {
+fn overwrite_mode(value: &str) -> Result<OverwriteMode> {
+    match value {
         "fail" => Ok(OverwriteMode::Fail),
         "overwrite" => Ok(OverwriteMode::Overwrite),
         "skip" => Ok(OverwriteMode::Skip),
@@ -587,7 +587,45 @@ fn overwrite_mode(value: Option<&str>) -> Result<OverwriteMode> {
 }
 
 fn optional_path(options: &mut Options<'_, '_>, key: &str) -> Result<Option<PathBuf>> {
-    Ok(options.optional::<String>(key)?.map(PathBuf::from))
+    options.optional_str(key, |text| Ok(PathBuf::from(text)))
+}
+
+/// An optional option table field read as an enum: `None` when absent, the parse deferred so
+/// the caller can refuse an irrelevant field before it judges its value.
+fn optional_enum<T>(
+    options: &mut Options<'_, '_>,
+    key: &str,
+    parse: impl FnOnce(&str) -> Result<T>,
+) -> Result<Option<Result<T>>> {
+    options.optional_str(key, |text| Ok(parse(text)))
+}
+
+fn tes4_version(value: &str) -> Result<Tes4Version> {
+    match value {
+        "oblivion" => Ok(Tes4Version::Oblivion),
+        "fallout3" => Ok(Tes4Version::Fallout3),
+        "skyrim" => Ok(Tes4Version::Skyrim),
+        "skyrimSe" | "sse" => Ok(Tes4Version::SkyrimSe),
+        value => Err(Error::runtime(format!("unknown TES4 version: {value}"))),
+    }
+}
+
+fn ba2_kind(value: &str) -> Result<Ba2ArchiveKind> {
+    match value {
+        "gnrl" => Ok(Ba2ArchiveKind::Gnrl),
+        "dx10" => Ok(Ba2ArchiveKind::Dx10),
+        "gnmf" => Ok(Ba2ArchiveKind::Gnmf),
+        value => Err(Error::runtime(format!("unknown BA2 kind: {value}"))),
+    }
+}
+
+fn ba2_version(value: &str) -> Result<Ba2Version> {
+    match value {
+        "fallout4" => Ok(Ba2Version::Fallout4),
+        "starfield" => Ok(Ba2Version::Starfield),
+        "fallout4NextGen" => Ok(Ba2Version::Fallout4NextGen),
+        value => Err(Error::runtime(format!("unknown BA2 version: {value}"))),
+    }
 }
 
 /// Reads an optional option table; `nil` or absent means the defaults.
@@ -612,7 +650,9 @@ fn extract_options(
     read_options(scope, view, context, |o| {
         Ok(ExtractOptions {
             output: optional_path(o, "output")?,
-            overwrite: overwrite_mode(o.optional::<String>("overwrite")?.as_deref())?,
+            overwrite: o
+                .optional_str("overwrite", overwrite_mode)?
+                .unwrap_or(OverwriteMode::Fail),
             preserve_paths: o.or("preservePaths", true)?,
             fsync: o.or("fsync", false)?,
         })
@@ -627,7 +667,9 @@ fn extract_all_options(
     read_options(scope, view, context, |o| {
         Ok(ExtractAllOptions {
             output: optional_path(o, "output")?,
-            overwrite: overwrite_mode(o.optional::<String>("overwrite")?.as_deref())?,
+            overwrite: o
+                .optional_str("overwrite", overwrite_mode)?
+                .unwrap_or(OverwriteMode::Fail),
             fsync: o.or("fsync", false)?,
         })
     })
@@ -663,15 +705,17 @@ fn create_options(
     context: &str,
 ) -> Result<CreateOptions> {
     read_options(scope, view, context, |o| {
-        let format = match o.optional::<String>("format")?.as_deref().unwrap_or("tes3") {
-            "tes3" | "bsaTes3" => ArchiveFormat::Tes3,
-            "tes4" | "bsaTes4" => ArchiveFormat::Tes4,
-            "ba2" => ArchiveFormat::Ba2,
-            value => return Err(Error::runtime(format!("unknown archive format: {value}"))),
-        };
-        let tes4_version = o.optional::<String>("tes4Version")?;
-        let ba2_kind = o.optional::<String>("ba2Kind")?;
-        let ba2_version = o.optional::<String>("ba2Version")?;
+        let format = o
+            .optional_str("format", |value| match value {
+                "tes3" | "bsaTes3" => Ok(ArchiveFormat::Tes3),
+                "tes4" | "bsaTes4" => Ok(ArchiveFormat::Tes4),
+                "ba2" => Ok(ArchiveFormat::Ba2),
+                value => Err(Error::runtime(format!("unknown archive format: {value}"))),
+            })?
+            .unwrap_or(ArchiveFormat::Tes3);
+        let tes4_version = optional_enum(o, "tes4Version", tes4_version)?;
+        let ba2_kind = optional_enum(o, "ba2Kind", ba2_kind)?;
+        let ba2_version = optional_enum(o, "ba2Version", ba2_version)?;
         let irrelevant = |option: &str, supplied: bool| {
             if supplied {
                 Err(Error::runtime(format!(
@@ -696,25 +740,9 @@ fn create_options(
         }
         Ok(CreateOptions {
             format,
-            tes4_version: match tes4_version.as_deref().unwrap_or("oblivion") {
-                "oblivion" => Tes4Version::Oblivion,
-                "fallout3" => Tes4Version::Fallout3,
-                "skyrim" => Tes4Version::Skyrim,
-                "skyrimSe" | "sse" => Tes4Version::SkyrimSe,
-                value => return Err(Error::runtime(format!("unknown TES4 version: {value}"))),
-            },
-            ba2_kind: match ba2_kind.as_deref().unwrap_or("gnrl") {
-                "gnrl" => Ba2ArchiveKind::Gnrl,
-                "dx10" => Ba2ArchiveKind::Dx10,
-                "gnmf" => Ba2ArchiveKind::Gnmf,
-                value => return Err(Error::runtime(format!("unknown BA2 kind: {value}"))),
-            },
-            ba2_version: match ba2_version.as_deref().unwrap_or("fallout4") {
-                "fallout4" => Ba2Version::Fallout4,
-                "starfield" => Ba2Version::Starfield,
-                "fallout4NextGen" => Ba2Version::Fallout4NextGen,
-                value => return Err(Error::runtime(format!("unknown BA2 version: {value}"))),
-            },
+            tes4_version: tes4_version.transpose()?.unwrap_or(Tes4Version::Oblivion),
+            ba2_kind: ba2_kind.transpose()?.unwrap_or(Ba2ArchiveKind::Gnrl),
+            ba2_version: ba2_version.transpose()?.unwrap_or(Ba2Version::Fallout4),
             compress: o.or("compress", false)?,
             fsync: o.or("fsync", false)?,
             follow_symlinks: o.or("followSymlinks", false)?,
@@ -724,9 +752,7 @@ fn create_options(
 
 fn add_options(scope: &impl Scope, view: ValueView<'_>, context: &str) -> Result<AddOptions> {
     Options::read(scope, view, context, |o| {
-        let inputs: l3i::value::Value = o.required("inputs")?;
-        let inputs = Table::from_value(inputs)
-            .map_err(|_| Error::runtime(format!("{context}.inputs must be a table")))?;
+        let inputs: Table = o.required("inputs")?;
         let inputs = o.frame().with_frame(|frame| {
             let view = inputs.push_to(frame)?;
             let len = dense_len(frame, &view, context, "inputs")?;
