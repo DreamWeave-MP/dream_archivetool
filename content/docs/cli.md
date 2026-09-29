@@ -167,15 +167,14 @@ For zsh, save the script as `_dream_archivetool` in a folder on your `$fpath`.
 Nothing else is printed: no progress, no banners. A command that writes files prints only its
 count when it is done.
 
-Output piped into a program that stops reading early, such as `head`, ends with
-`ERROR: I/O error: Broken pipe (os error 32)` on standard error and exit code 1, after the lines
-that were read. The lines are right; the message is noise.
+Output piped into a program that stops reading early, such as `head`, ends quietly with exit code
+0 when that program closes the pipe: nothing more was wanted.
 
 ## Exit codes
 
 | Code | When |
 |---|---|
-| `0` | Success, warnings or not. Also `--help`, `--version`, and no command at all |
+| `0` | Success, warnings or not. Also `--help`, `--version`, no command at all, and output whose reader stopped reading |
 | `1` | The command failed: a file that cannot be opened or read, an entry not found, an unsafe name, an existing target, a refused rewrite. What was checked before writing, was checked before anything was written |
 | `2` | The command line is wrong: an unknown command or option, a missing argument, two options that exclude each other |
 

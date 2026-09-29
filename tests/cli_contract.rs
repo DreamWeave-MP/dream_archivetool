@@ -2,7 +2,7 @@
 
 #![cfg(feature = "cli")]
 
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 
 use tempfile::TempDir;
 
@@ -195,4 +195,42 @@ fn bare_archive_names_resolve_in_the_working_directory() {
     assert!(dir.path().join("MyMod-2.bsa").is_file());
     let listed = run_here(&["list", "MyMod.bsa"]);
     assert_eq!(listed.stdout, b"extra.txt\ninput.txt\n");
+}
+
+#[test]
+fn a_closed_stdout_ends_the_program_quietly() {
+    let dir = TempDir::new().unwrap();
+    let archive = dir.path().join("big.bsa");
+    let mut builder = dream_archive::Tes3BsaBuilder::new();
+    for index in 0..4000 {
+        builder
+            .add_bytes(format!("textures/a/long/folder/name/{index:05}.dds"), b"x")
+            .unwrap();
+    }
+    builder.add_bytes("big.bin", vec![b'x'; 1 << 20]).unwrap();
+    builder.write_path(&archive).unwrap();
+    let archive = archive.to_str().unwrap();
+
+    for args in [
+        &["list", archive][..],
+        &["list", "--json", archive],
+        &["extract", archive, "big.bin", "--stdout"],
+        &["--generate-completion", "bash"],
+    ] {
+        let mut child = Command::new(bin())
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        drop(child.stdout.take());
+        let output = child.wait_with_output().unwrap();
+
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{args:?}: {:?}, {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

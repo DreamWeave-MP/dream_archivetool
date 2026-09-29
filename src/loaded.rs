@@ -192,12 +192,7 @@ impl LoadedArchive {
         let written = self
             .archive
             .extract_file_required(entry, out)
-            .map_err(|err| match err {
-                dream_archive::Error::FileNotFound(_) => {
-                    ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
-                }
-                err => ArchiveError::Archive(err.to_string()),
-            })?;
+            .map_err(|err| extraction_error(entry, err))?;
         Ok(written)
     }
 }
@@ -328,13 +323,22 @@ impl<'a> LoadedArchiveRef<'a> {
         let written = self
             .archive
             .extract_file_required(entry, out)
-            .map_err(|err| match err {
-                dream_archive::Error::FileNotFound(_) => {
-                    ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
-                }
-                err => ArchiveError::Archive(err.to_string()),
-            })?;
+            .map_err(|err| extraction_error(entry, err))?;
         Ok(written)
+    }
+}
+
+/// A failed extraction as the tool's error. An I/O failure keeps its kind, so that a reader that
+/// went away under `extract --stdout` is still a closed pipe to whoever handles it.
+fn extraction_error(entry: &[u8], err: dream_archive::Error) -> ArchiveError {
+    match err {
+        dream_archive::Error::FileNotFound(_) => {
+            ArchiveError::EntryNotFound(archive_path_bytes_to_display(entry))
+        }
+        dream_archive::Error::Io(err)
+        | dream_archive::Error::Ba2(dream_archive::ba2::Error::Io(err))
+        | dream_archive::Error::Bsa(dream_archive::bsa::Error::Io(err)) => ArchiveError::Io(err),
+        err => ArchiveError::Archive(err.to_string()),
     }
 }
 

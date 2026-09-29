@@ -154,6 +154,7 @@ fixed = [
     "On Linux and macOS, extracted files and new archives get `0666` less the umask, as any new file does, and an archive `add` replaces in place keeps its mode. Before, every file written was `0600`, and `add` took other users' read access away from an archive.",
     "`add` to a compressed BA2 keeps it compressed: each kept file stays compressed or stored as it was, and new files and textures are compressed when anything in the archive is. Before, an update of a general BA2 stored every file uncompressed, kept ones included, and an update of a zlib texture BA2 stored the new textures uncompressed.",
     "`verify` reports each of `unsafe_paths` (Luau `unsafePaths`) by its normalized key, as `list` and the duplicate rows do, with the stored bytes in `raw_path_bytes_hex`. Before, `path` and `path_bytes_hex` there were the stored bytes, backslashes and case included.",
+    "Output piped into a program that stops reading early, such as `head`, ends quietly with exit code 0. Before, it ended with `ERROR: I/O error: Broken pipe` (`archive error:` for JSON and `extract --stdout`) and exit code 1, and `--generate-completion` panicked.",
 ]
 changed = [
     "`verify` and extraction plans no longer copy every entry path into a set to find duplicates.",

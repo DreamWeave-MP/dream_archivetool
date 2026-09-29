@@ -21,7 +21,10 @@ pub(crate) fn run_from_env(stdout: &mut dyn Write) -> Result<()> {
 
 fn run(cli: Cli, stdout: &mut dyn Write) -> Result<()> {
     if let Some(shell) = cli.generate_completion {
-        clap_complete::generate(shell, &mut Cli::command(), "dream_archivetool", stdout);
+        // clap_complete panics when its writer fails, so the script is written out here.
+        let mut script = Vec::new();
+        clap_complete::generate(shell, &mut Cli::command(), "dream_archivetool", &mut script);
+        stdout.write_all(&script)?;
         return Ok(());
     }
     if cli.generate_manpage {
@@ -319,9 +322,7 @@ fn archive_entry_bytes(entry: &std::ffi::OsStr) -> Cow<'_, [u8]> {
 fn write_info(stdout: &mut dyn Write, archive: PathBuf, json: bool) -> Result<()> {
     let info = ArchiveTool::info(archive)?;
     if json {
-        serde_json::to_writer_pretty(&mut *stdout, &info)
-            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-        writeln!(stdout)?;
+        write_json(stdout, &info)?;
     } else {
         writeln!(stdout, "format: {}", format_name(info.format))?;
         writeln!(stdout, "files: {}", info.file_count)?;
@@ -332,10 +333,7 @@ fn write_info(stdout: &mut dyn Write, archive: PathBuf, json: bool) -> Result<()
 fn write_list(stdout: &mut dyn Write, archive: PathBuf, long: bool, json: bool) -> Result<()> {
     let entries = ArchiveTool::list(archive)?;
     if json {
-        serde_json::to_writer_pretty(&mut *stdout, &entries)
-            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-        writeln!(stdout)?;
-        return Ok(());
+        return write_json(stdout, &entries);
     }
     for entry in entries {
         if long {
@@ -358,10 +356,7 @@ fn write_verify(
 ) -> Result<()> {
     let report = ArchiveTool::verify(archive, &VerifyOptions { read_payloads })?;
     if json {
-        serde_json::to_writer_pretty(&mut *stdout, &report)
-            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-        writeln!(stdout)?;
-        return Ok(());
+        return write_json(stdout, &report);
     }
     writeln!(stdout, "format: {}", format_name(report.format))?;
     writeln!(stdout, "files: {}", report.file_count)?;
@@ -566,8 +561,13 @@ fn handle_add_command(
 }
 
 fn write_json<T: serde::Serialize>(stdout: &mut dyn Write, value: &T) -> Result<()> {
-    serde_json::to_writer_pretty(&mut *stdout, value)
-        .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
+    serde_json::to_writer_pretty(&mut *stdout, value).map_err(|err| {
+        if err.is_io() {
+            dream_archivetool::ArchiveError::Io(err.into())
+        } else {
+            dream_archivetool::ArchiveError::Archive(err.to_string())
+        }
+    })?;
     writeln!(stdout)?;
     Ok(())
 }
@@ -596,17 +596,12 @@ fn write_summary_json(
     stdout: &mut dyn Write,
     summary: &dream_archivetool::ExtractSummary,
 ) -> Result<()> {
-    serde_json::to_writer_pretty(&mut *stdout, summary)
-        .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-    writeln!(stdout)?;
-    Ok(())
+    write_json(stdout, summary)
 }
 
 fn write_count(stdout: &mut dyn Write, count: usize, json: bool) -> Result<()> {
     if json {
-        serde_json::to_writer_pretty(&mut *stdout, &serde_json::json!({ "files": count }))
-            .map_err(|err| dream_archivetool::ArchiveError::Archive(err.to_string()))?;
-        writeln!(stdout)?;
+        write_json(stdout, &serde_json::json!({ "files": count }))?;
     } else {
         writeln!(stdout, "files: {count}")?;
     }
