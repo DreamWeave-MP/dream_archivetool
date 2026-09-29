@@ -26,6 +26,9 @@ donate = "https://ko-fi.com/magicaldave"
 format = "binary"
 binary = "dream_archivetool"
 crate = "dream_archivetool"
+# What the workflow packs beside the program: StroggForge's default include_files, since
+# build.yml sets none.
+include = ["README.md", "LICENSE"]
 
 [[platforms]]
 os = "windows"
