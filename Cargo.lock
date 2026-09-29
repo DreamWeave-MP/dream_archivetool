@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "dream-path",
  "encoding_rs",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "dream_archivetool"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -554,7 +554,7 @@ dependencies = [
 
 [[package]]
 name = "l3i"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "cc",
  "dream-net",
