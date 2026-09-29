@@ -86,6 +86,18 @@ pub(crate) fn safe_target_path_normalized(root: &Path, normalized: &[u8]) -> Res
     Ok(target)
 }
 
+/// The checks [`safe_target_path_normalized`] makes, without building the path.
+pub(crate) fn validate_target_components(normalized: &[u8]) -> Result<()> {
+    validate_archive_path_bytes_for_extraction(normalized)?;
+    for component in normalized.split(|byte| *byte == b'/') {
+        if component == b"." {
+            continue;
+        }
+        ensure_platform_target_component_bytes(component, normalized)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn flat_target_path_normalized(root: &Path, normalized: &[u8]) -> Result<PathBuf> {
     validate_archive_path_bytes_for_extraction(normalized)?;
     let normalized_path = NormalizedPath::new(normalized);

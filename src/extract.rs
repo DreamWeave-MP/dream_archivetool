@@ -466,22 +466,30 @@ fn planned_extract_targets(
     entries: Vec<crate::loaded::LoadedEntry>,
 ) -> Result<Vec<PlannedExtractTarget>> {
     let mut targets = Vec::with_capacity(entries.len());
-    let mut seen = BTreeSet::new();
     for entry in entries {
         crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path)?;
         let path = safe_target_path_normalized(root, &entry.path)?;
-        if !seen.insert(path.clone()) {
-            return Err(ArchiveError::Archive(format!(
-                "duplicate extraction target after normalization: {}",
-                path.display()
-            )));
-        }
         targets.push(PlannedExtractTarget {
             archive_path: entry.path,
             path,
         });
     }
+    reject_duplicate_targets(&targets)?;
     Ok(targets)
+}
+
+/// Two entries may not share an output path; found by sorting borrowed paths, not by cloning
+/// every one into a set.
+fn reject_duplicate_targets(targets: &[PlannedExtractTarget]) -> Result<()> {
+    let mut paths: Vec<&Path> = targets.iter().map(|target| target.path.as_path()).collect();
+    paths.sort_unstable();
+    match paths.windows(2).find(|pair| pair[0] == pair[1]) {
+        Some(pair) => Err(ArchiveError::Archive(format!(
+            "duplicate extraction target after normalization: {}",
+            pair[0].display()
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn planned_extract_targets_from_paths(
@@ -490,7 +498,6 @@ fn planned_extract_targets_from_paths(
     preserve_paths: bool,
 ) -> Result<Vec<PlannedExtractTarget>> {
     let mut targets = Vec::with_capacity(entries.len());
-    let mut seen = BTreeSet::new();
     for entry in entries {
         let archive_path = crate::paths::normalize_safe_archive_path_bytes(entry)?;
         let path = if preserve_paths {
@@ -498,14 +505,9 @@ fn planned_extract_targets_from_paths(
         } else {
             flat_target_path_normalized(root, &archive_path)?
         };
-        if !seen.insert(path.clone()) {
-            return Err(ArchiveError::Archive(format!(
-                "duplicate extraction target after normalization: {}",
-                path.display()
-            )));
-        }
         targets.push(PlannedExtractTarget { archive_path, path });
     }
+    reject_duplicate_targets(&targets)?;
     Ok(targets)
 }
 

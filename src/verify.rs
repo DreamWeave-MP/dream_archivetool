@@ -7,7 +7,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::paths::{
-    archive_path_bytes_to_display, archive_path_bytes_to_hex, safe_target_path_normalized,
+    archive_path_bytes_to_display, archive_path_bytes_to_hex, validate_target_components,
 };
 use crate::{ArchiveFormat, Result};
 
@@ -84,22 +84,22 @@ pub(crate) fn verify_loaded_archive(
 ) -> Result<VerifyReport> {
     let info = crate::archive::archive_info_ref(label, archive);
     let entries = archive.list_loaded_entries()?;
-    let mut seen: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+    let mut seen: BTreeMap<&[u8], &[u8]> = BTreeMap::new();
     let mut duplicate_normalized_paths = Vec::new();
     let mut unsafe_paths = Vec::new();
 
     for entry in &entries {
-        if let Some(previous_raw_path) = seen.get(&entry.path) {
+        if let Some(previous_raw_path) = seen.get(entry.path.as_slice()) {
             duplicate_normalized_paths.push(duplicate_path_issue(
                 &entry.path,
                 previous_raw_path,
                 &entry.raw_path,
             ));
         } else {
-            seen.insert(entry.path.clone(), entry.raw_path.clone());
+            seen.insert(&entry.path, &entry.raw_path);
         }
         if crate::paths::validate_archive_path_bytes_for_extraction(&entry.raw_path).is_err()
-            || safe_target_path_normalized(Path::new("."), &entry.path).is_err()
+            || validate_target_components(&entry.path).is_err()
         {
             unsafe_paths.push(path_issue(&entry.raw_path));
         }
