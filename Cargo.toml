@@ -43,3 +43,8 @@ harness = false
 name = "dream_archivetool"
 path = "src/main.rs"
 required-features = ["cli"]
+
+[[bench]]
+name = "luau_boundary"
+harness = false
+required-features = ["standalone-lua"]
