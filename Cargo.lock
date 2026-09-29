@@ -395,7 +395,7 @@ dependencies = [
 
 [[package]]
 name = "dream_archive"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "dream-path",
  "encoding_rs",
@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "dream_archivetool"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "clap_complete",
