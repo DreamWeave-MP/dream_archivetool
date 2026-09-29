@@ -678,11 +678,15 @@ fn directory_sync_targets_for_create(parent: &Path) -> Vec<PathBuf> {
     sync_targets
 }
 
+#[cfg(unix)]
 fn sync_parent_dir(parent: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        fs::File::open(parent)?.sync_all()?;
-    }
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+/// Windows directories cannot be opened for syncing; the file's own sync is all there is.
+#[cfg(not(unix))]
+fn sync_parent_dir(_parent: &Path) -> Result<()> {
     Ok(())
 }
 

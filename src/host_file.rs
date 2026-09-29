@@ -20,7 +20,10 @@ pub(crate) fn parent_directory(path: &Path) -> &Path {
 /// created the way any new file is, with 0666 less the umask; `NamedTempFile::new_in` would make
 /// it 0600, and the rename keeps that, leaving every archive and extracted file private.
 pub(crate) fn output_temp_file(directory: &Path) -> io::Result<NamedTempFile> {
+    #[cfg(unix)]
     let mut builder = tempfile::Builder::new();
+    #[cfg(not(unix))]
+    let builder = tempfile::Builder::new();
     #[cfg(unix)]
     builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
     builder.tempfile_in(directory)
