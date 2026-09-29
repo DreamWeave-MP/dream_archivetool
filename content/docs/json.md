@@ -25,7 +25,7 @@ release. Read the fields you need and ignore the rest.
 | `format` | `"tes3"`, `"tes4"` or `"ba2"` |
 | `path` | The normalized name as text, for people. See [Archive paths](@/docs/paths.md#path-and-path-bytes-hex) |
 | `path_bytes_hex` | The normalized name's bytes in lowercase hex, for scripts |
-| `size` | The file's size in bytes, or `null` where the format does not record it (TES4) |
+| `size` | The file's size in bytes; `null` only for a TES4 file whose data lies outside the archive |
 | `compressed_size` | The stored size of a compressed file, or `null` when it is stored uncompressed |
 
 ## info

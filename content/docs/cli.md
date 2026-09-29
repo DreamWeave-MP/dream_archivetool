@@ -39,7 +39,7 @@ Prints every named entry's normalized path, one per line, in the archive's order
 | Argument or option | Meaning |
 |---|---|
 | `<ARCHIVE>` | The archive |
-| `-l`, `--long` | Put each size in front, right-aligned in ten columns; `-` where the format records none. Not with `--json` |
+| `-l`, `--long` | Put each size in front, right-aligned in ten columns; `-` for a TES4 file whose data lies outside the archive. Not with `--json` |
 | `--json` | Print [an array](@/docs/json.md#list) with each path, its key and its sizes |
 
 ## verify

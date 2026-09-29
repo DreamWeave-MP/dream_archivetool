@@ -310,6 +310,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_metadata_diff_of_uncompressed_tes4_archives_compares_sizes() {
+        let dir = std::env::temp_dir().join(format!(
+            "dream_archivetool-diff-tes4-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let write = |name: &str, payload: &[u8]| {
+            let path = dir.join(name);
+            let mut builder = dream_archive::Tes4BsaBuilder::new();
+            builder.add_bytes("meshes/same.nif", b"same").unwrap();
+            builder.add_bytes("meshes/grown.nif", payload).unwrap();
+            builder.write_path(&path).unwrap();
+            path
+        };
+        let old = write("old.bsa", b"old");
+        let new = write("new.bsa", b"newer");
+
+        let report = diff_archives(&old, &new, &DiffOptions::default()).unwrap();
+
+        assert_eq!(report.comparison, DiffComparison::MetadataOnly);
+        assert_eq!(report.unchanged, 1);
+        assert_eq!(report.changed.len(), 1);
+        assert_eq!(report.changed[0].path, "meshes/grown.nif");
+        assert_eq!(report.changed[0].old.size, Some(3));
+        assert_eq!(report.changed[0].new.size, Some(5));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn streaming_fnv_matches_whole_buffer_hash() {
         let mut writer = Fnv1a64Writer::default();
         writer.write_all(b"abc").unwrap();

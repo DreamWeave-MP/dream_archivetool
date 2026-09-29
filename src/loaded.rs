@@ -82,70 +82,7 @@ impl LoadedArchive {
     }
 
     pub(crate) fn list_loaded_entries(&self) -> Result<Vec<LoadedEntry>> {
-        Ok(match &self.archive {
-            Archive::Tes3Bsa(archive) => archive
-                .entries()
-                .iter()
-                .map(|entry| {
-                    let raw_path = entry.path().as_bytes().to_vec();
-                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
-                    Ok(LoadedEntry {
-                        raw_path,
-                        path,
-                        size: Some(entry.file().size.into()),
-                        compressed_size: None,
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?,
-            Archive::Tes4Bsa(archive) => archive
-                .entries()
-                .iter()
-                .filter_map(|entry| {
-                    let path = entry.path()?;
-                    let raw_path = path.as_bytes().to_vec();
-                    let path = normalize_lookup_archive_path_bytes(&raw_path);
-                    let record = entry.file();
-                    Some(path.map(|path| {
-                        LoadedEntry {
-                            raw_path,
-                            path,
-                            size: None,
-                            compressed_size: record
-                                .is_compressed(archive.info().archive_flags)
-                                .then_some(record.stored_size.into()),
-                        }
-                    }))
-                })
-                .collect::<Result<Vec<_>>>()?,
-            Archive::BA2(archive) => archive
-                .entries()
-                .iter()
-                .filter(|entry| !entry.name().is_empty())
-                .map(|entry| {
-                    let size = entry
-                        .file()
-                        .chunks()
-                        .iter()
-                        .map(|chunk| u64::from(chunk.size()))
-                        .sum();
-                    let compressed_size = entry
-                        .file()
-                        .chunks()
-                        .iter()
-                        .filter(|chunk| chunk.is_compressed())
-                        .map(|chunk| u64::from(chunk.packed_size()))
-                        .sum::<u64>();
-                    let raw_path = entry.name().as_bytes().to_vec();
-                    let path = normalize_lookup_archive_path_bytes(&raw_path)?;
-                    Ok(LoadedEntry {
-                        raw_path,
-                        path,
-                        size: Some(size),
-                        compressed_size: (compressed_size > 0).then_some(compressed_size),
-                    })
-                })
-                .collect::<Result<Vec<_>>>()?,
-        })
+        self.as_ref().list_loaded_entries()
     }
 
     pub fn read_entry_bytes(&self, entry: &str) -> Result<Vec<u8>> {
@@ -247,7 +184,9 @@ impl<'a> LoadedArchiveRef<'a> {
                         LoadedEntry {
                             raw_path,
                             path,
-                            size: None,
+                            // From the index, or from the four bytes a compressed file's data
+                            // starts with; None when that data is out of bounds.
+                            size: archive.extracted_len(entry).ok(),
                             compressed_size: record
                                 .is_compressed(archive.info().archive_flags)
                                 .then_some(record.stored_size.into()),
@@ -348,6 +287,55 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    #[test]
+    fn tes4_entries_list_their_sizes() {
+        use dream_archive::bsa::tes4::{ArchiveVersion, NameMode};
+
+        let dir = std::env::temp_dir().join(format!(
+            "dream_archivetool-tes4-sizes-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        for (version, name_mode, compressed) in [
+            (ArchiveVersion::v103, NameMode::Strings, false),
+            (ArchiveVersion::v104, NameMode::StringsAndEmbedded, false),
+            (ArchiveVersion::v104, NameMode::Embedded, true),
+            (ArchiveVersion::v105, NameMode::Strings, true),
+        ] {
+            let archive_path = dir.join("test.bsa");
+            let mut builder = dream_archive::Tes4BsaBuilder::new();
+            builder.set_version(version);
+            builder.set_name_mode(name_mode);
+            builder.set_compressed(compressed);
+            builder.add_bytes("meshes/a.nif", vec![b'a'; 300]).unwrap();
+            builder.add_bytes("meshes/b.nif", b"bb").unwrap();
+            builder.write_path(&archive_path).unwrap();
+
+            let entries = LoadedArchive::open(&archive_path)
+                .unwrap()
+                .list_entries()
+                .unwrap();
+            let mut sizes: Vec<_> = entries
+                .iter()
+                .map(|entry| (entry.path.as_str(), entry.size))
+                .collect();
+            sizes.sort_unstable();
+            assert_eq!(
+                sizes,
+                vec![("meshes/a.nif", Some(300)), ("meshes/b.nif", Some(2))],
+                "{version:?} {name_mode:?} compressed {compressed}"
+            );
+            assert_eq!(
+                entries.iter().all(|entry| entry.compressed_size.is_some()),
+                compressed
+            );
+        }
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn streams_entries_without_collecting_first() {

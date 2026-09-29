@@ -70,7 +70,7 @@ One named entry, from `list`.
 |---|---|
 | `path: String` | The normalized name, as text: bytes that are not UTF-8 become U+FFFD |
 | `path_bytes_hex: String` | The normalized name's bytes as lowercase hex: the lookup key |
-| `size: Option<u64>` | Its size, where the format records one; `None` for TES4 |
+| `size: Option<u64>` | Its size; `None` only for a TES4 entry whose data lies outside the archive |
 | `compressed_size: Option<u64>` | Its stored size, when it is compressed |
 
 `path_bytes_hex` is `#[serde(default)]`, so JSON saved without it still deserializes.

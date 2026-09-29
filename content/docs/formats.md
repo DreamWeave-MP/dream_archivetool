@@ -27,7 +27,7 @@ The format is found from the file's header, never from its extension. A BA2 of c
 | | TES3 | TES4 | BA2 |
 |---|---|---|---|
 | Names | Always | In name tables, beside each file, both, or not at all (hash-only) | In a name table, when the archive has one |
-| `size` | Yes | No: `null` in JSON, `-` in `list --long` | Yes |
+| `size` | Yes | Yes: an uncompressed file's from the index, a compressed file's from the first four bytes of its data | Yes |
 | `compressed_size` | Never compressed | For compressed files | For compressed files |
 
 An entry without a name can be counted but not listed, extracted by name, compared or rewritten.

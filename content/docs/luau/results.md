@@ -75,8 +75,8 @@ stored bytes, and for a duplicate `collidingRawPathBytesHex`, the earlier entry'
 
 `DiffEntry` has `path`, `pathBytesHex`, `size`, `compressedSize` and `payloadFingerprint`.
 `DiffChange` has `path`, `pathBytesHex`, and `old` and `new`, each a `DiffState` with `size`,
-`compressedSize` and `payloadFingerprint`. Those three are `integer?`: `nil` where the format
-records no size, the entry is not compressed, or no fingerprint was asked for.
+`compressedSize` and `payloadFingerprint`. Those three are `integer?`: `nil` for a TES4 file
+whose data lies outside the archive, an entry that is not compressed, or no fingerprint asked for.
 `payloadFingerprint` carries all 64 bits of the FNV-1a hash.
 
 Sizes and fingerprints are Luau `integer` values, which take `==` and `tostring`, and nothing

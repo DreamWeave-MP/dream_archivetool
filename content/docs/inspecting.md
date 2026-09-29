@@ -70,9 +70,10 @@ dream_archivetool list --json Morrowind.bsa
 
 One path per line, in the archive's own order. Paths are shown
 [normalized](@/docs/paths.md): lowercase ASCII, forward slashes. `--long` puts the size in front,
-right-aligned in ten columns; a TES4 archive does not record sizes in its index, so its sizes
-are `-`. `--json` gives each entry's path, its `path_bytes_hex` lookup key, its size and, for a
-compressed entry, its stored size.
+right-aligned in ten columns. A TES4 index gives an uncompressed file's size; a compressed file's
+is read from the first four bytes of its data, and `-` marks a file whose data lies outside the
+archive. `--json` gives each entry's path, its `path_bytes_hex` lookup key,
+its size and, for a compressed entry, its stored size.
 
 An entry with no name, as in a hash-only TES4 archive, is not listed: there is nothing to print
 and nothing to extract it by. `info` counts it, and `verify` reports it.
@@ -145,9 +146,7 @@ unchanged: 2
 Entries are matched by normalized path, so `Textures\A.dds` in one archive and `textures/a.dds`
 in the other are the same file. Without `--hash`, two entries are the same when their size and
 stored size are; that is quick, and it misses a file whose bytes changed but whose size did not.
-A TES4 archive's index has no sizes at all, only the stored size of a compressed file, so
-between uncompressed TES4 archives every entry present in both counts as unchanged. Use `--hash`
-there.
+Use `--hash` when that matters.
 
 `--hash` reads both archives in full and compares a fingerprint of every file's bytes: 64-bit
 FNV-1a, fast and good at telling files apart, and no defense against someone who makes two files
