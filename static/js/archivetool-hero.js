@@ -2386,18 +2386,18 @@ async function mount(root) {
     // The lamp and the tilt follow the pointer; idle, the lamp drifts round the machine.
     const idle = !pointerActive || now - lastPointer > 4000;
     if (idle) {
-      tmp.set(Math.sin(time * 0.35) * 1.6, 0.4 + Math.cos(time * 0.27) * 0.5, 2.2).multiplyScalar(scale).add(anchor);
+      tmp.set(Math.sin(time * 0.35) * 1.8, 0.3 + Math.cos(time * 0.27) * 0.5, 2.8).multiplyScalar(scale).add(anchor);
       lampTarget.copy(tmp);
     } else {
       raycaster.setFromCamera(pointer, camera);
-      plane.constant = -(anchor.z + 2.0 * scale);
+      plane.constant = -(anchor.z + 2.6 * scale);
       if (raycaster.ray.intersectPlane(plane, tmp)) lampTarget.copy(tmp);
       plane.constant = 0;
     }
     presence += ((idle ? 0.4 : 1) - presence) * (reduceMotion ? 1 : Math.min(1, dt * 3));
     lampPosition.lerp(lampTarget, reduceMotion ? 1 : Math.min(1, dt * 6));
     lamp.position.copy(lampPosition);
-    lamp.intensity = presence * 4.5 * scale * scale;
+    lamp.intensity = presence * 2.4 * scale * scale;
     const follow = reduceMotion ? 1 : Math.min(1, dt * 2);
     tilt.x += ((idle ? 0 : pointer.y * 0.05) - tilt.x) * follow;
     tilt.y += ((idle ? Math.sin(time * 0.13) * 0.03 : pointer.x * 0.08) - tilt.y) * follow;
@@ -2648,7 +2648,7 @@ async function mount(root) {
     if (!gag) {
       const refusing = run && Number.isFinite(run.abortAt) && run.abortWhy === 'unsafe' && time >= run.abortAt - 0.4 && time < run.abortAt + 1.0;
       scanTint = refusing ? bad : verdictNow === 2 ? amber : ok;
-      scanPower = 0.35 + scanning * 0.9 + (refusing ? 0.8 : 0);
+      scanPower = 0.3 + scanning * 0.6 + (refusing ? 0.7 : 0);
     }
     beamUniforms.uColor.value.copy(scanTint);
     beamUniforms.uPower.value = scanPower;
@@ -2657,12 +2657,12 @@ async function mount(root) {
     beltUniforms.uScan.value.copy(scanTint);
     beltUniforms.uScanPower.value = scanPower;
     lens.material.uniforms.uColor.value.copy(scanTint);
-    lens.material.uniforms.uPower.value = 0.6 + scanPower;
+    lens.material.uniforms.uPower.value = 0.3 + scanPower * 0.5;
     scanLight.color.copy(scanTint);
     tmp.set(GATE.x, BELT.y + 0.15, 0.1).sub(CENTER);
     rig.localToWorld(tmp);
     scanLight.position.copy(tmp);
-    scanLight.intensity = scanPower * 2.2 * scale * scale;
+    scanLight.intensity = scanPower * 0.8 * scale * scale;
     // The belt moves while cards ride it.
     const beltMoving = run && time > run.start + 1.5 && time < (Number.isFinite(run.abortAt) ? run.abortAt : run.flowUntil) || (gag && time - gag.at > 0.6 && time - gag.at < 2.9);
     beltUniforms.uOffset.value += (beltMoving ? SPEED : 0) * dt;
