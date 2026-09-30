@@ -609,6 +609,133 @@
       "groups": [],
       "extensions": {},
       "critical_extensions": []
+    },
+    {
+      "version": "1.1.0",
+      "locked_from": "262432e9acb9e772dbc1310ad1371e6d8125aa47",
+      "artifacts": [
+        {
+          "id": "windows-x64",
+          "format": "binary",
+          "filename": "dream_archivetool-Windows-X64.zip",
+          "media_type": "application/zip",
+          "size": 697038,
+          "digests": {
+            "sha256": "d233a7dae6ebe2fd23ee300e383315e8bcb0f06f25975ea657c82deaf9698e8c"
+          },
+          "platform": {
+            "os": "windows",
+            "arch": "x86_64"
+          }
+        },
+        {
+          "id": "macos-arm64",
+          "format": "binary",
+          "filename": "dream_archivetool-macOS-ARM64.zip",
+          "media_type": "application/zip",
+          "size": 827985,
+          "digests": {
+            "sha256": "3b7b524b834aba5fe70c4041db7e3edc650ca9a58bd57ca3fb1e434de566e461"
+          },
+          "platform": {
+            "os": "macos",
+            "arch": "aarch64"
+          }
+        },
+        {
+          "id": "macos-x64",
+          "format": "binary",
+          "filename": "dream_archivetool-macOS-X64.zip",
+          "media_type": "application/zip",
+          "size": 869429,
+          "digests": {
+            "sha256": "8eaef0d94f6b3c53d71859bec35bd29628f59230624fdddaceeb247ad09de283"
+          },
+          "platform": {
+            "os": "macos",
+            "arch": "x86_64"
+          }
+        },
+        {
+          "id": "linux-x64",
+          "format": "binary",
+          "filename": "dream_archivetool-Linux-X64.zip",
+          "media_type": "application/zip",
+          "size": 907214,
+          "digests": {
+            "sha256": "c6166e20f8f1688dd898f09a7ca498296fbcddde42221c5493166a1d8cab0dcf"
+          },
+          "platform": {
+            "os": "linux",
+            "arch": "x86_64"
+          }
+        },
+        {
+          "id": "android-arm64",
+          "format": "binary",
+          "filename": "dream_archivetool-Android-ARM64.zip",
+          "media_type": "application/zip",
+          "size": 894814,
+          "digests": {
+            "sha256": "00b07a16309427ef27bd1210daffe6cf434bfd5a61035e7fb057fc8b9b24e547"
+          },
+          "platform": {
+            "os": "android",
+            "arch": "aarch64"
+          }
+        },
+        {
+          "id": "linux-arm64-portmaster",
+          "format": "binary",
+          "filename": "dream_archivetool-Portmaster-ARM64.zip",
+          "media_type": "application/zip",
+          "size": 890868,
+          "digests": {
+            "sha256": "790d44dc26141681bf270b5824e5344c2fe8a26471d05f510b9cf91b09435e0c"
+          },
+          "platform": {
+            "os": "linux",
+            "arch": "aarch64",
+            "variant": "portmaster"
+          }
+        }
+      ],
+      "runtimes": {},
+      "platforms": [
+        {
+          "os": "windows",
+          "arch": "x86_64"
+        },
+        {
+          "os": "macos",
+          "arch": "aarch64"
+        },
+        {
+          "os": "macos",
+          "arch": "x86_64"
+        },
+        {
+          "os": "linux",
+          "arch": "x86_64"
+        }
+      ],
+      "provides": [],
+      "relationships": [],
+      "components": [
+        {
+          "id": "main",
+          "name": "dream_archivetool",
+          "path": ".",
+          "required": true,
+          "default": true,
+          "requires": [],
+          "conflicts": [],
+          "suggested_with": []
+        }
+      ],
+      "groups": [],
+      "extensions": {},
+      "critical_extensions": []
     }
   ]
 }
