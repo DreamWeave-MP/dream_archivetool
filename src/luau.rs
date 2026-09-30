@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Luau bindings for the `dream_archivetool` policy layer as an
 //! [l3i](https://github.com/DreamWeave-MP/l3i) extension: `dream.archivetool`, module

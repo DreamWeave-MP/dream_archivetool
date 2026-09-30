@@ -37,7 +37,7 @@ github_username = "DreamWeave-MP"
 github_project = "dream_archivetool"
 
 logo_text = "dream_archivetool"
-footer_text = "dream_archivetool · GPL-3.0-or-later · DreamWeave contributors"
+footer_text = "dream_archivetool · MIT OR Apache-2.0 · DreamWeave contributors"
 favicon = "img/triad_tools.png"
 
 palette = "crimson"

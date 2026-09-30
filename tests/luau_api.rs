@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The `dream.archivetool` extension composed with `dream.archive`: the plan's types check
 //! and a strict script requiring both modules type checks (under the `luau-analysis`

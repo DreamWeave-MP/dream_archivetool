@@ -19,8 +19,8 @@ kind = "reference"
 | `dream_archivetool-Portmaster-ARM64.zip` | ARM64 Linux handhelds with glibc 2.34 or newer, run from a terminal or over SSH |
 
 Every download is the same command line, with every command. Each archive holds the program,
-`dream_archivetool-README.md`, `dream_archivetool-LICENSE`, and a Sigstore bundle for the
-program, such as `dream_archivetool-Linux-X64.bundle`.
+`dream_archivetool-README.md`, `dream_archivetool-LICENSE-MIT`, `dream_archivetool-LICENSE-APACHE`,
+and a Sigstore bundle for the program, such as `dream_archivetool-Linux-X64.bundle`.
 
 ## Building it yourself
 
@@ -71,8 +71,8 @@ Each GitHub release also links every archive's VirusTotal scan.
 
 ## License
 
-GPL-3.0-or-later, since the first release. dream_archive, which it is built on, is
-GPL-3.0-only.
+MIT OR Apache-2.0, at your option. Releases up to and including 1.0.0 were GPL-3.0-or-later.
+dream_archive, which it is built on, is MIT OR Apache-2.0 as well.
 
 ## What is tested
 

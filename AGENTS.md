@@ -2,7 +2,7 @@
 
 ## Repository shape
 
-- Library plus CLI: package `dream_archivetool`, edition `2024`, MSRV `1.88`, license `GPL-3.0-or-later`.
+- Library plus CLI: package `dream_archivetool`, edition `2024`, MSRV `1.88`, license `MIT OR Apache-2.0`.
   `src/archive.rs` is the `ArchiveTool` facade, `src/extract.rs`, `src/create.rs`, `src/diff.rs`,
   `src/verify.rs` the policy operations, `src/loaded.rs` the owned/borrowed archive views,
   `src/cli/` the binary.

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The Luau boundary of the policy layer: plans, reports, and batch extraction from scripts.
 //!

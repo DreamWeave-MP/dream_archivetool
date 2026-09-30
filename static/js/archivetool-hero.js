@@ -625,7 +625,7 @@ function boardTexture(width, font) {
   label('U1  MORROWIND.BSA', CHIP.x - CHIP.w / 2, CHIP.d / 2 + 0.2);
   label('U2  POLICY', GATE.x - 0.2, 0.62);
   label('J1  OUT/', CASE.x0, CASE.z1 + 0.14);
-  label('DREAM_ARCHIVETOOL 1.0.0   GPL-3.0-or-later', -2.9, 1.45, 0.06);
+  label('DREAM_ARCHIVETOOL 1.0.0   MIT OR Apache-2.0', -2.9, 1.45, 0.06);
   label('--dry-run', 0.5, -0.62, 0.05);
   label('R12', -0.4, 0.8, 0.05);
   label('C7', 0.9, 0.95, 0.05);
