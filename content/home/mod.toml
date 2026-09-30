@@ -175,3 +175,13 @@ into the host's l3i `RuntimePlan`; a host that wants the old globals adds
 `:toTable()` first, read sizes as numbers, and compare fingerprints as integers.
 [Embedding Luau](@/docs/luau-hosts.md) has the setup and every change.
 """
+
+[[releases]]
+version = "1.1.0"
+date = 2026-09-30
+summary = "Relicensed as MIT OR Apache-2.0 and built on l3i 1.1.0."
+changed = [
+    "Relicensed from GPL-3.0 to MIT OR Apache-2.0: this is the first release under the new terms, and releases up to and including 1.0.0 stay GPL.",
+    "Requires dream_archive 1.1.0, its first MIT OR Apache-2.0 release.",
+    "l3i 1.1.0 comes from crates.io; the `@dream/archivetool` module is unchanged.",
+]
