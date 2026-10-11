@@ -658,7 +658,7 @@ local counter = 0
 --- A temporary file's path beside `target`, to write and then rename over it.
 local function temporaryBeside(folder: string, target: string): string
   counter += 1
-  return join(folder, `.{fileName(target) or 'archive'}.dreamwind-tool-{Salt}-{counter}`)
+  return join(folder, `.{fileName(target) or 'archive'}.dream-archivetool-{Salt}-{counter}`)
 end
 
 local function rename(from: string, to: string)
