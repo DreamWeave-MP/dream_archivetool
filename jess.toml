@@ -5,18 +5,21 @@ id = "org.dreamweave.dream-archivetool"
 version = "0.1.0"
 jess_api = "1"
 include = ["src"]
-tests = ["tests/run.luau", "tests/style.luau"]
+tests = ["tests/run.luau", "tests/commands.luau", "tests/style.luau"]
 
 [dependencies]
 "org.dreamweave.dream-archive" = "0.1"
 
 [modules]
 "@dream-archivetool" = "src/init.luau"
+"@dream-archivetool/commands" = "src/commands.luau"
 
-# The module is inert API: it does nothing until something requires it, and runs with the
-# authority of whatever calls it.
+# Every module here is inert API: it does nothing until something requires it, and runs with the
+# authority of whatever calls it. The library and its commands open archives and read the files
+# they pack, and write what they extract and build, so their caller needs to read and write
+# files.
 
 [[layer]]
 id = "dream-archivetool.core"
 requires = ["dream-archive.core"]
-exports = ["@dream-archivetool"]
+exports = ["@dream-archivetool", "@dream-archivetool/commands"]
