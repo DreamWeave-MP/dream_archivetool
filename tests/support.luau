@@ -48,43 +48,43 @@ export type Tes3File = { name: string, data: string }
 
 --- A TES3 BSA of `files` in the given order, hashed by `hashFile`.
 local function tes3(files: { Tes3File }, hashFile: (string) -> { lo: number, hi: number }): string
-  local w = writer()
+  local output = writer()
   local namesLength = 0
   for _, file in files do
     namesLength += #file.name + 1
   end
 
-  w.u32(0x100)
-  w.u32(12 * #files + namesLength)
-  w.u32(#files)
+  output.u32(0x100)
+  output.u32(12 * #files + namesLength)
+  output.u32(#files)
   local offset = 0
   for _, file in files do
-    w.u32(#file.data)
-    w.u32(offset)
+    output.u32(#file.data)
+    output.u32(offset)
     offset += #file.data
   end
 
   local nameOffset = 0
   for _, file in files do
-    w.u32(nameOffset)
+    output.u32(nameOffset)
     nameOffset += #file.name + 1
   end
 
   for _, file in files do
-    w.raw(file.name .. '\0')
+    output.raw(file.name .. '\0')
   end
 
   for _, file in files do
     local hash = hashFile(file.name)
-    w.u32(hash.lo)
-    w.u32(hash.hi)
+    output.u32(hash.lo)
+    output.u32(hash.hi)
   end
 
   for _, file in files do
-    w.raw(file.data)
+    output.raw(file.data)
   end
 
-  return w.done()
+  return output.done()
 end
 
 export type Texture = {

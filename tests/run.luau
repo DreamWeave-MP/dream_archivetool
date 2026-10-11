@@ -431,9 +431,9 @@ local function filesystemSuite(root: string)
     local updated = archive.openPath(`{base}/tex.ba2`)
     expect(updated:info().version).toBe(8)
     -- A texture comes back with the header the archive rebuilds; its pixels are what went in.
-    local a, b = updated:readFileRequired 'a.dds', updated:readFileRequired 'b.dds'
-    expect(string.sub(a, -8)).toBe 'aaaaaaaa'
-    expect(string.sub(b, -8)).toBe 'bbbbbbbb'
+    local kept, added = updated:readFileRequired 'a.dds', updated:readFileRequired 'b.dds'
+    expect(string.sub(kept, -8)).toBe 'aaaaaaaa'
+    expect(string.sub(added, -8)).toBe 'bbbbbbbb'
   end)
 
   suite.it('refuses an archive it can not rewrite', function()
