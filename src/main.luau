@@ -1,0 +1,8 @@
+--!strict
+--!native
+-- SPDX-License-Identifier: MIT OR Apache-2.0
+-- The `dream-archivetool` command target's entry: the command line's arguments in, the exit
+-- status out.
+local cli = require '@dream-archivetool/cli'
+
+return cli.run { ... }

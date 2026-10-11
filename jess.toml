@@ -4,8 +4,9 @@ manifest_version = 1
 id = "org.dreamweave.dream-archivetool"
 version = "0.1.0"
 jess_api = "1"
+default_target = "dream-archivetool"
 include = ["src"]
-tests = ["tests/run.luau", "tests/commands.luau", "tests/style.luau"]
+tests = ["tests/run.luau", "tests/commands.luau", "tests/cli.luau", "tests/style.luau"]
 
 [dependencies]
 "org.dreamweave.dream-archive" = "0.1"
@@ -13,6 +14,7 @@ tests = ["tests/run.luau", "tests/commands.luau", "tests/style.luau"]
 [modules]
 "@dream-archivetool" = "src/init.luau"
 "@dream-archivetool/commands" = "src/commands.luau"
+"@dream-archivetool/cli" = "src/cli.luau"
 
 # Every module here is inert API: it does nothing until something requires it, and runs with the
 # authority of whatever calls it. The library and its commands open archives and read the files
@@ -22,4 +24,17 @@ tests = ["tests/run.luau", "tests/commands.luau", "tests/style.luau"]
 [[layer]]
 id = "dream-archivetool.core"
 requires = ["dream-archive.core"]
-exports = ["@dream-archivetool", "@dream-archivetool/commands"]
+exports = ["@dream-archivetool", "@dream-archivetool/commands", "@dream-archivetool/cli"]
+
+# The command line: `src/main.luau` hands its arguments to `@dream-archivetool/cli`. A command
+# opens the archives it is given, looks for the targets an extraction would write, and walks,
+# resolves, and reads the files `create` and `add` pack (filesystem.read); `extract`,
+# `extract-all`, `create`, and `add` make folders, write each file beside its target, and rename
+# it into place (filesystem.write). It reads no environment, runs no other program, and opens no
+# connection.
+
+[targets.dream-archivetool]
+kind = "command"
+command = "dream-archivetool"
+entry = "src/main.luau"
+capabilities = ["filesystem.read", "filesystem.write"]
