@@ -1,0 +1,21 @@
+manifest_version = 1
+
+[package]
+id = "org.dreamweave.dream-archivetool"
+version = "0.1.0"
+jess_api = "1"
+include = ["src"]
+
+[dependencies]
+"org.dreamweave.dream-archive" = "0.1"
+
+[modules]
+"@dream-archivetool" = "src/init.luau"
+
+# The module is inert API: it does nothing until something requires it, and runs with the
+# authority of whatever calls it.
+
+[[layer]]
+id = "dream-archivetool.core"
+requires = ["dream-archive.core"]
+exports = ["@dream-archivetool"]
