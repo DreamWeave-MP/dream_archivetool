@@ -240,6 +240,57 @@ suite.describe('archives in memory', function()
     expect(failure(function() tool.planExtractAll(hashed) end)).toBe 'archive error: archive contains entries without recoverable paths; refusing to extract it lossy'
   end)
 
+  suite.it('lists named entries in archive order, with the sizes the format records', function()
+    local opened = tes3 { { 'Textures\\Example.DDS', 'payload' }, { 'meshes/a.nif', 'mesh' } }
+    expect(tool.list(opened)).toEqual {
+      {
+        path = 'textures/example.dds',
+        pathBytesHex = '74657874757265732f6578616d706c652e646473',
+        size = 7,
+      },
+      { path = 'meshes/a.nif', pathBytesHex = '6d65736865732f612e6e6966', size = 4 },
+    }
+
+    local compressed = archive.bsa.tes4.Builder.new()
+    compressed:setCompressed(true)
+    compressed:addBytes('meshes/a.nif', string.rep('a', 300))
+    expect(tool.list(archive.openBytes(compressed:toBytes()))).toEqual {
+      {
+        path = 'meshes/a.nif',
+        pathBytesHex = '6d65736865732f612e6e6966',
+        size = 300,
+        compressedSize = 27,
+      },
+    }
+
+    local general = archive.ba2.Builder.new()
+    general:addBytes('Sound/Voice.fuz', 'voice')
+    expect(tool.list(archive.openBytes(general:toBytes()))).toEqual {
+      { path = 'sound/voice.fuz', pathBytesHex = '736f756e642f766f6963652e66757a', size = 5 },
+    }
+
+    local hashed = archive.bsa.tes4.Builder.new()
+    hashed:setNameMode 'hashOnly'
+    hashed:addBytes('meshes/a.nif', 'a')
+    expect(tool.list(archive.openBytes(hashed:toBytes()))).toEqual {}
+    expect(failure(function() anyTool.list() end)).toBe 'dream.archivetool.list: bad argument count (expected at least 1, got 0)'
+  end)
+
+  suite.it('reads an entry by any spelling of its path, by its entry, and by its hex', function()
+    local opened = tes3 { { 'Textures\\Example.DDS', 'payload' }, { 'meshes/a.nif', 'mesh' } }
+    expect(tool.readEntry(opened, 'TEXTURES//example.dds')).toBe 'payload'
+    expect(tool.readEntry(opened, opened:entries()[2])).toBe 'mesh'
+    expect(tool.readEntryByPathHex(opened, '6d65736865732f612e6e6966')).toBe 'mesh'
+    expect(failure(function() tool.readEntry(opened, 'Missing.DDS') end)).toBe 'archive entry not found: missing.dds'
+    -- Nothing is written, so a path extraction would refuse is only one that isn't there.
+    expect(failure(function() tool.readEntry(opened, '../evil') end)).toBe 'archive entry not found: ../evil'
+    expect(failure(function() tool.readEntry(opened, '') end)).toBe 'unsafe archive path: '
+    expect(failure(function() tool.readEntryByPathHex(opened, 'abc') end)).toBe 'readEntryByPathHex: invalid pathBytesHex: archive error: archive path hex must contain an even number of hexadecimal digits'
+    expect(failure(function() tool.readEntryByPathHex(opened, 'zz') end)).toBe 'readEntryByPathHex: invalid pathBytesHex: archive error: archive path hex contains a non-hexadecimal digit'
+    expect(failure(function() anyTool.readEntry(opened) end)).toBe 'dream.archivetool.readEntry: bad argument count (expected at least 2, got 1)'
+    expect(failure(function() anyTool.readEntry(opened, 5) end)).toBe 'readEntry: expected an archive path or an entry handle, got number'
+  end)
+
   suite.it('reads option tables strictly', function()
     local opened = tes3 { { 'textures/a.dds', 'a' } }
     expect(
@@ -286,6 +337,25 @@ local function filesystemSuite(root: string)
     local header = { height = 4, width = 4, mipCount = 1, format = 71, flags = 0, tileMode = 0 }
     return support.ddsFile(header, payload, 'dx10')
   end
+
+  suite.it('lists and reads an archive named by its path', function()
+    local base = folder()
+    local path, missing = `{base}/test.bsa`, `{base}/missing.bsa`
+    writeTes3(path, { { 'textures/a.dds', 'a' }, { 'meshes/b.nif', 'b' } })
+    -- Archive order is the order of the names' hashes, which a TES3 BSA is sorted by.
+    expect(tool.list(path)).toEqual {
+      { path = 'meshes/b.nif', pathBytesHex = '6d65736865732f622e6e6966', size = 1 },
+      { path = 'textures/a.dds', pathBytesHex = '74657874757265732f612e646473', size = 1 },
+    }
+    expect(tool.readEntry(path, 'Meshes\\B.nif')).toBe 'b'
+    expect(tool.readEntryByPathHex(path, '6d65736865732f622e6e6966')).toBe 'b'
+    local unopened =
+      `archive error: failed to open archive '{missing}': No such file or directory (os error 2)`
+    expect(failure(function() tool.list(missing) end)).toBe(unopened)
+    -- The archive is opened before the path is looked at, and the hex is read before either.
+    expect(failure(function() tool.readEntry(missing, '') end)).toBe(unopened)
+    expect(failure(function() tool.readEntryByPathHex(missing, 'abc') end)).toBe 'readEntryByPathHex: invalid pathBytesHex: archive error: archive path hex must contain an even number of hexadecimal digits'
+  end)
 
   suite.it('extracts one entry to a safe path, by its stored spelling', function()
     local base = folder()

@@ -5,7 +5,9 @@
 -- crate's `@dream/archivetool` module: info, verify, diff, extraction that refuses unsafe paths
 -- and plans it, and creating and adding to archives with plans. Every function takes an archive
 -- as a host path or as one `@dream-archive` opened, and returns plain tables; errors read as
--- the crate's do.
+-- the crate's do. `list`, `readEntry`, and `readEntryByPathHex` are the crate's
+-- `ArchiveTool::list` and `read_entry_by_path_bytes`, which its Luau module left to
+-- `@dream/archive` and its command line calls.
 local archives = require '@dream-archive/backend'
 local ba2 = require '@dream-archive/ba2'
 local bytes = require '@dream/bytes'
@@ -39,6 +41,15 @@ export type ArchiveInfo = {
     nameMode: string,
   }?,
   ba2: { version: string, payloadFormat: string, compressionFormat: string, strings: boolean }?,
+}
+
+--- One named entry of an archive, as `list` gives it: its normalized path for display, that
+--- path's bytes as the lookup key every `pathBytesHex` is, and the sizes the format records.
+export type ArchiveEntry = {
+  path: string,
+  pathBytesHex: string,
+  size: number?,
+  compressedSize: number?,
 }
 
 export type PathIssue = {
@@ -833,6 +844,23 @@ local function info(...: unknown): ArchiveInfo
   return infoOf(openSource(checkSource('info', (...), 1)))
 end
 
+--- The archive's named entries in archive order, as the crate's `ArchiveTool::list` gives them.
+local function list(...: unknown): { ArchiveEntry }
+  argumentCount('list', 1, select('#', ...))
+  local archive = openSource(checkSource('list', (...), 1))
+  local entries: { ArchiveEntry } = {}
+  for _, entry in listEntries(backendOf(archive)) do
+    table.insert(entries, {
+      path = util.lossy(entry.key),
+      pathBytesHex = hex(entry.key),
+      size = entry.size,
+      compressedSize = entry.compressedSize,
+    })
+  end
+
+  return entries
+end
+
 local function verify(...: unknown): VerifyReport
   argumentCount('verify', 1, select('#', ...))
   local source, options = ...
@@ -1241,6 +1269,28 @@ local function byPathHex(what: string): (...unknown) -> Summary
     local chosen = extractOptions(what, options)
     return extractOne((openSource(checked)), path, chosen)
   end
+end
+
+--- A member's bytes, as the crate's `ArchiveTool::read_entry_by_path_bytes` reads them: the
+--- archive is opened, and then the path is normalized for lookup. Nothing is written, so the
+--- path need not be one extraction would accept.
+local function readEntry(...: unknown): string
+  argumentCount('readEntry', 2, select('#', ...))
+  local source, entry = ...
+  local checked = checkSource('readEntry', source, 1)
+  local path = entryPath(entry, 'readEntry')
+  local archive = openSource(checked)
+  return readMember(archive, lookupKey(path))
+end
+
+local function readEntryByPathHex(...: unknown): string
+  argumentCount('readEntryByPathHex', 2, select('#', ...))
+  local source, entry = ...
+  local checked = checkSource('readEntryByPathHex', source, 1)
+  local text = hostPath('readEntryByPathHex', entry, 2)
+  local path = hexEntry(text, 'readEntryByPathHex')
+  local archive = openSource(checked)
+  return readMember(archive, lookupKey(path))
 end
 
 local function extractManyWith(
@@ -1824,6 +1874,9 @@ end
 return table.freeze {
   version = Version,
   info = info :: (archive: Source) -> ArchiveInfo,
+  list = list :: (archive: Source) -> { ArchiveEntry },
+  readEntry = readEntry :: (archive: Source, entry: EntryArgument) -> string,
+  readEntryByPathHex = readEntryByPathHex :: (archive: Source, pathBytesHex: string) -> string,
   verify = verify :: (archive: Source, options: { readPayloads: boolean? }?) -> VerifyReport,
   diff = diff :: (
     old: Source,
