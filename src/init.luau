@@ -1164,11 +1164,33 @@ local function requireTargets(archive: Archive, targets: { Target })
   end
 end
 
+--- Whether something is at `path`, for a caller asking about many paths before it writes any:
+--- nothing is below a folder that isn't there, so `folders` remembers whether each one is, and
+--- the path itself is looked for only below one that is. A path its folder doesn't begin, as a
+--- bare name's `.` doesn't, is looked for as it is.
+local function existsIn(folders: { [string]: boolean }, path: string): boolean
+  local folder = parentDirectory(path)
+  if not bytes.startsWith(path, folder) or string.byte(path, #folder + 1) ~= 47 then
+    return exists(path)
+  end
+
+  local known: boolean? = folders[folder]
+  -- A folder looked for and not found is remembered as false.
+  if known == nil then
+    local found = exists(folder)
+    folders[folder] = found
+    return found and exists(path)
+  end
+
+  return known and exists(path)
+end
+
 local function rejectExisting(targets: { Target }, overwrite: Overwrite)
   if overwrite ~= 'fail' then return end
 
+  local folders: { [string]: boolean } = {}
   for _, target in targets do
-    if exists(target.path) then targetExists(target.path) end
+    if existsIn(folders, target.path) then targetExists(target.path) end
   end
 end
 
@@ -1259,8 +1281,9 @@ local function planRows(targets: { Target }, overwrite: Overwrite): { ExtractPla
     elseif overwrite == 'overwrite' then 'overwrite'
     else 'skip'
 
+  local folders: { [string]: boolean } = {}
   return [for {key, path} in targets => {
-    action = if exists(path) then present else absent,
+    action = if existsIn(folders, path) then present else absent,
     path = util.lossy(key),
     pathBytesHex = bytes.toHex(key),
     target = util.lossy(path),
