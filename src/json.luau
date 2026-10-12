@@ -5,6 +5,7 @@
 -- the order they were given, one field or item to a line, two spaces a level, and an empty array
 -- or object closed on its own line. Text is escaped as serde_json escapes it: the quote, the
 -- backslash, and the control characters, with everything else left as the bytes it is.
+local bytes = require '@dream/bytes'
 
 --- An object's fields or an array's items, in order, or the null that stands for no value.
 export type Node = {
@@ -33,7 +34,12 @@ local function escape(character: string): string
   return Escapes[character] or string.format('\\u%04x', string.byte(character))
 end
 
+--- What `quoted` escapes: the control characters, the quote, and the backslash, as bytes.
+local Escaped = bytes.regex('[\\x00-\\x1f"\\\\]', { unicode = false })
+
 local function quoted(text: string): string
+  if not Escaped:isMatch(text) then return `"{text}"` end
+
   return `"{string.gsub(text, '[%z\1-\31"\\]', escape)}"`
 end
 
