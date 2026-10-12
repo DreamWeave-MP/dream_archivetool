@@ -16,7 +16,8 @@ export type Node = {
 
 export type Value = string | number | boolean | Node
 
-export type Field = { name: string, value: Value }
+--- A field as `object` is given it: its name, and then its value.
+export type Field = { unknown }
 
 local Null: Node = { kind = 'null' }
 
@@ -58,14 +59,8 @@ end
 
 --- An object of `fields`, each a name and its value; a field whose value is nil is left out, as
 --- serde leaves out one it was told to skip.
-local function object(fields: { { unknown } }): Node
-  return {
-    kind = 'object',
-    fields = [for field in fields if field[2] ~= nil => {
-      name = field[1] :: string,
-      value = field[2] :: Value,
-    }],
-  }
+local function object(fields: { Field }): Node
+  return { kind = 'object', fields = [for field in fields if field[2] ~= nil => field] }
 end
 
 local function array(items: { Value }): Node return { kind = 'array', items = items } end
@@ -126,8 +121,8 @@ local function write(parts: { string }, value: Value, indent: string)
   table.insert(parts, '{\n')
   for index, field in fields do
     table.insert(parts, inner)
-    table.insert(parts, label(field.name))
-    write(parts, field.value, inner)
+    table.insert(parts, label(field[1] :: string))
+    write(parts, field[2] :: Value, inner)
     table.insert(parts, if index < #fields then ',\n' else '\n')
   end
 
