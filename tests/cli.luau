@@ -987,6 +987,29 @@ suite.describe('render', function()
     expect(cli.render(control, { json = true })).toContain '"path": "a\\\\b\\u0001\\n\\r\\b\\f\127.txt",'
   end)
 
+  suite.it('escapes each control character, the quote, and the backslash, and no other byte', function()
+    local short: { [number]: string } = {
+      [8] = '\\b',
+      [9] = '\\t',
+      [10] = '\\n',
+      [12] = '\\f',
+      [13] = '\\r',
+      [34] = '\\"',
+      [92] = '\\\\',
+    }
+
+    for code = 0, 255 do
+      local plain = if code < 32 then string.format('\\u%04x', code) else string.char(code)
+      local result: commands.ListResult = {
+        command = 'list',
+        archive = 'bytes.bsa',
+        entries = { { path = `a{string.char(code)}z{string.char(code)}`, pathBytesHex = '00' } },
+      }
+      local written = short[code] or plain
+      expect(cli.render(result, { json = true })).toContain(`"path": "a{written}z{written}",`)
+    end
+  end)
+
   suite.it('prints a verification with its blocker, payloads, and warnings', function()
     local hashed: commands.VerifyResult = {
       command = 'verify',
