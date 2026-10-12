@@ -630,6 +630,20 @@ local function samePath(left: string, right: string): boolean
   return not pathLess(left, right) and not pathLess(right, left)
 end
 
+--- `path` as its components joined, which two paths share exactly when `Path` compares them
+--- equal. A path with nothing for `components` to drop is its own, behind the root's `/`.
+local function pathIdentity(path: string): string
+  if
+    string.byte(path, -1) ~= 47
+    and not string.find(path, '//', 1, true)
+    and not string.find(path, '/.', 1, true)
+  then
+    return if string.byte(path, 1) == 47 then '/' .. path else path
+  end
+
+  return table.concat(components(path), '/')
+end
+
 local function targetPath(root: string, key: string, preservePaths: boolean): string
   checkExtractable(key)
   if not preservePaths then
@@ -1110,12 +1124,24 @@ local function hexEntry(value: string, context: string): string
   return decodeHex(value, context)
 end
 
-local function rejectDuplicateTargets(targets: { Target })
-  local paths: { string } = {}
+--- Whether no two of `targets` are one path.
+local function distinctTargets(targets: { Target }): boolean
+  local seen: { [string]: boolean } = {}
   for _, target in targets do
-    table.insert(paths, target.path)
+    local identity = pathIdentity(target.path)
+    if seen[identity] then return false end
+
+    seen[identity] = true
   end
 
+  return true
+end
+
+local function rejectDuplicateTargets(targets: { Target })
+  if distinctTargets(targets) then return end
+
+  -- The crate names the first of the two that sorting by `Path`'s order puts side by side.
+  local paths = [for target in targets => target.path]
   table.sort(paths, pathLess)
   for index = 2, #paths do
     if samePath(paths[index - 1], paths[index]) then
