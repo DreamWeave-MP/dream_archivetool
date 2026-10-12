@@ -196,6 +196,14 @@ local Tes4Flags = table.freeze {
   embeddedFileNames = 0x100,
 }
 
+--- The flags `info` names, in the order it names them.
+local NamedTes4Flags = {
+  { name = 'directoryStrings', bit = Tes4Flags.directoryStrings },
+  { name = 'fileStrings', bit = Tes4Flags.fileStrings },
+  { name = 'compressed', bit = Tes4Flags.compressed },
+  { name = 'embeddedFileNames', bit = Tes4Flags.embeddedFileNames },
+}
+
 local RewritableTes4Flags = 0x107
 
 local Tes4Versions: { [string]: number } =
@@ -301,13 +309,10 @@ local function readOptions<T>(context: string, value: unknown, body: (Reader) ->
 
   local reader: Reader = { context = context, values = values, seen = {} }
   local result = body(reader)
-  local unknown, known = {}, {}
-  for _, key in keys do
-    if not reader.seen[key] then table.insert(unknown, `'{key}'`) end
-  end
-
+  local unknown = [for key in keys if not reader.seen[key] => `'{key}'`]
   if #unknown == 0 then return result end
 
+  local known = {}
   for key in reader.seen do
     table.insert(known, key)
   end
@@ -734,14 +739,7 @@ end
 local function namedCount(backend: Backend): number
   if backend.format == 'bsaTes3' then return backend.count end
 
-  local count = 0
-  for index = 1, backend.count do
-    if rawPath(backend, index) then
-      count += 1
-    end
-  end
-
-  return count
+  return #[for index in range(1, backend.count) if rawPath(backend, index) => index]
 end
 
 local function chunkSizes(backend: Backend, index: number): (number, number?)
@@ -836,19 +834,7 @@ local function infoOf(archive: Archive, label: string): ArchiveInfo
 
   local facts = tes4Facts(backend)
   if facts then
-    local flags = {}
-    for _, flag in
-      {
-        { name = 'directoryStrings', bit = Tes4Flags.directoryStrings },
-        { name = 'fileStrings', bit = Tes4Flags.fileStrings },
-        { name = 'compressed', bit = Tes4Flags.compressed },
-        { name = 'embeddedFileNames', bit = Tes4Flags.embeddedFileNames },
-      }
-
-    do
-      if hasFlag(facts.flags, flag.bit) then table.insert(flags, flag.name) end
-    end
-
+    local flags = [for {name, bit} in NamedTes4Flags if hasFlag(facts.flags, bit) => name]
     info.tes4 = {
       version = `v{facts.version}`,
       archiveTypes = `ArchiveTypes({facts.archiveTypes})`,
@@ -883,17 +869,12 @@ end
 local function list(...: unknown): { ArchiveEntry }
   argumentCount('list', 1, select('#', ...))
   local archive = openSource(checkSource('list', (...), 1))
-  local entries: { ArchiveEntry } = {}
-  for _, entry in listEntries(backendOf(archive)) do
-    table.insert(entries, {
-      path = util.lossy(entry.key),
-      pathBytesHex = bytes.toHex(entry.key),
-      size = entry.size,
-      compressedSize = entry.compressedSize,
-    })
-  end
-
-  return entries
+  return [for {key, size, compressedSize} in listEntries(backendOf(archive)) => {
+    path = util.lossy(key),
+    pathBytesHex = bytes.toHex(key),
+    size = size,
+    compressedSize = compressedSize,
+  }]
 end
 
 local function verify(...: unknown): VerifyReport
@@ -1015,21 +996,17 @@ local function diffEntries(
   return compared, keys
 end
 
-local function stateOf(entry: Compared): DiffState
-  return {
-    size = entry.size,
-    compressedSize = entry.compressedSize,
-    payloadFingerprint = entry.fingerprint,
-  }
+local function stateOf({size, compressedSize, fingerprint}: Compared): DiffState
+  return { size = size, compressedSize = compressedSize, payloadFingerprint = fingerprint }
 end
 
-local function diffEntry(key: string, entry: Compared): DiffEntry
+local function diffEntry(key: string, {size, compressedSize, fingerprint}: Compared): DiffEntry
   return {
     path = util.lossy(key),
     pathBytesHex = bytes.toHex(key),
-    size = entry.size,
-    compressedSize = entry.compressedSize,
-    payloadFingerprint = entry.fingerprint,
+    size = size,
+    compressedSize = compressedSize,
+    payloadFingerprint = fingerprint,
   }
 end
 
@@ -1045,7 +1022,7 @@ local function diff(...: unknown): DiffReport
   rejectUnnameable(newArchive, newLabel)
   local oldEntries, oldKeys = diffEntries(oldArchive, fingerprints)
   local newEntries, newKeys = diffEntries(newArchive, fingerprints)
-  local added, removed, changed = {}, {}, {}
+  local removed, changed = {}, {}
   local unchanged = 0
   for _, key in oldKeys do
     local before, after = oldEntries[key], newEntries[key]
@@ -1071,10 +1048,7 @@ local function diff(...: unknown): DiffReport
     })
   end
 
-  for _, key in newKeys do
-    if not oldEntries[key] then table.insert(added, diffEntry(key, newEntries[key])) end
-  end
-
+  local added = [for key in newKeys if not oldEntries[key] => diffEntry(key, newEntries[key])]
   return {
     old = oldLabel,
     new = newLabel,
@@ -1275,34 +1249,34 @@ local function extractTargets(archive: Archive, targets: { Target }, options: Ex
   return summary
 end
 
+type PlanAction = 'extract' | 'overwrite' | 'skip' | 'conflict'
+
+--- A row for each target: what extracting it would do, given whether something is there already.
 local function planRows(targets: { Target }, overwrite: Overwrite): { ExtractPlanRow }
-  local rows: { ExtractPlanRow } = {}
-  for _, target in targets do
-    local action: 'extract' | 'overwrite' | 'skip' | 'conflict' = 'extract'
-    if exists(target.path) then
-      action = if overwrite == 'fail'
-        then 'conflict'
-        elseif overwrite == 'overwrite' then 'overwrite'
-        else 'skip'
-    end
+  local absent: PlanAction = 'extract'
+  local present: PlanAction = if overwrite == 'fail'
+    then 'conflict'
+    elseif overwrite == 'overwrite' then 'overwrite'
+    else 'skip'
 
-    table.insert(rows, {
-      action = action,
-      path = util.lossy(target.key),
-      pathBytesHex = bytes.toHex(target.key),
-      target = util.lossy(target.path),
-    })
-  end
-
-  return rows
+  return [for {key, path} in targets => {
+    action = if exists(path) then present else absent,
+    path = util.lossy(key),
+    pathBytesHex = bytes.toHex(key),
+    target = util.lossy(path),
+  }]
 end
 
-local function extractOne(archive: Archive, path: string, options: Extraction): Summary
+local function extractOne(
+  archive: Archive,
+  path: string,
+  {output, overwrite, preservePaths}: Extraction
+): Summary
   local key = safeKey(path)
   if not archive:contains(key) then entryNotFound(key) end
 
-  local target = { key = key, path = targetPath(options.output, key, options.preservePaths) }
-  local extracted, skipped = writeTarget(archive, target, options.overwrite, true)
+  local target = { key = key, path = targetPath(output, key, preservePaths) }
+  local extracted, skipped = writeTarget(archive, target, overwrite, true)
   return { extracted = extracted, skipped = skipped }
 end
 
@@ -1690,11 +1664,7 @@ end
 
 local function planCreate(...: unknown): CreatePlan
   local output, chosen, inputs, keys = collectCreate('planCreate', ...)
-  local rows: { ArchivePlanRow } = {}
-  for _, key in keys do
-    table.insert(rows, planRow('add', key, inputs[key]))
-  end
-
+  local rows = [for key in keys => planRow('add', key, inputs[key])]
   return {
     operation = 'create',
     format = chosen.format,
@@ -1841,8 +1811,8 @@ end
 local function rewriteCompression(backend: Backend, facts: types.BA2Facts): string?
   if facts.compression == 'lz4' then return 'lz4' end
 
-  for index = 1, backend.count do
-    if backend.compressed(index) then return facts.compression end
+  if any[for index in range(1, backend.count) => backend.compressed(index)] then
+    return facts.compression
   end
 
   return nil
