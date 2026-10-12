@@ -1471,9 +1471,7 @@ local function walk(inputs: Inputs, folder: Folder, ancestors: { Folder }, follo
   if problem then archiveError(util.walkMessage(problem)) end
 
   local rows = assert(found)
-  local ordered: { number } = {}
-  for index in rows.paths do table.insert(ordered, index) end
-
+  local ordered = [for index in range(1, #rows.paths) => index]
   table.sort(ordered, function(first: number, second: number): boolean
     return rows.paths[first] < rows.paths[second]
   end)
