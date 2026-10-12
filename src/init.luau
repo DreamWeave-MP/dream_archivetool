@@ -526,11 +526,14 @@ local function extractable(path: string): boolean
   if path == '' or string.find(path, '\0', 1, true) then return false end
 
   local first = string.byte(path, 1)
-  if first == 47 or first == 92 then return false end
+  if first == 47 or first == 92 or string.find(path, ':', 1, true) then return false end
+
+  -- Without two dots together no component is `..`, and any other byte is in a file's name.
+  if not string.find(path, '..', 1, true) and string.find(path, '[^/\\.]') then return true end
 
   local named = false
   for component in string.gmatch(path, '[^/\\]+') do
-    if component == '..' or string.find(component, ':', 1, true) then return false end
+    if component == '..' then return false end
 
     if component ~= '.' then named = true end
   end
@@ -655,6 +658,17 @@ local function targetPath(root: string, key: string, preservePaths: boolean): st
     if name == '' then unsafePath(key) end
 
     return join(root, name)
+  end
+
+  -- A key with no component to drop or to end on goes below the root as it is.
+  local first = string.byte(key, 1)
+  if
+    first ~= 46
+    and first ~= 47
+    and string.byte(key, -1) ~= 47
+    and not string.find(key, '/[./]')
+  then
+    return join(root, key)
   end
 
   local target = root
