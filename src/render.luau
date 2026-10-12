@@ -34,7 +34,13 @@ end
 local function document(value: json.Value): string return `{json.pretty(value)}\n` end
 
 local function list<Row>(rows: { Row }, shape: (Row) -> json.Value): json.Value
-  return json.array([for row in rows => shape(row)])
+  -- A result is its caller's to build, so the rows are walked as they are found.
+  local items: { json.Value } = {}
+  for index, row in rows do
+    items[index] = shape(row)
+  end
+
+  return json.array(items)
 end
 
 local function names(values: { string }): json.Value
@@ -222,13 +228,18 @@ local function lines(rows: { string }): string
 end
 
 local function listText(entries: { tool.ArchiveEntry }, long: boolean?): string
-  if not long then return lines([for entry in entries => entry.path]) end
+  local rows: { string } = {}
+  for index, entry in entries do
+    if not long then
+      rows[index] = entry.path
+      continue
+    end
 
-  return lines([for {path, size} in entries => string.format(
-    '%10s %s',
-    if size then string.format('%d', size) else '-',
-    path
-  )])
+    local size = if entry.size then string.format('%d', entry.size) else '-'
+    rows[index] = string.format('%10s %s', size, entry.path)
+  end
+
+  return lines(rows)
 end
 
 local function verifyText(report: tool.VerifyReport): string
