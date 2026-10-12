@@ -43,6 +43,19 @@ local function quoted(text: string): string
   return `"{string.gsub(text, '[%z\1-\31"\\]', escape)}"`
 end
 
+--- Each field name written so far, quoted and with its colon: a report has a handful of names,
+--- and writes them again for every row.
+local labels: { [string]: string } = {}
+
+local function label(name: string): string
+  local known = labels[name]
+  if known then return known end
+
+  local made = `{quoted(name)}: `
+  labels[name] = made
+  return made
+end
+
 --- An object of `fields`, each a name and its value; a field whose value is nil is left out, as
 --- serde leaves out one it was told to skip.
 local function object(fields: { { unknown } }): Node
@@ -112,7 +125,8 @@ local function write(parts: { string }, value: Value, indent: string)
 
   table.insert(parts, '{\n')
   for index, field in fields do
-    table.insert(parts, `{inner}{quoted(field.name)}: `)
+    table.insert(parts, inner)
+    table.insert(parts, label(field.name))
     write(parts, field.value, inner)
     table.insert(parts, if index < #fields then ',\n' else '\n')
   end
