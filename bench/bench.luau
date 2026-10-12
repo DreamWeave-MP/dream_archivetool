@@ -1,0 +1,522 @@
+--!strict
+-- The archive tool, timed from Luau through what it exports: its reports (info, list, verify,
+-- diff), its plans, extraction, creating and adding to archives, and the command line with what
+-- it prints. Run by `jess run --package . --package-path .. --capability filesystem.read
+-- --capability filesystem.write bench/bench.luau <scratch> [filter]`, on a release build. Prints
+-- one line per workload: its name, a tab, and the seconds one call takes. Every workload's result
+-- is checked against what its inputs say it must be, and the command line's output against a
+-- pinned digest, so a path that stopped doing the work, or changed a byte of it, fails here.
+local archive = require '@dream-archive'
+local bytes = require '@dream/bytes'
+local cli = require '@dream-archivetool/cli'
+local fs = require '@dream/fs'
+local tool = require '@dream-archivetool'
+
+-- A build without the verified toolchain runs Luau slower than a release does, so a number from
+-- one says nothing about what ships.
+if not jess.bench.verified then
+  error(
+    'archive tool bench: this jess was built without the verified toolchain: measure on a release build',
+    0
+  )
+end
+
+--- The arguments: a folder to write into, and a filter on the workload names (`''` for all).
+local scratch: string, filter: string? = ...
+local only = if filter and filter ~= '' then filter else nil
+
+--- Everything the bench writes goes below this folder, which it removes when it is done. The
+--- pinned digests are of output with this path taken out, so it can be anywhere.
+local root = `{scratch}/dream-archivetool-bench`
+
+type Row = { name: string, seconds: number }
+
+local rows: { Row } = {}
+
+local function median(samples: { number }): number
+  table.sort(samples)
+  return samples[(#samples + 1) // 2]
+end
+
+-- A full collection, run between batches, so one batch's garbage isn't the next one's collection.
+local collect = jess.bench.collect
+
+--- Seconds per call of `body`: warmed up, then the median of seven batches of a size that takes
+--- about a tenth of a second. `verify` is given the result of the first call and of one more
+--- after the last batch, outside the time.
+local function measure(body: () -> unknown, verify: (result: unknown) -> ()): number
+  collect()
+  verify(body())
+  local start = os.clock()
+  body()
+  local once = math.max(os.clock() - start, 1e-7)
+  local iterations = math.max(1, math.floor(0.1 / once))
+  local samples = {}
+  for batch = 1, 7 do
+    collect()
+    start = os.clock()
+    for _ = 1, iterations do
+      body()
+    end
+
+    samples[batch] = (os.clock() - start) / iterations
+  end
+
+  verify(body())
+  return median(samples)
+end
+
+local function workload(name: string, body: () -> unknown, verify: (result: unknown) -> ())
+  if only and not string.find(name, only, 1, true) then return end
+
+  table.insert(rows, { name = name, seconds = measure(body, verify) })
+end
+
+--- Stops the bench when a workload's result isn't what its inputs say it is.
+local function hold(name: string, what: string, actual: unknown, expected: unknown)
+  if actual == expected then return end
+
+  error(`archive tool bench: {name}: {what} is {actual}, not {expected}`, 0)
+end
+
+local random = 0x2545f491
+local function nextRandom(): number
+  random = bit32.bxor(random, bit32.lshift(random, 13))
+  random = bit32.bxor(random, bit32.rshift(random, 17))
+  random = bit32.bxor(random, bit32.lshift(random, 5))
+  return random
+end
+
+local Words =
+  { 'Meshes', 'Textures', 'Sound', 'Icons', 'm', 'x', 'Clutter', 'Door', 'Rock', 'Ex', 'In' }
+
+local function payload(size: number): string
+  local out = buffer.create(size)
+  for offset = 0, size - 4, 4 do
+    buffer.writeu32(out, offset, nextRandom())
+  end
+
+  return buffer.tostring(out)
+end
+
+--- A member of a synthetic archive: the path it is added under, in the mixed case and with the
+--- separators a mod ships, the normalized path the tool reports it by, and its bytes.
+type Member = { path: string, key: string, data: string }
+
+local function member(index: number, extension: string, size: number): Member
+  local folder = `{Words[nextRandom() % #Words + 1]}\\{Words[nextRandom() % #Words + 1]}`
+  local path = `{folder}\\File_{index}_{nextRandom() % 100000}{extension}`
+  return {
+    path = path,
+    key = (string.gsub(string.lower(path), '\\', '/')),
+    data = payload(size),
+  }
+end
+
+local function members(first: number, last: number): { Member }
+  return [for index in range(first, last) => member(index, '.nif', 64 + nextRandom() % 512)]
+end
+
+local function tes3Bytes(list: { Member }): string
+  local builder = archive.bsa.tes3.Builder.new()
+  for _, entry in list do
+    builder:addBytes(entry.path, entry.data)
+  end
+
+  return builder:toBytes()
+end
+
+local function writeFile(path: string, data: string): string
+  assert(fs.writeFile(path, data))
+  return path
+end
+
+assert(fs.mkdir(root, { recursive = true }))
+
+--- The archive most workloads read: 4,000 members, opened from its bytes and written to a file.
+local large = members(1, 4000)
+local largeBytes = tes3Bytes(large)
+local largeArchive = archive.openBytes(largeBytes)
+local largeFile = writeFile(`{root}/large.bsa`, largeBytes)
+local largeKeyBytes = sum[for entry in large => #entry.key]
+local largeDataBytes = sum[for entry in large => #entry.data]
+
+--- What `diff` compares it with: every tenth member gone, every seventh of the rest a different
+--- length, every thirteenth of what is left different bytes of the same length, and 200 more.
+local newer: { Member } = {}
+local removed, resized, rewritten = 0, 0, 0
+for index, entry in large do
+  if index % 10 == 0 then
+    removed += 1
+    continue
+  end
+
+  local data = entry.data
+  if index % 7 == 0 then
+    resized += 1
+    data = payload(#data + 4)
+  elseif index % 13 == 0 then
+    rewritten += 1
+    data = payload(#data)
+  end
+
+  table.insert(newer, { path = entry.path, key = entry.key, data = data })
+end
+
+local Added = 200
+table.move(members(4001, 4000 + Added), 1, Added, #newer + 1, newer)
+
+local newerBytes = tes3Bytes(newer)
+local newerArchive = archive.openBytes(newerBytes)
+local newerFile = writeFile(`{root}/newer.bsa`, newerBytes)
+
+--- The archive the workloads that write files work on: 1,000 members.
+local small = members(5001, 6000)
+local smallBytes = tes3Bytes(small)
+local smallArchive = archive.openBytes(smallBytes)
+local smallFile = writeFile(`{root}/small.bsa`, smallBytes)
+local smallDataBytes = sum[for entry in small => #entry.data]
+
+--- A BA2 of 1,000 members, whose sizes the tool adds up from each member's chunks.
+local general = members(7001, 8000)
+local generalBuilder = archive.ba2.Builder.new()
+for _, entry in general do
+  generalBuilder:addBytes(entry.path, entry.data)
+end
+
+local generalArchive = archive.openBytes(generalBuilder:toBytes())
+
+--- Somewhere nothing is, for plans that find no target there already.
+local absent = `{root}/absent`
+
+local function listed(name: string, list: { Member }): (result: unknown) -> ()
+  return function(result: unknown)
+    local entries = result :: { tool.ArchiveEntry }
+    local keyBytes = sum[for entry in list => #entry.key]
+    hold(name, 'the entry count', #entries, #list)
+    hold(name, 'the path bytes', sum[for entry in entries => #entry.path], keyBytes)
+    hold(name, 'the hex digits', sum[for entry in entries => #entry.pathBytesHex], 2 * keyBytes)
+    hold(
+      name,
+      'the sizes',
+      sum[for entry in entries => entry.size or 0],
+      sum[for entry in list => #entry.data]
+    )
+  end
+end
+
+workload(
+  'info: ba2, 1000 entries',
+  function(): unknown return tool.info(generalArchive) end,
+  function(result: unknown)
+    local info = result :: tool.ArchiveInfo
+    hold('info', 'the named entry count', info.namedEntryCount, #general)
+    hold('info', 'the format', info.format, 'ba2')
+  end
+)
+
+workload(
+  'list: tes3, 4000 entries',
+  function(): unknown return tool.list(largeArchive) end,
+  listed('list tes3', large)
+)
+
+workload(
+  'list: ba2, 1000 entries',
+  function(): unknown return tool.list(generalArchive) end,
+  listed('list ba2', general)
+)
+
+local function verified(name: string, payloads: number?): (result: unknown) -> ()
+  return function(result: unknown)
+    local report = result :: tool.VerifyReport
+    hold(name, 'the named entry count', report.namedEntryCount, #large)
+    hold(name, 'the duplicate count', #report.duplicateNormalizedPaths, 0)
+    hold(name, 'the unsafe count', #report.unsafePaths, 0)
+    hold(name, 'the payloads read', report.payloadsRead, payloads)
+  end
+end
+
+workload(
+  'verify: tes3, 4000 entries',
+  function(): unknown return tool.verify(largeArchive) end,
+  verified('verify', nil)
+)
+
+workload(
+  'verify: tes3, 4000 entries, payloads read',
+  function(): unknown return tool.verify(largeArchive, { readPayloads = true }) end,
+  verified('verify payloads', #large)
+)
+
+local function compared(name: string, changed: number): (result: unknown) -> ()
+  return function(result: unknown)
+    local report = result :: tool.DiffReport
+    hold(name, 'the added count', #report.added, Added)
+    hold(name, 'the removed count', #report.removed, removed)
+    hold(name, 'the changed count', #report.changed, changed)
+    hold(name, 'the unchanged count', report.unchanged, #large - removed - changed)
+  end
+end
+
+workload(
+  'diff: tes3, 4000 against 3800, by size',
+  function(): unknown return tool.diff(largeArchive, newerArchive) end,
+  compared('diff by size', resized)
+)
+
+workload(
+  'diff: tes3, 4000 against 3800, by fingerprint',
+  function(): unknown
+    return tool.diff(largeArchive, newerArchive, { fingerprintPayloads = true })
+  end,
+  compared('diff by fingerprint', resized + rewritten)
+)
+
+local function planned(name: string, count: number): (result: unknown) -> ()
+  return function(result: unknown)
+    local plan = result :: tool.ExtractPlan
+    hold(name, 'the row count', #plan.entries, count)
+    hold(
+      name,
+      'the rows to extract',
+      #[for row in plan.entries if row.action == 'extract' => row],
+      count
+    )
+    hold(
+      name,
+      'the targets below the output',
+      #[for row in plan.entries if string.sub(row.target, 1, #absent + 1) == `{absent}/` => row],
+      count
+    )
+  end
+end
+
+workload(
+  'planExtractAll: tes3, 4000 entries',
+  function(): unknown return tool.planExtractAll(largeArchive, { output = absent }) end,
+  planned('planExtractAll', #large)
+)
+
+--- Every fourth member, by the path it was added under and by its normalized path's bytes.
+local chosen = [for index in range(1, #large, 4) => large[index]]
+local chosenPaths = [for entry in chosen => entry.path]
+local chosenHex = [for entry in chosen => bytes.toHex(entry.key)]
+local chosenBytes = sum[for entry in chosen => #entry.data]
+
+workload(
+  'planExtract: 1000 of 4000, by path',
+  function(): unknown return tool.planExtract(largeArchive, chosenPaths, { output = absent }) end,
+  planned('planExtract', #chosen)
+)
+
+workload(
+  'planExtractByPathHex: 1000 of 4000',
+  function(): unknown
+    return tool.planExtractByPathHex(largeArchive, chosenHex, { output = absent })
+  end,
+  planned('planExtractByPathHex', #chosen)
+)
+
+workload('readEntry: 1000 of 4000', function(): unknown
+  local total = 0
+  for _, path in chosenPaths do
+    total += #tool.readEntry(largeArchive, path)
+  end
+
+  return total
+end, function(result: unknown) hold('readEntry', 'the bytes read', result, chosenBytes) end)
+
+--- Checks an extraction of `list` into `folder`: what it counted, and every hundredth file.
+local function extracted(name: string, folder: string, list: { Member }): (result: unknown) -> ()
+  return function(result: unknown)
+    local summary = result :: tool.Summary
+    hold(name, 'the files extracted', summary.extracted, #list)
+    hold(name, 'the files skipped', summary.skipped, 0)
+    for index = 1, #list, 100 do
+      hold(
+        name,
+        `the file {list[index].key}`,
+        fs.readFileString(`{folder}/{list[index].key}`),
+        list[index].data
+      )
+    end
+  end
+end
+
+-- The first call writes every file, and each one after it writes them over the last call's.
+local extractedFolder = `{root}/extracted`
+workload(
+  'extractAll: tes3, 1000 entries, over the last run',
+  function(): unknown
+    return tool.extractAll(smallArchive, { output = extractedFolder, overwrite = 'overwrite' })
+  end,
+  extracted('extractAll', extractedFolder, small)
+)
+
+local some = [for index in range(1, #small, 4) => small[index]]
+local somePaths = [for entry in some => entry.path]
+local someFolder = `{root}/some`
+workload(
+  'extractMany: 250 of 1000, over the last run',
+  function(): unknown
+    return tool.extractMany(
+      smallArchive,
+      somePaths,
+      { output = someFolder, overwrite = 'overwrite' }
+    )
+  end,
+  extracted('extractMany', someFolder, some)
+)
+
+--- The folder `create` packs: the small archive's members as files, written once.
+local inputFolder = `{root}/input`
+hold(
+  'input',
+  'the files written',
+  tool.extractAll(smallArchive, { output = inputFolder }).extracted,
+  #small
+)
+
+local createdFile = `{root}/created.bsa`
+workload(
+  'planCreate: tes3, a folder of 1000 files',
+  function(): unknown return tool.planCreate(createdFile, inputFolder) end,
+  function(result: unknown)
+    local plan = result :: tool.CreatePlan
+    hold('planCreate', 'the file count', plan.files, #small)
+    hold('planCreate', 'the sizes', sum[for row in plan.entries => row.size or 0], smallDataBytes)
+    hold(
+      'planCreate',
+      'the rows to add',
+      #[for row in plan.entries if row.action == 'add' => row],
+      #small
+    )
+  end
+)
+
+-- The files are the small archive's members under the paths it stores, so packing them makes
+-- the small archive again, byte for byte.
+workload(
+  'create: tes3, a folder of 1000 files',
+  function(): unknown return tool.create(createdFile, inputFolder).files end,
+  function(result: unknown)
+    hold('create', 'the file count', result, #small)
+    hold('create', 'the archive written', fs.readFileString(createdFile), smallBytes)
+  end
+)
+
+--- What `add` adds: 125 files under paths the small archive has, and 125 under paths it lacks.
+local extraFolder = `{root}/extra`
+local Replacing, Adding = 125, 125
+local extra: { Member } = [for index in range(1, Replacing) => {
+  path = small[index * 8].path,
+  key = small[index * 8].key,
+  data = payload(256),
+}]
+
+table.move(members(9001, 9000 + Adding), 1, Adding, #extra + 1, extra)
+for _, entry in extra do
+  local file = `{extraFolder}/{entry.key}`
+  assert(fs.mkdir(string.match(file, '^(.*)/') :: string, { recursive = true }))
+  writeFile(file, entry.data)
+end
+
+local addedFile = `{root}/added.bsa`
+workload(
+  'planAdd: 250 files to tes3, 1000 entries',
+  function(): unknown
+    return tool.planAdd(smallFile, { inputs = { extraFolder }, output = addedFile })
+  end,
+  function(result: unknown)
+    local plan = result :: tool.AddPlan
+    hold('planAdd', 'the file count', plan.files, #small + Adding)
+    hold('planAdd', 'the added count', plan.added, Adding)
+    hold('planAdd', 'the replaced count', plan.replaced, Replacing)
+    hold('planAdd', 'the preserved count', plan.preserved, #small - Replacing)
+  end
+)
+
+workload(
+  'add: 250 files to tes3, 1000 entries',
+  function(): unknown
+    return tool.add(smallFile, { inputs = { extraFolder }, output = addedFile }).files
+  end,
+  function(result: unknown)
+    hold('add', 'the file count', result, #small + Adding)
+    local opened = archive.openPath(addedFile)
+    hold('add', 'the members written', opened:len(), #small + Adding)
+    for index = 1, #extra, 25 do
+      local key = extra[index].key
+      hold('add', `the member {key}`, opened:readFileRequired(key), extra[index].data)
+    end
+  end
+)
+
+--- What the command line must print for each run below, as the SHA-256 of its standard output
+--- with the bench's folder taken out of it.
+local Printed: { [string]: string } = {
+  ['command line: list'] = 'cb6b16c3e92c7470a89e5c321d8ee47da55931028034a2f62a830336b5a99c16',
+  ['command line: list --long'] = '99d448325a6758d5b928c59fef417028f24c3bd89fa33516b057a37a7c37ea88',
+  ['command line: list --json'] = 'bc5c243bf8444ea87e97bf27c8a8b66cb679d9d4b8e3da13df2952bbbf77339d',
+  ['command line: verify --json'] = 'e09b4701a8e7dc08ba5436db6012b0fe8c8a91a3cd2eb40a015848d83f9a6e67',
+  ['command line: diff --hash --json'] = 'a4a22dcfff04a5d5c6545b75ebcb2557f662669c55e783d361e1e55742edd1b7',
+  ['command line: extract-all --dry-run'] = '30ddbe04dee8795d6f96c98b49bc41703f13ddd82454e087e48555c254fb5c5a',
+}
+
+local function command(name: string, argv: { string })
+  workload(name, function(): unknown return cli.execute(argv) end, function(result: unknown)
+    local output = result :: cli.Output
+    hold(name, 'the exit status', output.status, 0)
+    hold(name, 'standard error', output.stderr, '')
+    hold(
+      name,
+      'the digest of standard output',
+      bytes.sha256(table.concat(string.split(output.stdout, root), '<scratch>')),
+      Printed[name]
+    )
+  end)
+end
+
+command('command line: list', { 'list', largeFile })
+command('command line: list --long', { 'list', '--long', largeFile })
+command('command line: list --json', { 'list', '--json', largeFile })
+command('command line: verify --json', { 'verify', '--json', largeFile })
+command('command line: diff --hash --json', { 'diff', '--hash', '--json', largeFile, newerFile })
+command(
+  'command line: extract-all --dry-run',
+  { 'extract-all', '--dry-run', largeFile, '-o', absent }
+)
+
+local CommandLines: { { string } } = {
+  { 'info', '--json', 'Morrowind.bsa' },
+  { 'list', '-l', 'Morrowind.bsa' },
+  { 'verify', '--read-payloads', '--json', 'Morrowind.bsa' },
+  { 'diff', '--hash', 'Morrowind.bsa', 'Tribunal.bsa' },
+  { 'extract', 'Morrowind.bsa', 'meshes\\x\\ex_hlaalu_b_01.nif', '-oout', '--flat', '--overwrite' },
+  { 'extract-all', 'Morrowind.bsa', '--output=out', '--skip-existing', '--dry-run' },
+  {
+    'create',
+    'Mod.ba2',
+    'Data',
+    '--format',
+    'ba2',
+    '--ba2-kind=dx10',
+    '--ba2-version',
+    'fallout4-next-gen',
+    '--compress',
+  },
+  { 'add', 'Mod.bsa', 'meshes', 'textures', 'icons', '-o', 'Modded.bsa', '--follow-symlinks' },
+}
+
+workload(`command line: parse {#CommandLines} command lines`, function(): unknown
+  return #[for argv in CommandLines if cli.parse(argv) => argv]
+end, function(result: unknown) hold('parse', 'the commands read', result, #CommandLines) end)
+
+assert(fs.remove(root, { recursive = true }))
+
+for _, row in rows do
+  print(`{row.name}\t{string.format('%.9f', row.seconds)}`)
+end
+
+return rows
