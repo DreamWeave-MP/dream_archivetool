@@ -207,22 +207,13 @@ local function diff(request: DiffRequest): DiffResult
 end
 
 local function conflictsIn(plan: tool.ExtractPlan): { tool.ExtractPlanRow }
-  local rows: { tool.ExtractPlanRow } = {}
-  for _, row in plan.entries do
-    if row.action == 'conflict' then table.insert(rows, row) end
-  end
-
-  return rows
+  return [for row in plan.entries if row.action == 'conflict' => row]
 end
 
 --- The targets a plan writes: the ones it extracts, and the ones it replaces.
 local function targetsOf(plan: tool.ExtractPlan): { string }
-  local targets: { string } = {}
-  for _, row in plan.entries do
-    if row.action == 'extract' or row.action == 'overwrite' then table.insert(targets, row.target) end
-  end
-
-  return targets
+  return [for {action, target} in plan.entries if action == 'extract' or action == 'overwrite' =>
+    target]
 end
 
 local function extractToMemory(request: ExtractRequest): ExtractResult
@@ -230,7 +221,7 @@ local function extractToMemory(request: ExtractRequest): ExtractResult
     fail 'extract: toMemory writes nothing, so it takes no output, flat, or overwrite'
   end
 
-  local entry, entryHex = request.entry, request.entryHex
+  local {entry, entryHex} = request
   local data = if entryHex
     then tool.readEntryByPathHex(request.archive, entryHex)
     else tool.readEntry(request.archive, entry :: string)
@@ -244,7 +235,7 @@ local function extractToMemory(request: ExtractRequest): ExtractResult
 end
 
 local function extract(request: ExtractRequest): ExtractResult
-  local entry, entryHex = request.entry, request.entryHex
+  local {entry, entryHex} = request
   if entry and entryHex then fail 'extract: the entry is named twice, as entry and as entryHex' end
 
   if not entry and not entryHex then fail 'extract: no entry is named, as entry or as entryHex' end
