@@ -240,6 +240,92 @@ suite.describe('archives in memory', function()
     expect(failure(function() tool.planExtractAll(hashed) end)).toBe 'archive error: archive contains entries without recoverable paths; refusing to extract it lossy'
   end)
 
+  suite.it('puts each entry below the output by its components, whatever the output ends in', function()
+    local data = support.tes3({
+      { name = 'A\\B.txt', data = 'one' },
+      { name = 'a\\.\\c.txt', data = 'two' },
+      { name = '.hidden\\d.txt', data = 'three' },
+      { name = 'a..b\\...\\e.txt', data = 'four' },
+      { name = '.\\f.txt', data = 'five' },
+      { name = 'top.txt', data = 'six' },
+    }, archive.bsa.tes3.hashFile)
+    local opened = archive.openBytes(data)
+
+    local function targets(output: string): { string }
+      return [for row in tool.planExtractAll(opened, { output = output }).entries => row.target]
+    end
+
+    expect(targets 'out').toEqual {
+      'out/a/b.txt',
+      'out/a/c.txt',
+      'out/.hidden/d.txt',
+      'out/a..b/.../e.txt',
+      'out/f.txt',
+      'out/top.txt',
+    }
+    expect(targets 'out/').toEqual(targets 'out')
+    expect(targets '').toEqual {
+      'a/b.txt',
+      'a/c.txt',
+      '.hidden/d.txt',
+      'a..b/.../e.txt',
+      'f.txt',
+      'top.txt',
+    }
+
+    expect(targets '/').toEqual {
+      '/a/b.txt',
+      '/a/c.txt',
+      '/.hidden/d.txt',
+      '/a..b/.../e.txt',
+      '/f.txt',
+      '/top.txt',
+    }
+
+    local flat = tool.planExtract(
+      opened,
+      { 'a/./c.txt', 'A..B\\...\\E.TXT' },
+      { output = 'out', preservePaths = false }
+    )
+    expect([for row in flat.entries => row.target]).toEqual { 'out/c.txt', 'out/e.txt' }
+  end)
+
+  suite.it('refuses two entries that are one target, however each is spelled', function()
+    local opened = tes3 { { 'a/b.txt', 'one' }, { 'a/c.txt', 'two' }, { 'c.txt', 'three' } }
+    local function refused(paths: { string }, options: tool.ExtractOptions?): string
+      return failure(function() tool.planExtract(opened, paths, options) end)
+    end
+
+    expect(refused { 'a/b.txt', 'A\\B.TXT' }).toBe 'archive error: duplicate extraction target after normalization: ./a/b.txt'
+    expect(refused({ 'a/c.txt', 'a/b.txt', 'a/./b.txt' }, { output = 'out' })).toBe 'archive error: duplicate extraction target after normalization: out/a/b.txt'
+    expect(refused({ 'a/c.txt', 'c.txt' }, { output = '/out//', preservePaths = false })).toBe 'archive error: duplicate extraction target after normalization: /out//c.txt'
+    expect(refused({ 'a/b.txt', 'a/b.txt/' }, { output = 'out' })).toContain 'archive error: duplicate extraction target after normalization: out/a/b.txt'
+
+    local plan = tool.planExtract(opened, { 'a/c.txt', 'c.txt', 'a/b.txt' }, { output = '/out//' })
+    expect([for row in plan.entries => row.target]).toEqual {
+      '/out//a/c.txt',
+      '/out//c.txt',
+      '/out//a/b.txt',
+    }
+
+    local repeated = support.tes3({
+      { name = 'dir\\x', data = 'one' },
+      { name = 'dir\\.\\x', data = 'two' },
+    }, archive.bsa.tes3.hashFile)
+    expect(failure(function() tool.planExtractAll(archive.openBytes(repeated), { output = 'out' }) end)).toBe 'archive error: duplicate extraction target after normalization: out/dir/x'
+  end)
+
+  suite.it('takes a name of dots that is not `..`, and refuses one that names nothing', function()
+    local opened = tes3 { { 'a/b.txt', 'one' } }
+    for _, path in { '...', 'a/...', '..a', 'a..', 'a/.../b', './a', 'a/.', 'a\\b', ' ' } do
+      expect(failure(function() tool.planExtract(opened, { path }) end)).toContain 'archive entry not found: '
+    end
+
+    for _, path in { '..', 'a/..', '../a', 'a\\..\\b', './..', '\\a', 'a:b', 'a/b:', './', '.\\.' } do
+      expect(failure(function() tool.planExtract(opened, { path }) end)).toContain 'unsafe archive path: '
+    end
+  end)
+
   suite.it('lists named entries in archive order, with the sizes the format records', function()
     local opened = tes3 { { 'Textures\\Example.DDS', 'payload' }, { 'meshes/a.nif', 'mesh' } }
     expect(tool.list(opened)).toEqual {
