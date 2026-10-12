@@ -567,6 +567,16 @@ end
 
 --- The folder `path` is in; `.` for a bare name, as the crate writes beside one.
 local function parentDirectory(path: string): string
+  -- A path that ends in a name, below a folder that ends in one, is cut at its last separator.
+  if string.byte(path, -1) ~= 47 then
+    local separator = bytes.rfind(path, '/')
+    if not separator then return '.' end
+
+    if separator == 0 then return '/' end
+
+    if string.byte(path, separator) ~= 47 then return string.sub(path, 1, separator) end
+  end
+
   local trimmed = string.match(path, '^(.-)/*$') :: string
   local at = string.find(trimmed, '/[^/]*$')
   if not at then return '.' end
@@ -579,6 +589,15 @@ end
 
 --- The last component of `path`, or nil for one ending in `..` or naming nothing.
 local function fileName(path: string): string?
+  -- What follows the last separator of a path that doesn't end in one is its last component.
+  if string.byte(path, -1) ~= 47 then
+    local separator = bytes.rfind(path, '/')
+    local name = if separator then string.sub(path, separator + 2) else path
+    if name == '..' then return nil end
+
+    if name ~= '.' and name ~= '' then return name end
+  end
+
   local last: string? = nil
   for component in string.gmatch(path, '[^/]+') do
     if component ~= '.' then last = component end
