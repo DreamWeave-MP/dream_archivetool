@@ -348,7 +348,7 @@ local Specs: { [string]: Spec } = {
         action = 'add' :: 'add',
         request = {
           archive = given.positional[1],
-          inputs = table.move(given.positional, 2, #given.positional, 1, {}),
+          inputs = given.positional[2:#given.positional],
           output = given.values.output,
           followSymlinks = given.flags.followSymlinks,
           dryRun = given.flags.dryRun,
@@ -406,12 +406,8 @@ end
 
 --- The required arguments an argument list left out, as a message; nil when it has them all.
 local function missing(name: string, spec: Spec, given: Given): string?
-  local absent: { string } = {}
-  for index, positional in spec.positionals do
-    if positional.required and not given.positional[index] then
-      table.insert(absent, positional.name)
-    end
-  end
+  local absent = [for index, positional in enumerate(spec.positionals)
+    if positional.required and not given.positional[index] => positional.name]
 
   if #absent == 0 then return nil end
 
