@@ -354,6 +354,18 @@ workload(
   extracted('extractAll', extractedFolder, small)
 )
 
+-- An extraction as it is usually asked for: nothing is there, and nothing may be written over.
+-- Each call makes its own folder, and the time includes removing it again, files and all.
+local fresh = 0
+workload('extractAll: tes3, 1000 entries, into a new folder, then removed', function(): unknown
+  fresh += 1
+  local folder = `{root}/fresh-{fresh}`
+  local summary = tool.extractAll(smallArchive, { output = folder })
+  local sample = fs.readFileString(`{folder}/{small[#small].key}`)
+  assert(fs.remove(folder, { recursive = true }))
+  return if sample == small[#small].data then summary.extracted else -1
+end, function(result: unknown) hold('extractAll, new folder', 'the files extracted', result, #small) end)
+
 local some = [for index in range(1, #small, 4) => small[index]]
 local somePaths = [for entry in some => entry.path]
 local someFolder = `{root}/some`
@@ -376,6 +388,21 @@ hold(
   'the files written',
   tool.extractAll(smallArchive, { output = inputFolder }).extracted,
   #small
+)
+
+workload(
+  'planExtractAll: tes3, 1000 entries, over files that are there',
+  function(): unknown return tool.planExtractAll(smallArchive, { output = inputFolder }) end,
+  function(result: unknown)
+    local plan = result :: tool.ExtractPlan
+    hold('planExtractAll over files', 'the row count', #plan.entries, #small)
+    hold(
+      'planExtractAll over files',
+      'the rows in conflict',
+      #[for row in plan.entries if row.action == 'conflict' => row],
+      #small
+    )
+  end
 )
 
 local createdFile = `{root}/created.bsa`
