@@ -502,6 +502,46 @@ local function filesystemSuite(root: string)
     expect((fs.readFileString(`{out}/textures/a.dds`))).toBe 'a'
   end)
 
+  suite.it('plans each target by what is there: in a folder, below a file, or below nothing', function()
+    local base = folder()
+    local path = `{base}/test.bsa`
+    writeTes3(path, {
+      { 'here/present.txt', 'a' },
+      { 'here/absent.txt', 'b' },
+      { 'file/below.txt', 'c' },
+      { 'nowhere/deep/absent.txt', 'd' },
+      { 'top.txt', 'e' },
+    })
+
+    local out = `{base}/out`
+    assert(fs.mkdir(`{out}/here`, { recursive = true }))
+    assert(fs.writeFile(`{out}/here/present.txt`, 'existing'))
+    assert(fs.writeFile(`{out}/file`, 'a file where a folder would be'))
+    assert(fs.writeFile(`{out}/top.txt`, 'existing'))
+
+    local function planned(overwrite: tool.Overwrite, taken: string)
+      local actions: { [string]: string } = {}
+      for _, row in tool.planExtractAll(path, { output = out, overwrite = overwrite }).entries do
+        actions[row.path] = row.action
+      end
+
+      expect(actions).toEqual {
+        ['here/present.txt'] = taken,
+        ['here/absent.txt'] = 'extract',
+        ['file/below.txt'] = 'extract',
+        ['nowhere/deep/absent.txt'] = 'extract',
+        ['top.txt'] = taken,
+      }
+    end
+
+    planned('fail', 'conflict')
+    planned('overwrite', 'overwrite')
+    planned('skip', 'skip')
+    expect(failure(function() tool.extractAll(path, { output = out }) end)).toContain 'target already exists: '
+    expect((fs.exists(`{out}/here/absent.txt`))).toBe(false)
+    expect((fs.exists(`{out}/nowhere`))).toBe(false)
+  end)
+
   suite.it('creates every format, and refuses what a format can not hold', function()
     local base = folder()
     assert(fs.mkdir(`{base}/input/textures`, { recursive = true }))
