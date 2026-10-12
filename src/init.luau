@@ -508,16 +508,6 @@ local function addOptions(context: string, value: unknown): Addition
   end)
 end
 
-local function hex(path: string): string
-  return (
-    string.gsub(
-      path,
-      '.',
-      function(byte: string): string return string.format('%02x', string.byte(byte)) end
-    )
-  )
-end
-
 local function decodeHex(text: string, context: string): string
   if #text % 2 ~= 0 then
     fail(`{context}: invalid pathBytesHex: archive error: archive path hex must contain an even number of hexadecimal digits`)
@@ -527,13 +517,7 @@ local function decodeHex(text: string, context: string): string
     fail(`{context}: invalid pathBytesHex: archive error: archive path hex contains a non-hexadecimal digit`)
   end
 
-  return (
-    string.gsub(
-      text,
-      '%x%x',
-      function(pair: string): string return string.char(tonumber(pair, 16) :: number) end
-    )
-  )
+  return buffer.tostring(bytes.fromHex(text))
 end
 
 --- Whether extraction may write `path`: not empty or absolute, no NUL, a file name somewhere,
@@ -866,7 +850,7 @@ local function list(...: unknown): { ArchiveEntry }
   for _, entry in listEntries(backendOf(archive)) do
     table.insert(entries, {
       path = util.lossy(entry.key),
-      pathBytesHex = hex(entry.key),
+      pathBytesHex = bytes.toHex(entry.key),
       size = entry.size,
       compressedSize = entry.compressedSize,
     })
@@ -890,9 +874,9 @@ local function verify(...: unknown): VerifyReport
     if earlier then
       table.insert(duplicates, {
         path = util.lossy(entry.key),
-        pathBytesHex = hex(entry.key),
-        rawPathBytesHex = hex(entry.raw),
-        collidingRawPathBytesHex = hex(earlier),
+        pathBytesHex = bytes.toHex(entry.key),
+        rawPathBytesHex = bytes.toHex(entry.raw),
+        collidingRawPathBytesHex = bytes.toHex(earlier),
       })
     else
       seen[entry.key] = entry.raw
@@ -901,8 +885,8 @@ local function verify(...: unknown): VerifyReport
     if not extractable(entry.raw) or not extractable(entry.key) then
       table.insert(unsafe, {
         path = util.lossy(entry.key),
-        pathBytesHex = hex(entry.key),
-        rawPathBytesHex = hex(entry.raw),
+        pathBytesHex = bytes.toHex(entry.key),
+        rawPathBytesHex = bytes.toHex(entry.raw),
       })
     end
   end
@@ -975,9 +959,9 @@ local function diffEntries(
     local earlier = compared[entry.key]
     if earlier then
       archiveError(
-        `archive contains duplicate normalized path: {util.lossy(entry.key)} (first raw path hex: {hex(
+        `archive contains duplicate normalized path: {util.lossy(entry.key)} (first raw path hex: {bytes.toHex(
           earlier.raw
-        )}, duplicate raw path hex: {hex(entry.raw)})`
+        )}, duplicate raw path hex: {bytes.toHex(entry.raw)})`
       )
     end
 
@@ -1005,7 +989,7 @@ end
 local function diffEntry(key: string, entry: Compared): DiffEntry
   return {
     path = util.lossy(key),
-    pathBytesHex = hex(key),
+    pathBytesHex = bytes.toHex(key),
     size = entry.size,
     compressedSize = entry.compressedSize,
     payloadFingerprint = entry.fingerprint,
@@ -1044,7 +1028,7 @@ local function diff(...: unknown): DiffReport
 
     table.insert(changed, {
       path = util.lossy(key),
-      pathBytesHex = hex(key),
+      pathBytesHex = bytes.toHex(key),
       old = stateOf(before),
       new = stateOf(after),
     })
@@ -1259,7 +1243,7 @@ local function planRows(targets: { Target }, overwrite: Overwrite): { ExtractPla
     table.insert(rows, {
       action = action,
       path = util.lossy(target.key),
-      pathBytesHex = hex(target.key),
+      pathBytesHex = bytes.toHex(target.key),
       target = util.lossy(target.path),
     })
   end
@@ -1555,7 +1539,7 @@ local function planRow(
     action = action,
     source = if source then util.lossy(source :: string) else nil,
     path = util.lossy(key),
-    pathBytesHex = hex(key),
+    pathBytesHex = bytes.toHex(key),
     size = if source then stat(source :: string).size else nil,
   }
 end
@@ -1747,9 +1731,9 @@ local function existingEntries(backend: Backend): { { index: number, key: string
     local earlier = raws[key]
     if earlier then
       archiveError(
-        `archive contains duplicate normalized path: {util.lossy(key)} (first raw path hex: {hex(
+        `archive contains duplicate normalized path: {util.lossy(key)} (first raw path hex: {bytes.toHex(
           earlier
-        )}, duplicate raw path hex: {hex(raw :: string)})`
+        )}, duplicate raw path hex: {bytes.toHex(raw :: string)})`
       )
     end
 
