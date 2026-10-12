@@ -623,13 +623,17 @@ local function components(path: string): { string }
   return list
 end
 
-local function pathLess(left: string, right: string): boolean
-  local leftParts, rightParts = components(left), components(right)
+--- Whether one path's components come before another's, as `Path` orders two paths.
+local function componentsLess(leftParts: { string }, rightParts: { string }): boolean
   for index = 1, math.min(#leftParts, #rightParts) do
     if leftParts[index] ~= rightParts[index] then return leftParts[index] < rightParts[index] end
   end
 
   return #leftParts < #rightParts
+end
+
+local function pathLess(left: string, right: string): boolean
+  return componentsLess(components(left), components(right))
 end
 
 local function samePath(left: string, right: string): boolean
@@ -1194,20 +1198,29 @@ local function rejectExisting(targets: { Target }, overwrite: Overwrite)
   end
 end
 
+--- A folder to make, with the components its place among the others is decided by.
+type TargetFolder = { path: string, parts: { string } }
+
 local function prepareFolders(targets: { Target })
   local folders: { [string]: boolean } = {}
-  local sorted = {}
+  local sorted: { TargetFolder } = {}
   for _, target in targets do
     local folder = parentDirectory(target.path)
     if folders[folder] then continue end
 
     folders[folder] = true
-    table.insert(sorted, folder)
+    table.insert(sorted, { path = folder, parts = components(folder) })
   end
 
-  table.sort(sorted, pathLess)
+  table.sort(
+    sorted,
+    function(left: TargetFolder, right: TargetFolder): boolean
+      return componentsLess(left.parts, right.parts)
+    end
+  )
+
   for _, folder in sorted do
-    createFolder(folder)
+    createFolder(folder.path)
   end
 end
 
