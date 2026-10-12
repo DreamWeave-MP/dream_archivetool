@@ -59,13 +59,13 @@ end
 --- An object of `fields`, each a name and its value; a field whose value is nil is left out, as
 --- serde leaves out one it was told to skip.
 local function object(fields: { { unknown } }): Node
-  local kept: { Field } = {}
-  for _, field in fields do
-    local value = field[2]
-    if value ~= nil then table.insert(kept, { name = field[1] :: string, value = value :: Value }) end
-  end
-
-  return { kind = 'object', fields = kept }
+  return {
+    kind = 'object',
+    fields = [for field in fields if field[2] ~= nil => {
+      name = field[1] :: string,
+      value = field[2] :: Value,
+    }],
+  }
 end
 
 local function array(items: { Value }): Node return { kind = 'array', items = items } end
