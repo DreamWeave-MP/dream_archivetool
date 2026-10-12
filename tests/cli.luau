@@ -1010,6 +1010,53 @@ suite.describe('render', function()
     end
   end)
 
+  suite.it('prints the rows it finds in a list with a gap or a row without a path, and raises nothing', function()
+    local row: tool.ArchiveEntry = { path = 'a.txt', pathBytesHex = '612e747874' }
+    local unnamed: any = { pathBytesHex = '62' }
+    local gapped: any = { command = 'list', archive = 'gap.bsa', entries = { row, nil, row } }
+    expect(cli.render(gapped)).toContain 'a.txt\n'
+    expect(cli.render(gapped, { long = true })).toContain '         - a.txt\n'
+    expect(cli.render(gapped, { json = true })).toContain '"path_bytes_hex": "612e747874",'
+
+    local nameless: any = { command = 'list', archive = 'gap.bsa', entries = { row, unnamed } }
+    expect(cli.render(nameless)).toBe 'a.txt\n'
+    expect(cli.render { command = 'list', archive = 'gap.bsa', entries = { unnamed } }).toBe ''
+
+    local warned: any = {
+      command = 'verify',
+      report = {
+        path = 'gap.bsa',
+        format = 'bsaTes3',
+        fileCount = 1,
+        namedEntryCount = 1,
+        unnameableEntries = 0,
+        rewritable = true,
+        duplicateNormalizedPaths = {},
+        unsafePaths = {},
+        warnings = { 'one', nil, 'three' },
+      },
+    }
+    expect(cli.render(warned, { json = true })).toContain '    "one"\n'
+
+    local planned: any = {
+      command = 'extractAll',
+      dryRun = true,
+      conflicts = {},
+      written = {},
+      plan = {
+        operation = 'extractAll',
+        archive = 'gap.bsa',
+        output = 'out',
+        entries = {
+          { action = 'extract', path = 'a', pathBytesHex = '61', target = 'out/a' },
+          nil,
+          { action = 'skip', path = 'b', pathBytesHex = '62', target = 'out/b' },
+        },
+      },
+    }
+    expect(cli.render(planned)).toContain '      "target": "out/a"\n'
+  end)
+
   suite.it('prints a verification with its blocker, payloads, and warnings', function()
     local hashed: commands.VerifyResult = {
       command = 'verify',
