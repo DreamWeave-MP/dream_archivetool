@@ -34,12 +34,7 @@ end
 local function document(value: json.Value): string return `{json.pretty(value)}\n` end
 
 local function list<Row>(rows: { Row }, shape: (Row) -> json.Value): json.Value
-  local items: { json.Value } = {}
-  for index, row in rows do
-    items[index] = shape(row)
-  end
-
-  return json.array(items)
+  return json.array([for row in rows => shape(row)])
 end
 
 local function names(values: { string }): json.Value
@@ -47,7 +42,7 @@ local function names(values: { string }): json.Value
 end
 
 local function infoShape(info: tool.ArchiveInfo): json.Value
-  local tes4, ba2 = info.tes4, info.ba2
+  local {tes4, ba2} = info
   return json.object {
     { 'path', info.path },
     { 'format', Formats[info.format] },
@@ -227,18 +222,13 @@ local function lines(rows: { string }): string
 end
 
 local function listText(entries: { tool.ArchiveEntry }, long: boolean?): string
-  local rows: { string } = {}
-  for index, entry in entries do
-    if not long then
-      rows[index] = entry.path
-      continue
-    end
+  if not long then return lines([for entry in entries => entry.path]) end
 
-    local size = if entry.size then string.format('%d', entry.size) else '-'
-    rows[index] = string.format('%10s %s', size, entry.path)
-  end
-
-  return lines(rows)
+  return lines([for {path, size} in entries => string.format(
+    '%10s %s',
+    if size then string.format('%d', size) else '-',
+    path
+  )])
 end
 
 local function verifyText(report: tool.VerifyReport): string
