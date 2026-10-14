@@ -1,7 +1,7 @@
 --!strict
 --!native
 -- What the archive tool's suite needs of the archive suites' support: a TES3 BSA laid out by hand
--- and a DDS file for a texture, as `dream-archive`'s `tests/support.luau` has them.
+-- and a DDS file for a texture, as `dream-archive`'s `tests/support.jsl` has them.
 
 export type Writer = {
   u8: (value: number) -> (),

@@ -2,7 +2,7 @@
 --!native
 -- `@dream-archivetool/commands`: each subcommand's request in, and its result table out. The
 -- scenarios are dream_archivetool's own, from its command line's tests, held to what a command
--- returns and leaves on disk: nothing here looks at printed text, which is `tests/cli.luau`'s.
+-- returns and leaves on disk: nothing here looks at printed text, which is `tests/cli.jsl`'s.
 -- Every case reads and writes host files, in folders below the harness's `scratchRoot`.
 local archive = require '@dream-archive'
 local bytes = require '@dream/bytes'

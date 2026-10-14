@@ -2,7 +2,7 @@
 -- The archive tool, timed from Luau through what it exports: its reports (info, list, verify,
 -- diff), its plans, extraction, creating and adding to archives, and the command line with what
 -- it prints. Run by `jess run --package . --package-path .. --capability filesystem.read
--- --capability filesystem.write bench/bench.luau <scratch> [filter]`, on a release build. Prints
+-- --capability filesystem.write bench/bench.jsl <scratch> [filter]`, on a release build. Prints
 -- one line per workload: its name, a tab, and the seconds one call takes. Every workload's result
 -- is checked against what its inputs say it must be, and the command line's output against a
 -- pinned digest, so a path that stopped doing the work, or changed a byte of it, fails here.

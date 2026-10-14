@@ -1,6 +1,6 @@
 # Archive tool benchmarks
 
-`bench/bench.luau` times the package through what it exports: the reports (`info`, `list`,
+`bench/bench.jsl` times the package through what it exports: the reports (`info`, `list`,
 `verify`, `diff`), the plans, extraction, creating and adding to archives, and the command line
 with what it prints. It builds its own archives (a TES3 BSA of 4,000 members, another of 3,800 to
 compare it with, one of 1,000 to extract and pack, and a BA2 of 1,000) and writes only below the
@@ -13,7 +13,7 @@ came out of, and the command line's standard output against a pinned SHA-256.
 ```sh
 jess run --package jpk/dream-archivetool --package-path jpk \
   --capability filesystem.read --capability filesystem.write \
-  jpk/dream-archivetool/bench/bench.luau <scratch folder> [filter]
+  jpk/dream-archivetool/bench/bench.jsl <scratch folder> [filter]
 ```
 
 ## The move onto l3i 2.0, base against head
