@@ -207,7 +207,7 @@ local function diff(request: DiffRequest): DiffResult
 end
 
 local function conflictsIn(plan: tool.ExtractPlan): { tool.ExtractPlanRow }
-  return [for row in plan.entries if row.action == 'conflict' => row]
+  return [for row in plan.entries if row.action == 'conflict' => row :: tool.ExtractPlanRow]
 end
 
 --- The targets a plan writes: the ones it extracts, and the ones it replaces.
