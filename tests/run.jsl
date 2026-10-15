@@ -406,7 +406,8 @@ local function filesystemSuite(root: string)
   local function folder(): string
     counter += 1
     local path = `{root}/tool-{counter}`
-    assert(fs.mkdir(path, { recursive = true }))
+    local done, problem = fs.mkdir(path, { recursive = true })
+    if not done then error(problem, 0) end
     return path
   end
 
@@ -453,7 +454,8 @@ local function filesystemSuite(root: string)
     expect(
       failure(function() tool.extract(path, 'textures/example.dds', { output = `{base}/out` }) end)
     ).toBe(`target already exists: {base}/out/textures/example.dds`)
-    assert(fs.writeFile(`{base}/out/textures/example.dds`, 'existing'))
+    local done, problem = fs.writeFile(`{base}/out/textures/example.dds`, 'existing')
+    if not done then error(problem, 0) end
     expect(
       tool.extract(path, 'textures/example.dds', { output = `{base}/out`, overwrite = 'skip' })
     ).toEqual { extracted = 0, skipped = 1 }
@@ -483,8 +485,10 @@ local function filesystemSuite(root: string)
     local path = `{base}/test.bsa`
     writeTes3(path, { { 'textures/a.dds', 'a' }, { 'meshes/b.nif', 'b' } })
     local out = `{base}/out`
-    assert(fs.mkdir(`{out}/meshes`, { recursive = true }))
-    assert(fs.writeFile(`{out}/meshes/b.nif`, 'existing'))
+    local done, problem = fs.mkdir(`{out}/meshes`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{out}/meshes/b.nif`, 'existing')
+    if not done then error(problem, 0) end
     local plan = tool.planExtractAll(path, { output = out })
     for _, row in plan.entries do
       expect(row.action).toBe(if row.path == 'meshes/b.nif' then 'conflict' else 'extract')
@@ -514,10 +518,14 @@ local function filesystemSuite(root: string)
     })
 
     local out = `{base}/out`
-    assert(fs.mkdir(`{out}/here`, { recursive = true }))
-    assert(fs.writeFile(`{out}/here/present.txt`, 'existing'))
-    assert(fs.writeFile(`{out}/file`, 'a file where a folder would be'))
-    assert(fs.writeFile(`{out}/top.txt`, 'existing'))
+    local done, problem = fs.mkdir(`{out}/here`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{out}/here/present.txt`, 'existing')
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{out}/file`, 'a file where a folder would be')
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{out}/top.txt`, 'existing')
+    if not done then error(problem, 0) end
 
     local function planned(overwrite: tool.Overwrite, taken: string)
       local actions: { [string]: string } = {}
@@ -544,8 +552,11 @@ local function filesystemSuite(root: string)
 
   suite.it('creates every format, and refuses what a format can not hold', function()
     local base = folder()
-    assert(fs.mkdir(`{base}/input/textures`, { recursive = true }))
-    assert(fs.writeFile(`{base}/input/textures/example.dds`, 'payload'))
+    local done, problem = fs.mkdir(`{base}/input/textures`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/input/textures/example.dds`, 'payload')
+    if not done then error(problem, 0) end
+
     for _, options in
       {
         { format = 'tes3' },
@@ -564,8 +575,10 @@ local function filesystemSuite(root: string)
     end
 
     local existing, input = `{base}/existing.ba2`, `{base}/input`
-    assert(fs.writeFile(existing, 'existing'))
-    assert(fs.writeFile(`{input}/readme.txt`, 'readme'))
+    local done, problem = fs.writeFile(existing, 'existing')
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{input}/readme.txt`, 'readme')
+    if not done then error(problem, 0) end
     local dx10 = failure(
       function() tool.create(existing, input, { format = 'ba2', ba2Kind = 'dx10' }) end
     )
@@ -580,8 +593,11 @@ local function filesystemSuite(root: string)
     )
     expect(compressed).toBe 'compress is not valid with format bsaTes3'
 
-    assert(fs.mkdir(`{base}/upper`, { recursive = true }))
-    assert(fs.writeFile(`{base}/upper/A.DDS`, dds 'aaaaaaaa'))
+    local done, problem = fs.mkdir(`{base}/upper`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/upper/A.DDS`, dds 'aaaaaaaa')
+    if not done then error(problem, 0) end
+
     expect(tool.create(`{base}/upper.ba2`, `{base}/upper`, { format = 'ba2', ba2Kind = 'dx10' })).toEqual {
       files = 1,
     }
@@ -591,9 +607,12 @@ local function filesystemSuite(root: string)
     local base = folder()
     local path = `{base}/test.bsa`
     writeTes3(path, { { 'textures/a.dds', 'old a' }, { 'meshes/b.nif', 'b' } })
-    assert(fs.mkdir(`{base}/more/textures`, { recursive = true }))
-    assert(fs.writeFile(`{base}/more/textures/a.dds`, 'new a'))
-    assert(fs.writeFile(`{base}/more/c.txt`, 'c'))
+    local done, problem = fs.mkdir(`{base}/more/textures`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/more/textures/a.dds`, 'new a')
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/more/c.txt`, 'c')
+    if not done then error(problem, 0) end
     local plan = tool.planAdd(path, { inputs = { `{base}/more` } })
     expect(plan.output).toBe(path)
     expect({ plan.files, plan.added, plan.replaced, plan.preserved }).toEqual { 3, 1, 1, 1 }
@@ -614,10 +633,14 @@ local function filesystemSuite(root: string)
 
   suite.it('keeps DX10 textures and their archive settings when adding', function()
     local base = folder()
-    assert(fs.mkdir(`{base}/one`, { recursive = true }))
-    assert(fs.mkdir(`{base}/two`, { recursive = true }))
-    assert(fs.writeFile(`{base}/one/a.dds`, dds 'aaaaaaaa'))
-    assert(fs.writeFile(`{base}/two/b.dds`, dds 'bbbbbbbb'))
+    local done, problem = fs.mkdir(`{base}/one`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.mkdir(`{base}/two`, { recursive = true })
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/one/a.dds`, dds 'aaaaaaaa')
+    if not done then error(problem, 0) end
+    local done, problem = fs.writeFile(`{base}/two/b.dds`, dds 'bbbbbbbb')
+    if not done then error(problem, 0) end
     tool.create(
       `{base}/tex.ba2`,
       `{base}/one`,
@@ -637,7 +660,8 @@ local function filesystemSuite(root: string)
     local builder = archive.bsa.tes4.Builder.new()
     builder:setNameMode 'hashOnly'
     builder:writePath(`{base}/hash.bsa`)
-    assert(fs.writeFile(`{base}/x.txt`, 'x'))
+    local done, problem = fs.writeFile(`{base}/x.txt`, 'x')
+    if not done then error(problem, 0) end
     expect(failure(function() tool.add(`{base}/hash.bsa`, { inputs = { `{base}/x.txt` } }) end)).toBe 'archive error: TES4 hash-only archives do not have recoverable path names; refusing to rewrite them lossy'
   end)
 end

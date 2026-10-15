@@ -782,14 +782,17 @@ local function folder(): string
   local root = assert(rawget(_G, 'scratchRoot') :: string?, 'the case needs a scratchRoot')
   counter += 1
   local path = `{root}/cli-{counter}`
-  assert(fs.mkdir(path, { recursive = true }))
+  local succeeded, problem = fs.mkdir(path, { recursive = true })
+  if not succeeded then error(problem, 0) end
   return path
 end
 
 local function write(path: string, data: string)
   local parent = string.match(path, '^(.*)/[^/]*$') :: string
-  assert(fs.mkdir(parent, { recursive = true }))
-  assert(fs.writeFile(path, data))
+  local succeeded, problem = fs.mkdir(parent, { recursive = true })
+  if not succeeded then error(problem, 0) end
+  local succeeded, problem = fs.writeFile(path, data)
+  if not succeeded then error(problem, 0) end
 end
 
 local function read(path: string): string?
@@ -799,7 +802,8 @@ end
 --- A file's length and FNV-1a fingerprint, to compare an archive written here with the one the
 --- original wrote from the same inputs.
 local function digest(path: string): string
-  local data = assert(fs.readFileString(path))
+  local data, problem = fs.readFileString(path)
+  if not data then error(problem, 0) end
   local fingerprint: any = bytes.fnv1a64(data)
   return string.format('%d %016x', #data, fingerprint)
 end
@@ -1680,7 +1684,8 @@ suite.describe('execute', function()
       done 'extracted: 1\n'
     )
     expect(read(target)).toBe 'payload'
-    assert(fs.writeFile(target, 'existing'))
+    local succeeded, problem = fs.writeFile(target, 'existing')
+    if not succeeded then error(problem, 0) end
     expect(cli.execute { 'extract', path, 'textures/example.dds', '-o', out }).toEqual(
       failed(`target already exists: {target}`)
     )
@@ -1891,7 +1896,8 @@ suite.describe('execute', function()
     )
     expect((fs.exists(output))).toBe(false)
 
-    assert(fs.symlink('readme.txt', `{input}/link.txt`))
+    local succeeded, problem = fs.symlink('readme.txt', `{input}/link.txt`)
+    if not succeeded then error(problem, 0) end
     local linked =
       failed(`refusing to follow symlink input path: {input}/link.txt; pass --follow-symlinks to opt in`)
     expect(cli.execute { 'create', output, input, '--format', 'tes3' }).toEqual(linked)

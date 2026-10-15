@@ -127,11 +127,13 @@ local function tes3Bytes(list: { Member }): string
 end
 
 local function writeFile(path: string, data: string): string
-  assert(fs.writeFile(path, data))
+  local done, problem = fs.writeFile(path, data)
+  if not done then error(problem, 0) end
   return path
 end
 
-assert(fs.mkdir(root, { recursive = true }))
+local succeeded, problem = fs.mkdir(root, { recursive = true })
+if not succeeded then error(problem, 0) end
 
 --- The archive most workloads read: 4,000 members, opened from its bytes and written to a file.
 local large = members(1, 4000)
@@ -362,7 +364,8 @@ workload('extractAll: tes3, 1000 entries, into a new folder, then removed', func
   local folder = `{root}/fresh-{fresh}`
   local summary = tool.extractAll(smallArchive, { output = folder })
   local sample = fs.readFileString(`{folder}/{small[#small].key}`)
-  assert(fs.remove(folder, { recursive = true }))
+  local done, problem = fs.remove(folder, { recursive = true })
+  if not done then error(problem, 0) end
   return if sample == small[#small].data then summary.extracted else -1
 end, function(result: unknown) hold('extractAll, new folder', 'the files extracted', result, #small) end)
 
@@ -445,7 +448,8 @@ local extra: { Member } = [for index in range(1, Replacing) => {
 table.move(members(9001, 9000 + Adding), 1, Adding, #extra + 1, extra)
 for _, entry in extra do
   local file = `{extraFolder}/{entry.key}`
-  assert(fs.mkdir(string.match(file, '^(.*)/') :: string, { recursive = true }))
+  local done, problem = fs.mkdir(string.match(file, '^(.*)/') :: string, { recursive = true })
+  if not done then error(problem, 0) end
   writeFile(file, entry.data)
 end
 
@@ -540,7 +544,8 @@ workload(`command line: parse {#CommandLines} command lines`, function(): unknow
   return #[for argv in CommandLines if cli.parse(argv) => argv]
 end, function(result: unknown) hold('parse', 'the commands read', result, #CommandLines) end)
 
-assert(fs.remove(root, { recursive = true }))
+local done, problem = fs.remove(root, { recursive = true })
+if not done then error(problem, 0) end
 
 for _, row in rows do
   print(`{row.name}\t{string.format('%.9f', row.seconds)}`)

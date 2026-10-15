@@ -31,14 +31,17 @@ local function folder(): string
   local root = assert(rawget(_G, 'scratchRoot') :: string?, 'the case needs a scratchRoot')
   counter += 1
   local path = `{root}/commands-{counter}`
-  assert(fs.mkdir(path, { recursive = true }))
+  local done, problem = fs.mkdir(path, { recursive = true })
+  if not done then error(problem, 0) end
   return path
 end
 
 local function write(path: string, data: string)
   local parent = string.match(path, '^(.*)/[^/]*$') :: string
-  assert(fs.mkdir(parent, { recursive = true }))
-  assert(fs.writeFile(path, data))
+  local done, problem = fs.mkdir(parent, { recursive = true })
+  if not done then error(problem, 0) end
+  local done, problem = fs.writeFile(path, data)
+  if not done then error(problem, 0) end
 end
 
 local function read(path: string): string?
@@ -497,7 +500,8 @@ suite.describe('create', function()
   suite.it('refuses a symbolic link among the inputs unless told to follow it', function()
     local base = folder()
     write(`{base}/input/readme.txt`, 'payload')
-    assert(fs.symlink('readme.txt', `{base}/input/link.txt`))
+    local done, problem = fs.symlink('readme.txt', `{base}/input/link.txt`)
+    if not done then error(problem, 0) end
     local request: commands.CreateRequest =
       { archive = `{base}/out.bsa`, input = `{base}/input`, format = 'tes3' }
     expect(failure(function() commands.create(request) end)).toBe(
