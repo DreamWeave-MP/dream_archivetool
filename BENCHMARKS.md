@@ -144,3 +144,71 @@ rows (`list`, and every JSON array) are the loops they were, not comprehensions:
 raised on a list with a gap, or on a row without a path, where the loop printed what it found.
 Putting them back cost nothing: `list --json` 14.2 ms before and 13.2 ms after, `list --long`
 5.7 and 5.4, `list` 4.5 and 4.6, alternated five times, spreads overlapping.
+
+## Which modules are native, and why
+
+Jess compiles to machine code only what is marked (`--!native` on a module, `@native` on one
+function), and every load pays for what is marked. A module carries `--!native` when a row below
+spends its time there and the module is small (12 KB or less); a larger module carries `@native`
+on the functions the row spends its time in, and nothing else.
+
+Measured 2026-10-15 with `jess 0.1.0`, the verified release build of jess `07c38cb` on l3i
+2.0.3, on the i7-10870H, the one-minute load 1.45 and 1.47 at the start of the two
+sessions. In each session the bench ran alternately on this package and on a copy of it with
+every module marked, three fresh runs of `bench/bench.jsl` each, every run's row the median of
+its batches; a column is the median of the three, and a ratio is against the all-marked runs of
+the same session. Which functions a row spends its time in comes from `jess run --profile` of
+that row alone, unmarked. The load cost is a fresh `jess run --package <this package>
+--package-path jpk` of a script that only requires `@dream-archivetool`, the two sides alternating, the
+median of five each after one warm-up.
+
+| Requiring `@dream-archivetool` | All marked | This state |
+| --- | ---: | ---: |
+| Unmarked | 0.112 s | 0.096 s |
+| Final | 0.114 s | 0.100 s |
+
+| Row | All marked (ms) | Unmarked / all marked | Final (ms) | Final / all marked |
+| --- | ---: | ---: | ---: | ---: |
+| info: ba2, 1000 entries | 0.2271 | **1.400×** | 0.3085 | **1.358×** |
+| list: tes3, 4000 entries | 4.779 | **1.216×** | 4.842 | 1.013× |
+| list: ba2, 1000 entries | 1.756 | **1.177×** | 1.752 | 0.998× |
+| verify: tes3, 4000 entries | 4.837 | **1.490×** | 4.754 | 0.983× |
+| verify: tes3, 4000 entries, payloads read | 6.789 | **1.436×** | 6.846 | 1.008× |
+| diff: tes3, 4000 against 3800, by size | 10.40 | **1.236×** | 10.62 | 1.022× |
+| diff: tes3, 4000 against 3800, by fingerprint | 17.49 | **1.321×** | 17.65 | 1.009× |
+| planExtractAll: tes3, 4000 entries | 13.35 | **1.253×** | 13.99 | 1.048× |
+| planExtract: 1000 of 4000, by path | 3.632 | **1.176×** | 4.027 | **1.109×** |
+| planExtractByPathHex: 1000 of 4000 | 4.764 | 0.944× | 5.126 | **1.076×** |
+| readEntry: 1000 of 4000 | 1.272 | 0.729× | 1.232 | 0.968× |
+| extractAll: tes3, 1000 entries, over the last run | 77.02 | 0.978× | 77.25 | 1.003× |
+| extractAll: tes3, 1000 entries, into a new folder, then removed | 77.45 | 0.923× | 79.57 | 1.027× |
+| extractMany: 250 of 1000, over the last run | 20.69 | 0.977× | 20.92 | 1.011× |
+| planExtractAll: tes3, 1000 entries, over files that are there | 6.391 | **1.090×** | 6.549 | 1.025× |
+| planCreate: tes3, a folder of 1000 files | 42.91 | 0.903× | 43.00 | 1.002× |
+| create: tes3, a folder of 1000 files | 50.42 | 0.925× | 51.55 | 1.022× |
+| planAdd: 250 files to tes3, 1000 entries | 18.68 | 0.928× | 18.88 | 1.011× |
+| add: 250 files to tes3, 1000 entries | 23.06 | 0.970× | 23.36 | 1.013× |
+| command line: list | 5.052 | 1.027× | 5.052 | 1.000× |
+| command line: list --long | 6.549 | 1.045× | 6.457 | 0.986× |
+| command line: list --json | 15.10 | **1.244×** | 15.03 | 0.995× |
+| command line: verify --json | 5.192 | **1.199×** | 5.229 | 1.007× |
+| command line: diff --hash --json | 32.95 | 1.040× | 32.48 | 0.986× |
+| command line: extract-all --dry-run | 27.75 | **1.168×** | 29.66 | **1.069×** |
+| command line: parse 8 command lines | 0.02202 | **1.407×** | 0.03109 | **1.412×** |
+
+What carries the directive (every module and function here is one a row spends its time in,
+unmarked):
+
+- Whole: `json`, `render`.
+- `init`, by function: `checkSource`, `decodeHex`, `extractable`, `checkExtractable`, `lookupKey`,
+  `join`, `parentDirectory`, `componentsLess`, `pathIdentity`, `targetPath`, `exists`, `rawPath`,
+  `chunkSizes`, `listEntries`, `readMember`, `list`, `verify`, `diffEntries`, `diff`, `entryList`,
+  `distinctTargets`, `readEntry`.
+- Unmarked: `cli`, `commands`, `main`, `usage`.
+
+`cli` and `main` parse a command line once a run and are never marked, so `command line: parse
+8 command lines` (1.41x, of a 22 µs call) is slower than all marked by rule. The other rows above
+5% are small in what they cost: `info` of a BA2 of 1,000 entries is 0.08 ms slower a call
+(1.36x), planning an extraction of 1,000 of 4,000 entries 1.08x and 1.11x, and a dry run of
+`extract-all` 1.07x, where a real extraction spends its time reading and writing through
+`@dream-archive`. Marking `init` whole would hand back most of the 0.014 s a load this saves.
