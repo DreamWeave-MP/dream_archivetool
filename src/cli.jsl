@@ -1,5 +1,4 @@
 --!strict
---!native
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 --[[
 @dream-archivetool/cli: dream_archivetool's command line, over @dream-archivetool/commands.

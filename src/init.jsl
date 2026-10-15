@@ -1,5 +1,4 @@
 --!strict
---!native
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 -- @dream-archivetool: archive policy over `@dream-archive`, a port of the dream_archivetool
 -- crate's `@dream/archivetool` module: info, verify, diff, extraction that refuses unsafe paths
@@ -263,6 +262,7 @@ end
 
 --- An archive argument as the binding converts it, before anything else is read: an archive
 --- opened already, or a host path.
+@native
 local function checkSource(what: string, value: unknown, position: number): Source
   if archives.labelOf(value) then return value :: Archive end
 
@@ -513,6 +513,7 @@ local function addOptions(context: string, value: unknown): Addition
   end)
 end
 
+@native
 local function decodeHex(text: string, context: string): string
   if #text % 2 ~= 0 then
     fail(`{context}: invalid pathBytesHex: archive error: archive path hex must contain an even number of hexadecimal digits`)
@@ -527,6 +528,7 @@ end
 
 --- Whether extraction may write `path`: not empty or absolute, no NUL, a file name somewhere,
 --- and no `..` or `:` in any component, `/` and `\` both separating.
+@native
 local function extractable(path: string): boolean
   if path == '' or string.find(path, '\0', 1, true) then return false end
 
@@ -546,11 +548,13 @@ local function extractable(path: string): boolean
   return named
 end
 
+@native
 local function checkExtractable(path: string)
   if not extractable(path) then unsafePath(path) end
 end
 
 --- `path` normalized for lookup, refused when nothing is left of it or it holds a NUL.
+@native
 local function lookupKey(path: string): string
   local key = util.lookupKey(path)
   if key == '' or string.find(key, '\0', 1, true) then unsafePath(key) end
@@ -565,6 +569,7 @@ local function safeKey(path: string): string
   return key
 end
 
+@native
 local function join(root: string, component: string): string
   if root == '' then return component end
 
@@ -574,6 +579,7 @@ local function join(root: string, component: string): string
 end
 
 --- The folder `path` is in; `.` for a bare name, as the crate writes beside one.
+@native
 local function parentDirectory(path: string): string
   -- A path that ends in a name, below a folder that ends in one, is cut at its last separator.
   if string.byte(path, -1) ~= 47 then
@@ -629,6 +635,7 @@ local function components(path: string): { string }
 end
 
 --- Whether one path's components come before another's, as `Path` orders two paths.
+@native
 local function componentsLess(leftParts: { string }, rightParts: { string }): boolean
   for index = 1, math.min(#leftParts, #rightParts) do
     if leftParts[index] ~= rightParts[index] then return leftParts[index] < rightParts[index] end
@@ -647,6 +654,7 @@ end
 
 --- `path` as its components joined, which two paths share exactly when `Path` compares them
 --- equal. A path with nothing for `components` to drop is its own, behind the root's `/`.
+@native
 local function pathIdentity(path: string): string
   if
     string.byte(path, -1) ~= 47
@@ -659,6 +667,7 @@ local function pathIdentity(path: string): string
   return table.concat(components(path), '/')
 end
 
+@native
 local function targetPath(root: string, key: string, preservePaths: boolean): string
   checkExtractable(key)
   if not preservePaths then
@@ -690,6 +699,7 @@ local function targetPath(root: string, key: string, preservePaths: boolean): st
   return target
 end
 
+@native
 local function exists(path: string): boolean
   return fs.exists(path) == true
 end
@@ -729,6 +739,7 @@ type Listed = {
 }
 
 --- An entry's name as the archive stores it, or nil for one with only a hash.
+@native
 local function rawPath(backend: Backend, index: number): string?
   local path = backend.path(index)
   if backend.format == 'ba2' and path == '' then return nil end
@@ -742,6 +753,7 @@ local function namedCount(backend: Backend): number
   return #[for index in range(1, backend.count) if rawPath(backend, index) => index]
 end
 
+@native
 local function chunkSizes(backend: Backend, index: number): (number, number?)
   local size, packed = 0, 0
   for _, chunk in (backend.ba2 :: types.BA2Facts).chunkList(index) do
@@ -752,6 +764,7 @@ local function chunkSizes(backend: Backend, index: number): (number, number?)
   return size, if packed > 0 then packed else nil
 end
 
+@native
 local function listEntries(backend: Backend): { Listed }
   local listed = {}
   for index = 1, backend.count do
@@ -773,6 +786,7 @@ local function listEntries(backend: Backend): { Listed }
 end
 
 --- A member's bytes by its normalized path.
+@native
 local function readMember(archive: Archive, key: string): string
   -- readFileRequired throws the crate's reason a member can't be read.
   local ok, result = pcall(archive.readFileRequired, archive, key)
@@ -866,6 +880,7 @@ local function info(...: unknown): ArchiveInfo
 end
 
 --- The archive's named entries in archive order, as the crate's `ArchiveTool::list` gives them.
+@native
 local function list(...: unknown): { ArchiveEntry }
   argumentCount('list', 1, select('#', ...))
   local archive = openSource(checkSource('list', (...), 1))
@@ -877,6 +892,7 @@ local function list(...: unknown): { ArchiveEntry }
   }]
 end
 
+@native
 local function verify(...: unknown): VerifyReport
   argumentCount('verify', 1, select('#', ...))
   local source, options = ...
@@ -963,6 +979,7 @@ local function rejectUnnameable(archive: Archive, label: string)
   )
 end
 
+@native
 local function diffEntries(
   archive: Archive,
   fingerprints: boolean
@@ -1010,6 +1027,7 @@ local function diffEntry(key: string, {size, compressedSize, fingerprint}: Compa
   }
 end
 
+@native
 local function diff(...: unknown): DiffReport
   argumentCount('diff', 2, select('#', ...))
   local oldSource, newSource, options = ...
@@ -1082,6 +1100,7 @@ local function entryPath(value: unknown, context: string): string
   return fail(`{context}: expected an archive path or an entry handle, got {type(value)}`)
 end
 
+@native
 local function entryList(value: unknown, context: string): { string }
   if type(value) ~= 'table' then
     fail(
@@ -1120,6 +1139,7 @@ local function hexEntry(value: string, context: string): string
 end
 
 --- Whether no two of `targets` are one path.
+@native
 local function distinctTargets(targets: { Target }): boolean
   local seen: { [string]: boolean } = {}
   for _, target in targets do
@@ -1327,6 +1347,7 @@ end
 --- A member's bytes, as the crate's `ArchiveTool::read_entry_by_path_bytes` reads them: the
 --- archive is opened, and then the path is normalized for lookup. Nothing is written, so the
 --- path need not be one extraction would accept.
+@native
 local function readEntry(...: unknown): string
   argumentCount('readEntry', 2, select('#', ...))
   local source, entry = ...
