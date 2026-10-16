@@ -186,7 +186,7 @@ suite.describe('extract', function()
       toMemory = true,
     }
     expect(hexed.data).toBe 'payload'
-    expect(fs.list(base)).toEqual { 'test.bsa' }
+    expect((fs.list(base))).toEqual { 'test.bsa' }
   end)
 
   suite.it('reads an entry whose name isn\'t UTF-8 by its bytes', function()

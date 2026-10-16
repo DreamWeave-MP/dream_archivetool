@@ -1295,7 +1295,7 @@ suite.describe('render', function()
   end)
 
   suite.it('prints a written archive as its count, and a planned one as its plan', function()
-    local plan = {
+    local plan: tool.CreatePlan = {
       operation = 'create' :: 'create',
       format = 'ba2' :: 'ba2',
       output = '/scratch/dry.archive',
@@ -1343,7 +1343,7 @@ suite.describe('render', function()
   end)
 
   suite.it('prints an addition as its count, and a planned one with what it keeps', function()
-    local plan = {
+    local plan: tool.AddPlan = {
       operation = 'add' :: 'add',
       archive = '/scratch/t3.bsa',
       output = '/scratch/t3.bsa',
@@ -1395,14 +1395,14 @@ suite.describe('render', function()
 end)
 
 suite.describe('status and diagnostic', function()
-  local conflict = {
+  local conflict: tool.ExtractPlanRow = {
     action = 'conflict' :: 'conflict',
     path = 'readme.txt',
     pathBytesHex = ReadmeHex,
     target = 'out/readme.txt',
   }
 
-  local later = {
+  local later: tool.ExtractPlanRow = {
     action = 'conflict' :: 'conflict',
     path = 'zebra.txt',
     pathBytesHex = '7a656272612e747874',

@@ -1853,9 +1853,8 @@ end
 local function rewriteCompression(backend: Backend, facts: types.BA2Facts): string?
   if facts.compression == 'lz4' then return 'lz4' end
 
-  if any[for index in range(1, backend.count) => backend.compressed(index)] then
-    return facts.compression
-  end
+  local compressed = any[for index in range(1, backend.count) => backend.compressed(index)]
+  if compressed then return facts.compression end
 
   return nil
 end
