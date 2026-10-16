@@ -13,6 +13,15 @@ local commands = require '@dream-archivetool/commands'
 local fs = require '@dream/fs'
 local test = require '@jess/test'
 local tool = require '@dream-archivetool'
+
+--- The text of the file at `path`, raising the read's own message when there is none.
+local function readText(path: string): string
+  local text, problem = fs.readFileString(path)
+  if not text then error(problem, 0) end
+
+  return text
+end
+
 local expect = test.expect
 local suite = test.new()
 
@@ -796,7 +805,7 @@ local function write(path: string, data: string)
 end
 
 local function read(path: string): string?
-  return (fs.readFileString(path))
+  return (readText(path))
 end
 
 --- A file's length and FNV-1a fingerprint, to compare an archive written here with the one the

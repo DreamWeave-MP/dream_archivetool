@@ -9,6 +9,15 @@ local fs = require '@dream/fs'
 local support = require './support'
 local test = require '@jess/test'
 local tool = require '@dream-archivetool'
+
+--- The text of the file at `path`, raising the read's own message when there is none.
+local function readText(path: string): string
+  local text, problem = fs.readFileString(path)
+  if not text then error(problem, 0) end
+
+  return text
+end
+
 local expect = test.expect
 local suite = test.new()
 
@@ -450,7 +459,7 @@ local function filesystemSuite(root: string)
     writeTes3(path, { { 'textures/example.dds', 'payload' } })
     local summary = tool.extract(path, 'TEXTURES//EXAMPLE.DDS', { output = `{base}/out` })
     expect(summary).toEqual { extracted = 1, skipped = 0 }
-    expect((fs.readFileString(`{base}/out/textures/example.dds`))).toBe 'payload'
+    expect((readText(`{base}/out/textures/example.dds`))).toBe 'payload'
     expect(
       failure(function() tool.extract(path, 'textures/example.dds', { output = `{base}/out` }) end)
     ).toBe(`target already exists: {base}/out/textures/example.dds`)
@@ -459,13 +468,13 @@ local function filesystemSuite(root: string)
     expect(
       tool.extract(path, 'textures/example.dds', { output = `{base}/out`, overwrite = 'skip' })
     ).toEqual { extracted = 0, skipped = 1 }
-    expect((fs.readFileString(`{base}/out/textures/example.dds`))).toBe 'existing'
+    expect((readText(`{base}/out/textures/example.dds`))).toBe 'existing'
     expect(
       tool.extract(path, 'textures/example.dds', { output = `{base}/out`, overwrite = 'overwrite' })
     ).toEqual { extracted = 1, skipped = 0 }
-    expect((fs.readFileString(`{base}/out/textures/example.dds`))).toBe 'payload'
+    expect((readText(`{base}/out/textures/example.dds`))).toBe 'payload'
     tool.extract(path, 'textures\\example.dds', { output = `{base}/flat`, preservePaths = false })
-    expect((fs.readFileString(`{base}/flat/example.dds`))).toBe 'payload'
+    expect((readText(`{base}/flat/example.dds`))).toBe 'payload'
   end)
 
   suite.it('refuses a missing member before making any folder', function()
@@ -502,8 +511,8 @@ local function filesystemSuite(root: string)
       extracted = 1,
       skipped = 1,
     }
-    expect((fs.readFileString(`{out}/meshes/b.nif`))).toBe 'existing'
-    expect((fs.readFileString(`{out}/textures/a.dds`))).toBe 'a'
+    expect((readText(`{out}/meshes/b.nif`))).toBe 'existing'
+    expect((readText(`{out}/textures/a.dds`))).toBe 'a'
   end)
 
   suite.it('plans each target by what is there: in a folder, below a file, or below nothing', function()
@@ -587,7 +596,7 @@ local function filesystemSuite(root: string)
       function() tool.create(existing, input, { format = 'ba2', ba2Kind = 'gnmf' }) end
     )
     expect(gnmf).toContain 'creating or updating GNMF BA2 archives requires console texture swizzle'
-    expect((fs.readFileString(existing))).toBe 'existing'
+    expect((readText(existing))).toBe 'existing'
     local compressed = failure(
       function() tool.create(`{base}/x.bsa`, input, { compress = true }) end
     )

@@ -12,6 +12,15 @@ local cli = require '@dream-archivetool/cli'
 local fs = require '@dream/fs'
 local tool = require '@dream-archivetool'
 
+--- The text of the file at `path`, raising the read's own message when there is none.
+local function readText(path: string): string
+  local text, problem = fs.readFileString(path)
+  if not text then error(problem, 0) end
+
+  return text
+end
+
+
 -- A build without the verified toolchain runs Luau slower than a release does, so a number from
 -- one says nothing about what ships.
 if not jess.bench.verified then
@@ -339,7 +348,7 @@ local function extracted(name: string, folder: string, list: { Member }): (resul
       hold(
         name,
         `the file {list[index].key}`,
-        fs.readFileString(`{folder}/{list[index].key}`),
+        readText(`{folder}/{list[index].key}`),
         list[index].data
       )
     end
@@ -432,7 +441,7 @@ workload(
   function(): unknown return tool.create(createdFile, inputFolder).files end,
   function(result: unknown)
     hold('create', 'the file count', result, #small)
-    hold('create', 'the archive written', fs.readFileString(createdFile), smallBytes)
+    hold('create', 'the archive written', readText(createdFile), smallBytes)
   end
 )
 
