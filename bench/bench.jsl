@@ -372,7 +372,7 @@ workload('extractAll: tes3, 1000 entries, into a new folder, then removed', func
   fresh += 1
   local folder = `{root}/fresh-{fresh}`
   local summary = tool.extractAll(smallArchive, { output = folder })
-  local sample = fs.readFileString(`{folder}/{small[#small].key}`)
+  local sample = readText(`{folder}/{small[#small].key}`)
   local done, problem = fs.remove(folder, { recursive = true })
   if not done then error(problem, 0) end
   return if sample == small[#small].data then summary.extracted else -1
