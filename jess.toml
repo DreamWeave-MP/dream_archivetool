@@ -9,7 +9,7 @@ include = ["src", "tests"]
 tests = ["tests/run.jsl", "tests/commands.jsl", "tests/cli.jsl", "tests/style.jsl"]
 
 [dependencies]
-"org.dreamweave.dream-archive" = "0.1"
+"org.dreamweave.dream-archive" = "2"
 
 [modules]
 "@dream-archivetool" = "src/init.jsl"
