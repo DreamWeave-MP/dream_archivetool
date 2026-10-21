@@ -1,0 +1,51 @@
+{
+  "schema_version": "3",
+  "document": "lock",
+  "project": "29471f23-7ed9-43b9-b222-bcc597335ab5",
+  "note": "Written by CI when a release tag is pushed: what each published release's archive contains. Do not edit.",
+  "releases": [
+    {
+      "version": "0.1.0",
+      "locked_from": "06722c4309be7874526ac4fce8f80fe8a3bb9bd1",
+      "artifacts": [
+        {
+          "id": "jpk",
+          "format": "jpk",
+          "filename": "org.dreamweave.dream-archivetool-0.1.0.jpk",
+          "media_type": "application/vnd.jess.jpk",
+          "size": 90430,
+          "digests": {
+            "sha256": "31d63be30642e7dec4028bb4d4416705d5731dbbcbcb032755b6a7aeb2503770"
+          },
+          "jess": {
+            "package": "org.dreamweave.dream-archivetool",
+            "jess_api": "1",
+            "content_digest": "66c4f1c9b3476f4a180020df63dc4864f52df68029531abe41d2191cd52f734b",
+            "dependencies": {
+              "org.dreamweave.dream-archive": "2"
+            }
+          }
+        }
+      ],
+      "runtimes": {},
+      "platforms": [],
+      "provides": [],
+      "relationships": [],
+      "components": [
+        {
+          "id": "main",
+          "name": "dream-archivetool",
+          "path": ".",
+          "required": true,
+          "default": true,
+          "requires": [],
+          "conflicts": [],
+          "suggested_with": []
+        }
+      ],
+      "groups": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
+  ]
+}
